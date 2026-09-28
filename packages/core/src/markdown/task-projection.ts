@@ -2,7 +2,7 @@ import {
   collectInlineElements,
   LEZER_NODE_IDS,
   parseInline,
-  getTaskParagraph,
+  getTaskParagraph, // FIXME: do not import getTaskParagraph from @meowdown/markdown. Implement it here instead
   parseMarkdownAst,
   walkMarkdownAst,
   type MarkdownNode,
