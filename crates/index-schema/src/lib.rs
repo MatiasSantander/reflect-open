@@ -283,6 +283,34 @@ mod schema {
         }
 
         #[test]
+        fn failed_task_ast_upgrade_rolls_back_and_can_retry() {
+            let mut conn = open_in_memory().unwrap();
+            migrate_to(&mut conn, 23).unwrap();
+            conn.execute_batch(
+                "INSERT INTO notes(path, title, title_key, file_hash) VALUES('a.md', 'A', 'a', 'h');
+                 INSERT INTO tasks(note_path, marker_offset, text, raw, checked) VALUES('a.md', 2, 'old', '[ ] old', 0);
+                 DROP INDEX tasks_completed_by_note;
+                 CREATE INDEX tasks_completed_by_note ON notes(file_hash);",
+            ).unwrap();
+            assert!(migrate(&mut conn).is_err());
+            let version: i64 = conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, 23);
+            let offset: i64 = conn
+                .query_row("SELECT marker_offset FROM tasks", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(offset, 2);
+            conn.execute_batch("DROP INDEX tasks_completed_by_note;")
+                .unwrap();
+            migrate(&mut conn).unwrap();
+            let count: i64 = conn
+                .query_row("SELECT count(*) FROM tasks", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+
+        #[test]
         fn latest_schema_version_matches_migrations() {
             let mut conn = open_in_memory().unwrap();
             migrate(&mut conn).unwrap();
