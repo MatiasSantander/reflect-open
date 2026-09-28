@@ -66,7 +66,7 @@ function appendPlainTextChunk(
  * text so a task renders exactly as the note's body does (emphasis marks and
  * the `[ ]` TaskMarker dropped, code kept literal).
  */
-export function plainTextOfRange(
+export function plainTextOfRange( // FIXME: plainTextOfRange should not exported. No one outside of this module is using it.
   body: string,
   start: number,
   end: number,
@@ -108,6 +108,8 @@ export function buildPlainText(body: string, cuts: Span[], literalRanges: Span[]
   return plainTextOfRange(body, 0, body.length, cuts, literalRanges)
 }
 
+ // FIXME: "without storing a second task content field." is bad comment;
+ // FIXME:
 /** Derive display text without storing a second task content field. */
 export function markdownPlainText(markdown: string): string {
   const cuts: Span[] = []
