@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query'
 import type { OpenTask, TaskAddress } from '@reflect/core'
 import { continueTaskInContext, mutateTasks, editTask, insertTask } from '@/lib/note-task.ts'
 import { mutationKeys } from '@/lib/query-client.ts'
-import { isEditAndToggleError } from '@/lib/tasks/edit-and-toggle-error.ts'
 import {
   archiveRecentlyCompleted,
   forgetRecentlyCompleted,
@@ -58,9 +57,7 @@ export interface TaskActions {
     target: InsertTaskTarget,
   ) => Promise<OpenTask | null>
   /**
-   * Save an inline edit and toggle the task checkbox in one go. The two writes
-   * run **sequentially** — edit then toggle the rebuilt line — so they can't race
-   * each other on the same note line.
+   * Save the paragraph and checkbox state in one revision-checked write.
    */
   editAndToggle: (task: OpenTask, content: string) => void
   /**
@@ -76,10 +73,7 @@ export interface TaskActions {
    */
   convertToBullet: (tasks: OpenTask[]) => void
   /**
-   * Convert the inline-edited task to a bullet, saving its edit first (⌘⇧K while
-   * editing). The two writes run **sequentially** — edit then strip the marker
-   * from the rebuilt line — so the unsaved draft is never lost to the convert
-   * landing first.
+   * Save the paragraph and convert the item in one revision-checked write.
    */
   editAndConvertToBullet: (task: OpenTask, content: string) => void
   /** Archive (⌘⇧↵): stop showing the session's completed tasks in the active list. */
@@ -349,16 +343,13 @@ export function useTaskActions(): TaskActions {
         )
         markRecentlyCompleted(root, [edited])
       }
-      return { snapshot, edited, wasRecentlyCompleted }
+      return { snapshot, wasRecentlyCompleted }
     },
     onError: (cause, { task, content }, context) => {
       keepTaskDraft(task, content, graph?.generation ?? -1)
-      const failure = isEditAndToggleError(cause) ? cause : null
-      // Two sequential writes (edit then toggle) — if the toggle fails after the
-      // edit lands, refetch rather than roll back over the persisted edit.
-      cache.reconcile(task.checked ? 'Reopening task' : 'Completing task', failure?.cause ?? cause)
+      cache.reconcile(task.checked ? 'Reopening task' : 'Completing task', cause)
       if (task.checked && context?.wasRecentlyCompleted) {
-        markRecentlyCompleted(root, [failure?.phase === 'toggle' ? context.edited : task])
+        markRecentlyCompleted(root, [task])
       } else if (!task.checked) {
         forgetRecentlyCompleted(root, [taskKey(task)])
       }

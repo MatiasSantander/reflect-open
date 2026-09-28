@@ -7,8 +7,9 @@ import {
   type MarkdownListItem,
 } from '@meowdown/markdown'
 import { splitFrontmatter } from './frontmatter.ts'
-import { getTaskParagraph, projectTaskContext, projectTaskDocument } from './task-projection.ts'
+import { getTaskParagraph, projectTaskDocument } from './task-projection.ts'
 import { encodeTaskPath } from './task-path.ts'
+import { protectTaskParagraph } from './task-paragraph.ts'
 
 /** Structural changes applied atomically to one revision of a note. */
 export interface TaskEdit {
@@ -85,6 +86,9 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
       item.marker = '+'
       changed = true
     }
+    if (!edit.remove && (edit.firstParagraphMarkdown !== undefined || edit.toBullet)) {
+      protectTaskParagraph(item)
+    }
     if (edit.remove || edit.insertAfter) {
       const entry = [...walkMarkdownAst(document)].find((entry) => entry.node === item)
       const parent = entry?.parent
@@ -113,7 +117,24 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   }
   const nextSource = changed ? source.slice(0, bodyOffset) + serializeMarkdownAst(document) : source
   const nextBody = splitFrontmatter(nextSource).body
-  const finalTasks = projectTaskContext(nextBody).tasks
+  const finalDocument = parseMarkdownAst(nextBody)
+  // Check only paragraphs this operation edits, before the caller writes anything.
+  for (const { edit, item } of targets) {
+    if (edit.remove || (edit.firstParagraphMarkdown === undefined && !edit.toBullet)) continue
+    const entry = [...walkMarkdownAst(document)].find(({ node }) => node === item)
+    const saved = entry && resolveMarkdownAstPath(finalDocument, entry.path)?.node
+    if (
+      !saved ||
+      saved.type !== 'listItem' ||
+      saved.kind !== item.kind ||
+      saved.children[0]?.type !== 'paragraph' ||
+      item.children[0]?.type !== 'paragraph' ||
+      saved.children[0].value !== item.children[0].value
+    ) {
+      throw new Error('The edited task paragraph cannot be preserved. Refresh the task list.')
+    }
+  }
+  const finalTasks = projectTaskDocument(finalDocument).tasks
   const expectedTasks = projectTaskDocument(document).tasks
   const sameTaskProjection = JSON.stringify(expectedTasks) === JSON.stringify(finalTasks)
   const nodes = [...walkMarkdownAst(document)].filter(

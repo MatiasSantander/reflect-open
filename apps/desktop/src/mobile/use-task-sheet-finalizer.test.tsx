@@ -226,3 +226,17 @@ describe('useTaskSheetFinalizer', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 })
+
+it('keeps action buttons and changed drafts on the revision captured at open', async () => {
+  const initialTask = task({ revision: 'before' })
+  const initialProps = deps({ task: initialTask })
+  const { result, rerender } = await renderHook(
+    (props: TaskSheetFinalizerDeps = initialProps) => useTaskSheetFinalizer(props),
+    { initialProps },
+  )
+  act(() => result.current.setDraft('my draft'))
+  await rerender(deps({ task: task({ revision: 'after', firstParagraphMarkdown: 'external' }) }))
+  expect(result.current.initialTask).toBe(initialTask)
+  act(() => result.current.handleOpenChange(false))
+  expect(edit).toHaveBeenCalledWith(initialTask, 'my draft')
+})

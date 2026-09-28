@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseMarkdownAst } from '@meowdown/markdown'
 import { editTaskDocument } from './task-mutation.ts'
+import { inlineMarkdownToDisplayText } from './plain-text.ts'
 
 describe('AST task mutations', () => {
   it('edits the full first paragraph and preserves details', () => {
@@ -54,4 +55,42 @@ it('rejects deleting and editing the same task in a batch', () => {
       { astPath: [0], firstParagraphMarkdown: 'changed' },
     ]),
   ).toThrow('Conflicting edits')
+})
+
+it.each(['[ ] inner', '# heading', '> quote', '1. item', '+ item'])(
+  'keeps %s literal when converting to a bullet',
+  (value) => {
+    const result = editTaskDocument('+ [ ] ' + value + '\n', [{ astPath: [0], toBullet: true }])
+    const item = parseMarkdownAst(result.source).children[0]
+    expect(item).toMatchObject({ type: 'listItem', kind: 'bullet' })
+    if (item?.type !== 'listItem' || item.children[0]?.type !== 'paragraph')
+      throw new Error('Expected a paragraph')
+    expect(inlineMarkdownToDisplayText(item.children[0].value)).toBe(value)
+    expect(result.tasks).toEqual([])
+  },
+)
+
+it.each(['+ [ ] b', '# heading', '> quote', '1. item', '---'])(
+  'keeps a continuation %s inside the edited paragraph',
+  (line) => {
+    const result = editTaskDocument('+ [ ] old\n', [
+      { astPath: [0], firstParagraphMarkdown: 'a\n' + line },
+    ])
+    expect(result.tasks).toHaveLength(1)
+    expect(parseMarkdownAst(result.source).children).toHaveLength(1)
+    expect(result.tasks[0]?.firstParagraphMarkdown).toContain('\n')
+  },
+)
+
+it('rejects blank lines that cannot be represented in one paragraph before saving', () => {
+  expect(() =>
+    editTaskDocument('+ [ ] old\n', [{ astPath: [0], firstParagraphMarkdown: 'a\n\nb' }]),
+  ).toThrow('one task paragraph')
+})
+
+it('does not escape inline syntax when protecting another continuation line', () => {
+  const result = editTaskDocument('+ [ ] old\n', [
+    { astPath: [0], firstParagraphMarkdown: '<https://example.com>\n**bold**\n+ item' },
+  ])
+  expect(result.tasks[0]?.firstParagraphMarkdown).toBe('<https://example.com>\n**bold**\n\\+ item')
 })

@@ -9,7 +9,7 @@ export interface TaskSheetWriteActions {
 }
 
 export interface TaskSheetFinalizerDeps {
-  /** The task's **live** row — writes relocate by its current raw. */
+  /** The current row; its address is frozen when this visit opens. */
   task: OpenTask
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -31,6 +31,8 @@ export interface TaskSheetFinalizerDeps {
 }
 
 export interface TaskSheetFinalizer {
+  /** Address and baseline captured for this visit, including action buttons. */
+  initialTask: OpenTask
   /** The editable markdown draft (the task's content after the marker). */
   draft: string
   setDraft: Dispatch<SetStateAction<string>>
@@ -153,5 +155,5 @@ export function useTaskSheetFinalizer({
   })
   useEffect(() => () => unmountFlushRef.current(), [])
 
-  return { draft, setDraft, resolve, handleOpenChange, closeHandled, closeNavigate }
+  return { initialTask, draft, setDraft, resolve, handleOpenChange, closeHandled, closeNavigate }
 }

@@ -88,7 +88,7 @@ export function MobileTaskEditSheet({
   // The commit/cancel/delete rules — baseline frozen at open, reseed on
   // reopen, dismissal vs navigate vs unmount — live in the finalizer. It
   // resolves against the live mirror (readDraft) with the state as fallback.
-  const { draft, setDraft, resolve, handleOpenChange, closeHandled, closeNavigate } =
+  const { initialTask, draft, setDraft, resolve, handleOpenChange, closeHandled, closeNavigate } =
     useTaskSheetFinalizer({
       task,
       open,
@@ -131,13 +131,13 @@ export function MobileTaskEditSheet({
     hapticImpactLight()
     const result = resolve()
     if (result.type === 'commit') {
-      actions.editAndToggle(task, result.content)
+      actions.editAndToggle(initialTask, result.content)
     } else if (result.type === 'delete') {
       // Emptied then completed: delete, like desktop's ⌘↵ on an emptied row —
       // never toggle text the user just cleared back into the note.
-      actions.remove([task])
+      actions.remove([initialTask])
     } else {
-      actions.checkboxToggle(task)
+      actions.checkboxToggle(initialTask)
     }
     closeHandled()
   }
@@ -146,13 +146,13 @@ export function MobileTaskEditSheet({
     hapticImpactLight()
     const result = resolve()
     if (result.type === 'commit') {
-      actions.editAndConvertToBullet(task, result.content)
+      actions.editAndConvertToBullet(initialTask, result.content)
     } else if (result.type === 'delete') {
       // Emptied then converted: delete, like desktop's ⌘⇧K on an emptied row —
       // converting would resurrect the cleared text as a bullet.
-      actions.remove([task])
+      actions.remove([initialTask])
     } else {
-      actions.convertToBullet([task])
+      actions.convertToBullet([initialTask])
     }
     closeHandled()
   }
@@ -177,7 +177,7 @@ export function MobileTaskEditSheet({
 
   const remove = (): void => {
     hapticImpactLight()
-    actions.remove([task])
+    actions.remove([initialTask])
     closeHandled()
   }
 

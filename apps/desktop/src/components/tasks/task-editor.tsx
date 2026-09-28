@@ -22,13 +22,9 @@ import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
 /**
- * The inline task editor (Plan 18, V1 parity): the sole-selected task swaps its
- * read-only text for a one-line editor seeded with the content after its marker.
- * It reuses Reflect's note editor — so it gets meowdown's built-in `[[` backlink
- * and `#` tag menus ({@link useEditorAutocomplete}) — and binds the commit/cancel/
- * complete/delete keymap. The marker (and so the checked state) is never in this
- * editor; the write-back only rewrites the content line. The single-shot rules
- * live in {@link useTaskEditorFinalizer}.
+ * Edits the complete first paragraph without exposing its checkbox marker.
+ * The source revision and callbacks are frozen with the uncontrolled editor's
+ * initial content, so a refreshed row cannot retarget an existing draft.
  */
 /** A keyboard move between task rows: −1 up, +1 down; `span` extends the range (Shift). */
 export type TaskNavigate = (direction: -1 | 1, options: { span: boolean }) => void
@@ -71,14 +67,9 @@ interface TaskEditorProps {
 
 /**
  * Binds the editor's keys inside its ProseKit context (meowdown renders children
- * there). High priority so it runs before the editor's default Enter/arrows — but
- * the `[[`/`#` menus claim Enter/Escape/arrows first while open, so those drive
- * the menu rather than navigation. This is where V1's "navigation is global"
- * lives in V2: the inline editor never traps ↑/↓ or Enter — they move between
- * rows and add the next task, even mid-edit — so the keyboard flows task to task
- * without leaving the editor. ⌘↵ completes, ⌘⌫ deletes, Backspace on an empty row
- * deletes it; all handled here, not by the screen's bulk shortcuts (which back
- * off while editing).
+ * there). Autocomplete handles its keys first. Enter creates the next task;
+ * Shift+Enter inserts a paragraph newline. Arrows leave the editor only at its
+ * visual boundary. Completion, deletion and conversion use the same finalizer.
  */
 function TaskCommitKeymap({
   apiRef,
@@ -118,8 +109,7 @@ function TaskCommitKeymap({
         }
         return false
       },
-      // ↑/↓ navigate between rows even mid-edit (the unmount flush saves this row);
-      // Shift extends the range. Single-line tasks never need a vertical caret move.
+      // Leave only at the visual boundary; otherwise move within the paragraph.
       ArrowUp: () => {
         if (!editor.view.endOfTextblock('up')) return false
         onNavigate(-1, { span: false })
@@ -172,17 +162,20 @@ export function TaskEditor({
   // Frozen at mount: the editor is seeded once (uncontrolled), so the commit
   // baseline must stay the seed even if `task.firstParagraphMarkdown` is re-derived mid-edit.
   const [initial] = useState(() => task.firstParagraphMarkdown)
-  const { apiRef, onChange } = useTaskEditorFinalizer({
-    initial,
+  const [writeCallbacks] = useState(() => ({
     onCommit,
     onContinue,
     onDelete,
     onDeleteEmpty,
-    onCancel,
     onComplete,
     onCheckboxToggle,
     onConvertToBullet,
     onFlush,
+  }))
+  const { apiRef, onChange } = useTaskEditorFinalizer({
+    ...writeCallbacks,
+    initial,
+    onCancel,
   })
 
   useEffect(() => {
@@ -223,7 +216,7 @@ export function TaskEditor({
         spellCheck={settings.editorSpellCheck}
         smoothCaretAnimation={settings.editorSmoothCaretAnimation}
         timeFormat={settings.timeFormat}
-        // A one-line editor has nothing to reorder, so keep the gutter grip off.
+        // One paragraph has no sibling blocks to reorder.
         blockHandle={false}
         onWikiLinkClick={navigate}
         onTagClick={onTagClick}
