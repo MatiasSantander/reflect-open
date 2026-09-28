@@ -46,3 +46,12 @@ describe('AST task mutations', () => {
     expect(parseMarkdownAst(source).children).toHaveLength(1)
   })
 })
+
+it('rejects deleting and editing the same task in a batch', () => {
+  expect(() =>
+    editTaskDocument('+ [ ] task\n', [
+      { astPath: [0], remove: true },
+      { astPath: [0], firstParagraphMarkdown: 'changed' },
+    ]),
+  ).toThrow('Conflicting edits')
+})

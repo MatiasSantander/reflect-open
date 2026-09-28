@@ -28,7 +28,26 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   for (const { node, path } of walkMarkdownAst(document)) {
     if (getTaskParagraph(node) && node.type === 'listItem') originals.set(node, path)
   }
-  const targets = edits.map((edit) => {
+  const merged = new Map<string, TaskEdit>()
+  for (const edit of edits) {
+    const key = encodeTaskPath(edit.astPath)
+    const previous = merged.get(key)
+    if (
+      previous &&
+      (previous.remove ||
+        edit.remove ||
+        (previous.checked !== undefined &&
+          edit.checked !== undefined &&
+          previous.checked !== edit.checked) ||
+        (previous.firstParagraphMarkdown !== undefined &&
+          edit.firstParagraphMarkdown !== undefined &&
+          previous.firstParagraphMarkdown !== edit.firstParagraphMarkdown))
+    ) {
+      throw new Error('Conflicting edits address the same task.')
+    }
+    merged.set(key, { ...previous, ...edit })
+  }
+  const targets = [...merged.values()].map((edit) => {
     const entry = resolveMarkdownAstPath(document, edit.astPath)
     if (!entry || entry.node.type !== 'listItem' || !getTaskParagraph(entry.node)) {
       throw new Error('The task no longer exists. Refresh the task list.')
