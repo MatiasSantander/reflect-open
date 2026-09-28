@@ -1,32 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTaskEdit, taskContent } from './task-content.ts'
-
-describe('taskContent', () => {
-  it('strips the open marker and its separating space', () => {
-    expect(taskContent('[ ] buy milk')).toBe('buy milk')
-  })
-
-  it('strips the open marker and a tab separator', () => {
-    expect(taskContent('[ ]\tbuy milk')).toBe('buy milk')
-  })
-
-  it('strips a checked marker', () => {
-    expect(taskContent('[x] done')).toBe('done')
-    expect(taskContent('[X] done')).toBe('done')
-  })
-
-  it('keeps link and tag markdown intact for the editor and chips', () => {
-    expect(taskContent('[ ] ship [[2026-07-01]] #release')).toBe('ship [[2026-07-01]] #release')
-  })
-
-  it('handles an empty task', () => {
-    expect(taskContent('[ ]')).toBe('')
-  })
-
-  it('returns a non-marker line verbatim (defensive)', () => {
-    expect(taskContent('not a task line')).toBe('not a task line')
-  })
-})
+import { resolveTaskEdit } from './task-content.ts'
 
 describe('resolveTaskEdit', () => {
   it('commits a real, trimmed change', () => {

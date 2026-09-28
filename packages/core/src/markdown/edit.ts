@@ -23,9 +23,7 @@ export { appendListItem, type ListItemKind } from './append-list-item.ts'
  * on the task's **content** — the markdown after the marker. A task's due date is
  * the first calendar-valid `[[YYYY-MM-DD]]` link inside it (the same rule the
  * projection reads), so this replaces that link's target when one exists, else
- * appends `[[isoDate]]` to the content. Returned content is fed back through
- * {@link editTaskLine}; the caller supplies a valid ISO date (the calendar only
- * yields real days).
+ * appends `[[isoDate]]` to the content. The caller supplies a valid ISO date.
  */
 export function setTaskDueDate(content: string, isoDate: string): string {
   const existing = scanInlineWikiLinks(content).find(
