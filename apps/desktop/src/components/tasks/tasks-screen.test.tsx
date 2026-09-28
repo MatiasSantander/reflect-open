@@ -62,6 +62,27 @@ const insertTask = vi.hoisted(() => vi.fn())
 const continueTaskInContext = vi.hoisted(() => vi.fn())
 const convertTaskToBullet = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/note-task.ts', () => ({
+  onTaskMutation: () => () => {},
+  mutateTasks: async (
+    edits: {
+      task: OpenTask
+      edit: {
+        checked?: boolean
+        remove?: boolean
+        toBullet?: boolean
+        firstParagraphMarkdown?: string
+      }
+    }[],
+    generation: number,
+  ) => {
+    for (const { task, edit } of edits) {
+      if (edit.firstParagraphMarkdown !== undefined)
+        await editTask(task, edit.firstParagraphMarkdown, generation)
+      if (edit.checked !== undefined) await toggleTask(task, generation)
+      if (edit.remove) await deleteTask(task, generation)
+      if (edit.toBullet) await convertTaskToBullet(task, generation)
+    }
+  },
   toggleTask,
   deleteTask,
   editTask,

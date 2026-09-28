@@ -221,6 +221,8 @@ export function MobileTaskEditSheet({
             <NoteEditor
               key={editorSeed}
               initialContent={draft}
+              singleParagraph
+              referenceMarkdown={task.referenceMarkdown}
               onChange={handleChange}
               markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
               spellCheck={settings.editorSpellCheck}
@@ -326,10 +328,6 @@ function TaskSheetKeymap({ onDone }: { onDone: () => void }): null {
   const keymap = useMemo(
     () => ({
       Enter: () => {
-        onDone()
-        return true
-      },
-      'Shift-Enter': () => {
         onDone()
         return true
       },

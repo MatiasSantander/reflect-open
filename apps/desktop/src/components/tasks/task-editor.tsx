@@ -7,7 +7,7 @@ import {
   type ReactElement,
 } from 'react'
 import { Priority } from '@meowdown/core'
-import { useKeymap } from '@meowdown/react'
+import { useKeymap, useEditor } from '@meowdown/react'
 import type { OpenTask } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
@@ -87,14 +87,11 @@ function TaskCommitKeymap({
   apiRef: MutableRefObject<TaskEditorApi>
   onNavigate: TaskNavigate
 }): null {
+  const editor = useEditor()
   const keymap = useMemo(
     () => ({
       // Enter adds the next task (V1 continuous entry), never a new block.
       Enter: () => {
-        apiRef.current.commitAndContinue()
-        return true
-      },
-      'Shift-Enter': () => {
         apiRef.current.commitAndContinue()
         return true
       },
@@ -124,23 +121,27 @@ function TaskCommitKeymap({
       // ↑/↓ navigate between rows even mid-edit (the unmount flush saves this row);
       // Shift extends the range. Single-line tasks never need a vertical caret move.
       ArrowUp: () => {
+        if (!editor.view.endOfTextblock('up')) return false
         onNavigate(-1, { span: false })
         return true
       },
       ArrowDown: () => {
+        if (!editor.view.endOfTextblock('down')) return false
         onNavigate(1, { span: false })
         return true
       },
       'Shift-ArrowUp': () => {
+        if (!editor.view.endOfTextblock('up')) return false
         onNavigate(-1, { span: true })
         return true
       },
       'Shift-ArrowDown': () => {
+        if (!editor.view.endOfTextblock('down')) return false
         onNavigate(1, { span: true })
         return true
       },
     }),
-    [apiRef, onNavigate],
+    [apiRef, onNavigate, editor],
   )
   useKeymap(keymap, { priority: Priority.high })
   return null
@@ -215,6 +216,8 @@ export function TaskEditor({
     <div data-task-editor className="min-w-0 flex-1">
       <NoteEditor
         initialContent={initial}
+        singleParagraph
+        referenceMarkdown={task.referenceMarkdown}
         onChange={onChange}
         markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
         spellCheck={settings.editorSpellCheck}

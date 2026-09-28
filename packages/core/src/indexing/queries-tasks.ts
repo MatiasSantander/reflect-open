@@ -1,7 +1,7 @@
 import {
   compareTaskPaths,
   decodeTaskPath,
-  markdownPlainText,
+  inlineMarkdownToDisplayText,
   type TaskAddress,
 } from '../markdown/index.ts'
 import { db } from './db.ts'
@@ -50,7 +50,7 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
       astPath: decodeTaskPath(row.astPath),
       isPinned: row.isPinned !== 0,
       breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
-      text: markdownPlainText(row.firstParagraphMarkdown),
+      text: inlineMarkdownToDisplayText(row.firstParagraphMarkdown),
     }))
     .sort(
       (left, right) =>

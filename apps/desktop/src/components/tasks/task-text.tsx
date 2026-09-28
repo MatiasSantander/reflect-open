@@ -1,18 +1,23 @@
-import type { ReactElement } from 'react'
+import { useMemo, type ReactElement } from 'react'
+import { collectReferenceDefinitions, markdownToDoc } from '@meowdown/core'
+import { MarkdownInlineView } from '@meowdown/react'
 import type { OpenTask } from '@reflect/core'
-import { MarkdownPreview } from '@/editor/markdown-preview.tsx'
+import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 
-/**
- * Render a task's content (its source line minus the checkbox marker) through
- * Reflect's read-only markdown preview. The focused row swaps this for the
- * inline editor; unfocused rows should look like rendered markdown, not raw
- * source text.
- */
+/** Render the first paragraph with the containing note's link definitions. */
 export function TaskText({ task }: { task: OpenTask }): ReactElement {
+  const referenceDefinitions = useMemo(
+    () => collectReferenceDefinitions(markdownToDoc(task.referenceMarkdown)).definitions,
+    [task.referenceMarkdown],
+  )
   return (
-    <MarkdownPreview
-      content={task.firstParagraphMarkdown}
-      className="reflect-task-preview pointer-events-none text-sm"
+    <MarkdownInlineView
+      markdown={task.firstParagraphMarkdown}
+      referenceDefinitions={referenceDefinitions}
+      resolveWikilink={resolveWikilink}
+      markMode="hide"
+      interactive={false}
+      className="reflect-editor reflect-task-preview pointer-events-none text-sm"
     />
   )
 }

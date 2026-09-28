@@ -1,4 +1,4 @@
-import { markdownPlainText, type OpenTask } from '@reflect/core'
+import { inlineMarkdownToDisplayText, type OpenTask } from '@reflect/core'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
@@ -33,7 +33,7 @@ export function asCompleted(
     return rows
   }
   const kept = rows.filter((row) => !tasks.some((task) => sameTask(row, task)))
-  return [...tasks.map((task) => withCheckedMarker(task, true)), ...kept]
+  return [...tasks.map((task) => ({ ...task, checked: true })), ...kept]
 }
 
 /**
@@ -42,14 +42,9 @@ export function asCompleted(
  * list materializes as just the reopened rows.
  */
 export function asOpen(rows: OpenTask[] | undefined, tasks: OpenTask[]): OpenTask[] {
-  const reopened = tasks.map((task) => withCheckedMarker(task, false))
+  const reopened = tasks.map((task) => ({ ...task, checked: false }))
   const reopenedKeys = new Set(reopened.map(taskKey))
   return [...(rows ?? []).filter((row) => !reopenedKeys.has(taskKey(row))), ...reopened]
-}
-
-/** Optimistic checked state without a duplicated source marker. */ // FIXME: this version of "withCheckedMarker" is too simple to be useful; Just remove this function and inline the `{ ...task, checked }`.
-export function withCheckedMarker(task: OpenTask, checked: boolean): OpenTask {
-  return { ...task, checked }
 }
 
 /** Update derived display text alongside editable Markdown. */
@@ -60,7 +55,7 @@ export function withEditedTask(
 ): OpenTask[] | undefined {
   return rows?.map((row) =>
     sameTask(row, task)
-      ? { ...row, firstParagraphMarkdown: content, text: markdownPlainText(content) }
+      ? { ...row, firstParagraphMarkdown: content, text: inlineMarkdownToDisplayText(content) }
       : row,
   )
 }

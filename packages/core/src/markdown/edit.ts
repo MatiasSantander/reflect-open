@@ -42,14 +42,11 @@ export function setTaskDueDate(content: string, isoDate: string): string {
  * unchanged when it has no due date. The inverse of {@link setTaskDueDate}.
  */
 export function clearTaskDueDate(content: string): string {
-  const existing = scanInlineWikiLinks(content).find(
+  const dates = scanInlineWikiLinks(content).filter(
     (link) => normalizeWikiTarget(link.target).date !== undefined,
   )
-  if (existing === undefined) {
-    return content
-  }
-  const removed = content.slice(0, existing.from) + content.slice(existing.to)
-  return removed.replaceAll(/[ \t]{2,}/g, ' ').trim()
+  for (const date of dates.reverse()) content = content.slice(0, date.from) + content.slice(date.to)
+  return content.replaceAll(/[ \t]{2,}/g, ' ').trim()
 }
 
 /**

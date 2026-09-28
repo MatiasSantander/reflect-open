@@ -440,7 +440,14 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
    * can't diverge, then re-throws the failure.
    */
   async function commitBodyEdit(transform: (full: string) => string): Promise<boolean> {
-    if (io.write === null || disposed || isProtected || status !== 'ready' || conflict !== null) {
+    if (
+      io.write === null ||
+      disposed ||
+      deleting ||
+      isProtected ||
+      status !== 'ready' ||
+      conflict !== null
+    ) {
       return false
     }
     reconcilePendingEditorInput?.()
@@ -450,6 +457,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     header = doc.header
     buffer = doc.body
     applyToEditor(doc.body) // the open editor shows the edited line
+    const appliedBuffer = buffer
     dirty = header + buffer !== disk
     // A no-op edit (transform changed nothing) writes nothing, so a *prior*
     // surfaced save error must not be mistaken for this edit's failure.
@@ -458,10 +466,10 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     await flush()
     // `flush()` resolves even when the write failed (captured in `error`, not
     // thrown). Revert and surface the failure: it persists, or nothing changes.
-    if (shouldPersist && error !== null) {
-      const message = error
+    if (shouldPersist && (error !== null || conflict !== null)) {
+      const message = error ?? 'The note changed on disk. Resolve its conflict before retrying.'
       if (header === doc.header) header = previousHeader
-      if (buffer === doc.body) {
+      if (buffer === appliedBuffer) {
         buffer = previousBuffer
         applyToEditor(previousBuffer)
       }

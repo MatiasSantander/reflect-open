@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { makeOpenTask as task } from './open-task-fixture.ts'
-import {
-  asCompleted,
-  asOpen,
-  withCheckedMarker,
-  withEditedTask,
-  withoutTasks,
-} from './task-cache.ts'
+import { asCompleted, asOpen, withEditedTask, withoutTasks } from './task-cache.ts'
 
 const a = task({ astPath: [1], text: 'a' })
 const b = task({ astPath: [2], text: 'b' })
@@ -22,22 +16,14 @@ describe('withoutTasks', () => {
   })
 })
 
-describe('withCheckedMarker', () => {
-  it('changes checked state without changing Markdown', () => {
-    expect(withCheckedMarker(a, true)).toEqual({ ...a, checked: true, firstParagraphMarkdown: 'a' })
-    expect(withCheckedMarker({ ...a, checked: true, firstParagraphMarkdown: 'a' }, false)).toEqual({
-      ...a,
-      checked: false,
-      firstParagraphMarkdown: 'a',
-    })
-  })
-})
-
 describe('asCompleted', () => {
   it('prepends the tasks as checked, de-duping any already present', () => {
-    const existingChecked = withCheckedMarker(b, true)
+    const existingChecked = { ...b, checked: true }
     const result = asCompleted([existingChecked], [a, b])
-    expect(result).toEqual([withCheckedMarker(a, true), withCheckedMarker(b, true)])
+    expect(result).toEqual([
+      { ...a, checked: true },
+      { ...b, checked: true },
+    ])
   })
 
   it('is a no-op when the completed list is not loaded', () => {
@@ -47,13 +33,13 @@ describe('asCompleted', () => {
 
 describe('asOpen', () => {
   it('appends the tasks as unchecked, de-duping any already present', () => {
-    const checked = withCheckedMarker(a, true)
+    const checked = { ...a, checked: true }
     const result = asOpen([b, checked], [checked])
     expect(result).toEqual([b, a])
   })
 
   it('materializes an undefined open list with the reopened rows', () => {
-    expect(asOpen(undefined, [withCheckedMarker(a, true)])).toEqual([a])
+    expect(asOpen(undefined, [{ ...a, checked: true }])).toEqual([a])
   })
 })
 

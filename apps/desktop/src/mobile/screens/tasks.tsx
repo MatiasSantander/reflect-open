@@ -1,3 +1,4 @@
+import { TaskDraftRecovery } from '@/components/tasks/task-draft-recovery.tsx'
 import { useDeferredValue, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CircleCheck, Plus, SlidersHorizontal } from 'lucide-react'
@@ -143,9 +144,7 @@ export function MobileTasks(): ReactElement {
       className="flex h-full w-screen flex-col"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <p role="status" className="px-4 py-2 text-sm text-text-muted">
-        Task editing is temporarily unavailable. Open a note to edit its tasks.
-      </p>
+      <TaskDraftRecovery />
       <MobileTopBar>
         <MobileTopBarRow>
           <SearchInput

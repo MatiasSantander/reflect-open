@@ -1,30 +1,35 @@
 import { describe, expect, it, vi } from 'vitest'
-import { setBridge } from '@reflect/core'
-import {
-  continueTaskInContext,
-  toggleTask,
-  editTask,
-  deleteTask,
-  convertTaskToBullet,
-  insertTask,
-  TASK_WRITES_UNAVAILABLE,
-} from './note-task.ts'
+import { setBridge, hashContent } from '@reflect/core'
+import { editTask, mutateTasks } from './note-task.ts'
 
-describe('aggregate task writes', () => {
-  it('refuses before reading or writing a note', async () => {
-    const invoke = vi.fn()
+describe('AST task writes', () => {
+  it('rejects an outdated revision without writing', async () => {
+    const invoke = vi.fn().mockResolvedValue('+ [ ] different\n')
     setBridge({ invoke, listen: async () => () => {} })
-    const task = { notePath: 'notes/n.md', revision: 'hash', astPath: [0] }
-    for (const operation of [
-      continueTaskInContext(task, null, 1),
-      toggleTask(task, 1),
-      editTask(task, 'changed', 1),
-      deleteTask(task, 1),
-      convertTaskToBullet(task, 1),
-      insertTask(task.notePath, 1),
-    ]) {
-      await expect(operation).rejects.toThrow(TASK_WRITES_UNAVAILABLE)
-    }
-    expect(invoke).not.toHaveBeenCalled()
+    await expect(
+      editTask({ notePath: 'notes/n.md', revision: 'old', astPath: [0] }, 'changed', 1),
+    ).rejects.toThrow('note changed')
+    expect(invoke.mock.calls.filter(([command]) => command === 'note_write')).toHaveLength(0)
+  })
+  it('writes a same-note batch once with a content precondition', async () => {
+    const source = '+ [ ] one\n+ [ ] two\n'
+    const invoke = vi
+      .fn()
+      .mockImplementation(async (command: string) => (command === 'note_read' ? source : null))
+    setBridge({ invoke, listen: async () => () => {} })
+    const revision = await hashContent(source)
+    await mutateTasks(
+      [0, 1].map((index) => ({
+        task: { notePath: 'notes/n.md', revision, astPath: [index] },
+        edit: { checked: true },
+      })),
+      1,
+    )
+    const writes = invoke.mock.calls.filter(([command]) => command === 'note_write')
+    expect(writes).toHaveLength(1)
+    expect(writes[0]?.[1]).toMatchObject({
+      expectedContents: source,
+      contents: '+ [x] one\n+ [x] two\n',
+    })
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { markdownPlainText } from './plain-text.ts'
+import { inlineMarkdownToDisplayText } from './plain-text.ts'
 import { parseNote } from './extract.ts'
 import { decodeTaskPath, encodeTaskPath, compareTaskPaths } from './task-path.ts'
 
@@ -50,8 +50,8 @@ describe('AST task projection', () => {
     )
   })
   it('keeps paragraph block-opening characters as inline text', () => {
-    expect(markdownPlainText('# **heading-looking**')).toBe('# heading-looking')
-    expect(markdownPlainText('> *quote-looking*')).toBe('> quote-looking')
+    expect(inlineMarkdownToDisplayText('# **heading-looking**')).toBe('# heading-looking')
+    expect(inlineMarkdownToDisplayText('> *quote-looking*')).toBe('> quote-looking')
     expect(parse('+ [ ] ``` [[2026-10-01]]').tasks[0]?.dueDate).toBe('2026-10-01')
   })
   it('does not promote inline reference-looking text into note definitions', () => {

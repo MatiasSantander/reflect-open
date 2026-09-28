@@ -1,15 +1,9 @@
+import { keepTaskDraft } from './task-drafts.ts'
 import { useMutation } from '@tanstack/react-query'
 import type { OpenTask, TaskAddress } from '@reflect/core'
-import {
-  continueTaskInContext,
-  convertTaskToBullet,
-  deleteTask,
-  editTask,
-  insertTask,
-  toggleTask,
-} from '@/lib/note-task.ts'
+import { continueTaskInContext, mutateTasks, editTask, insertTask } from '@/lib/note-task.ts'
 import { mutationKeys } from '@/lib/query-client.ts'
-import { editAndToggleError, isEditAndToggleError } from '@/lib/tasks/edit-and-toggle-error.ts'
+import { isEditAndToggleError } from '@/lib/tasks/edit-and-toggle-error.ts'
 import {
   archiveRecentlyCompleted,
   forgetRecentlyCompleted,
@@ -106,9 +100,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      for (const task of tasks) {
-        await toggleTask(task, generation)
-      }
+      await mutateTasks(
+        tasks.map((task) => ({ task, edit: { checked: true } })),
+        generation,
+      )
     },
     onMutate: async (tasks: OpenTask[]) => {
       const snapshot = await cache.snapshot()
@@ -137,9 +132,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      for (const task of tasks) {
-        await toggleTask(task, generation) // [x] → [ ]
-      }
+      await mutateTasks(
+        tasks.map((task) => ({ task, edit: { checked: false } })),
+        generation,
+      )
     },
     onMutate: async (tasks: OpenTask[]) => {
       const snapshot = await cache.snapshot()
@@ -162,9 +158,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      for (const task of tasks) {
-        await deleteTask(task, generation)
-      }
+      await mutateTasks(
+        tasks.map((task) => ({ task, edit: { remove: true } })),
+        generation,
+      )
     },
     onMutate: async (tasks: OpenTask[]) => {
       const snapshot = await cache.snapshot()
@@ -208,7 +205,10 @@ export function useTaskActions(): TaskActions {
       )
       return snapshot
     },
-    onError: (cause, _vars, context) => cache.rollback(context, 'Editing task', cause),
+    onError: (cause, { task, content }, context) => {
+      keepTaskDraft(task, content, graph?.generation ?? -1)
+      cache.rollback(context, 'Editing task', cause)
+    },
   })
 
   const scheduleMutation = useMutation({
@@ -218,9 +218,13 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      for (const task of tasks) {
-        await editTask(task, scheduledContent(task, isoDate), generation)
-      }
+      await mutateTasks(
+        tasks.map((task) => ({
+          task,
+          edit: { firstParagraphMarkdown: scheduledContent(task, isoDate) },
+        })),
+        generation,
+      )
     },
     onMutate: async ({ tasks, isoDate }: { tasks: OpenTask[]; isoDate: string | null }) => {
       const snapshot = await cache.snapshot()
@@ -244,9 +248,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      for (const task of tasks) {
-        await convertTaskToBullet(task, generation)
-      }
+      await mutateTasks(
+        tasks.map((task) => ({ task, edit: { toBullet: true } })),
+        generation,
+      )
     },
     onMutate: async (tasks: OpenTask[]) => {
       const snapshot = await cache.snapshot()
@@ -279,8 +284,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await editTask(task, content, generation)
-      await convertTaskToBullet(task, generation)
+      await mutateTasks(
+        [{ task, edit: { firstParagraphMarkdown: content, toBullet: true } }],
+        generation,
+      )
     },
     onMutate: async ({ task }: { task: OpenTask; content: string }) => {
       const snapshot = await cache.snapshot()
@@ -293,7 +300,10 @@ export function useTaskActions(): TaskActions {
       forgetRecentlyCompleted(root, [taskKey(task)])
       return snapshot
     },
-    onError: (cause) => cache.reconcile('Converting task', cause),
+    onError: (cause, { task, content }) => {
+      keepTaskDraft(task, content, graph?.generation ?? -1)
+      cache.reconcile('Converting task', cause)
+    },
   })
 
   const insertMutation = useMutation({
@@ -315,16 +325,10 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      try {
-        await editTask(task, content, generation)
-      } catch (cause) {
-        throw editAndToggleError('edit', cause)
-      }
-      try {
-        await toggleTask(task, generation)
-      } catch (cause) {
-        throw editAndToggleError('toggle', cause)
-      }
+      await mutateTasks(
+        [{ task, edit: { firstParagraphMarkdown: content, checked: !task.checked } }],
+        generation,
+      )
     },
     onMutate: async ({ task, content }: { task: OpenTask; content: string }) => {
       const snapshot = await cache.snapshot()
@@ -347,7 +351,8 @@ export function useTaskActions(): TaskActions {
       }
       return { snapshot, edited, wasRecentlyCompleted }
     },
-    onError: (cause, { task }, context) => {
+    onError: (cause, { task, content }, context) => {
+      keepTaskDraft(task, content, graph?.generation ?? -1)
       const failure = isEditAndToggleError(cause) ? cause : null
       // Two sequential writes (edit then toggle) — if the toggle fails after the
       // edit lands, refetch rather than roll back over the persisted edit.
@@ -439,12 +444,15 @@ export function useTaskActions(): TaskActions {
       }
       if (task.breadcrumbs.length > 0) {
         try {
-          await continueTaskInContext(task, content, graph.generation)
+          const address = await continueTaskInContext(task, content, graph.generation)
+          const created = insertedTaskRow(target, address, task.breadcrumbs)
+          cache.addOpen(created)
+          return created
         } catch (cause) {
+          if (content !== null) keepTaskDraft(task, content, graph.generation)
           cache.reconcile('Adding task', cause)
+          return null
         }
-        await persistTaskDraft(task, content)
-        return null
       }
       // Resolve the current row first and *await* it, so the append reads the
       // settled source.

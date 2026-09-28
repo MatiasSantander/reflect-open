@@ -1,8 +1,10 @@
+import { collectReferenceDefinitions, markdownToDoc } from '@meowdown/core'
 import { lightboxItemFromXPostMedia } from '@/editor/x-post-media-lightbox-item.ts'
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
 import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
 import {
   useCallback,
+  useMemo,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -117,6 +119,8 @@ export interface NoteEditorHandle {
 interface NoteEditorProps {
   /** Initial markdown, read only on first render (uncontrolled). */
   initialContent: string
+  singleParagraph?: boolean
+  referenceMarkdown?: string
   /** Called with the current markdown whenever the user edits the document. */
   onChange?: (markdown: string) => void
   /** How markdown syntax characters are shown. */
@@ -246,6 +250,8 @@ interface NoteEditorProps {
 
 export function NoteEditor({
   initialContent,
+  singleParagraph = false,
+  referenceMarkdown = '',
   onChange,
   markMode = 'hide',
   spellCheck = true,
@@ -283,6 +289,10 @@ export function NoteEditor({
   const innerRef = useRef<EditorHandle>(null)
   const followDeepLink = useFollowDeepLink()
 
+  const referenceDefinitions = useMemo(
+    () => collectReferenceDefinitions(markdownToDoc(referenceMarkdown)).definitions,
+    [referenceMarkdown],
+  )
   // Latest callbacks, read through refs so a changing prop identity never
   // rebuilds meowdown's extensions (the uncontrolled-editor contract).
   // TODO: This violates "Rule of hooks". Refactor this later.
@@ -479,6 +489,8 @@ export function NoteEditor({
         handleRef={innerRef}
         mode={markMode}
         initialMarkdown={initialContent}
+        singleParagraph={singleParagraph}
+        referenceDefinitions={referenceDefinitions}
         // On the touch surface spellcheck is pinned off regardless of the
         // setting: iOS derives the keyboard's smart-quotes/smart-dashes traits
         // from it at focus time, and smart punctuation corrupts markdown

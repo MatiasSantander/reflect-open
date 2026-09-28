@@ -2,15 +2,20 @@ import {
   collectInlineElements,
   LEZER_NODE_IDS,
   parseInline,
-  getTaskParagraph, // FIXME: do not import getTaskParagraph from @meowdown/markdown. Implement it here instead
   parseMarkdownAst,
   walkMarkdownAst,
   type MarkdownNode,
 } from '@meowdown/markdown'
 import type { ParsedTask } from './model.ts'
 import { parseBody } from './grammar.ts'
-import { markdownPlainText } from './plain-text.ts'
+import { inlineMarkdownToDisplayText } from './plain-text.ts'
 import { normalizeWikiTarget } from './resolve.ts'
+
+export function getTaskParagraph(node: MarkdownNode) {
+  if (node.type !== 'listItem' || node.kind !== 'task') return
+  const paragraph = node.children[0]
+  return paragraph?.type === 'paragraph' ? paragraph : undefined
+}
 
 /** Project round tasks outside quotes from the complete note body. */
 export function projectTaskContext(body: string): {
@@ -18,8 +23,7 @@ export function projectTaskContext(body: string): {
   referenceMarkdown: string
 } {
   const definitions: string[] = []
-  // FIXME: meowdown@master already has this replaceAll. replaceAll is not needed here.
-  const document = parseMarkdownAst(body.replaceAll(/\r\n?/g, '\n'))
+  const document = parseMarkdownAst(body)
   const contexts = new Map<
     MarkdownNode,
     { quoted: boolean; table: boolean; breadcrumbs: readonly string[] }
@@ -63,7 +67,7 @@ export function projectTaskContext(body: string): {
         })
       }
       const first = node.children[0]
-      const label = first?.type === 'paragraph' ? markdownPlainText(first.value) : ''
+      const label = first?.type === 'paragraph' ? inlineMarkdownToDisplayText(first.value) : ''
       contexts.set(node, {
         quoted,
         table,

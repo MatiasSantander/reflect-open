@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
+import { onTaskMutation } from '@/lib/note-task.ts'
+import { relocateRecentlyCompleted } from './recently-completed.ts'
 import { useQueryClient } from '@tanstack/react-query'
-import { errorMessage, type OpenTask } from '@reflect/core'
+import { errorMessage, inlineMarkdownToDisplayText, parseNote, type OpenTask } from '@reflect/core'
 import { startOperation } from '@/lib/operations.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { sameTask } from '@/lib/tasks/task-identity.ts'
@@ -50,6 +53,43 @@ export function useTaskCacheWriter(): TaskCacheWriter {
   const queryClient = useQueryClient()
   const openKey = queryKeys.index.openTasks(graph?.root)
   const completedKey = queryKeys.index.completedTasks(graph?.root)
+
+  useEffect(
+    () =>
+      onTaskMutation((receipt) => {
+        if (receipt.generation !== graph?.generation) return
+        const open = queryClient.getQueryData<OpenTask[]>(openKey) ?? []
+        const completed = queryClient.getQueryData<OpenTask[]>(completedKey) ?? []
+        const context = [...open, ...completed].find((task) => task.notePath === receipt.notePath)
+        if (!context) return
+        const referenceMarkdown = parseNote({
+          path: receipt.notePath,
+          source: receipt.source,
+        }).referenceMarkdown
+        const projected = receipt.tasks.map((task) => ({
+          ...context,
+          ...task,
+          revision: receipt.revision,
+          referenceMarkdown,
+          text: inlineMarkdownToDisplayText(task.firstParagraphMarkdown),
+          updatedAt: Date.now(),
+        }))
+        queryClient.setQueryData<OpenTask[]>(openKey, (rows) => [
+          ...(rows ?? []).filter((row) => row.notePath !== receipt.notePath),
+          ...projected.filter((task) => !task.checked),
+        ])
+        queryClient.setQueryData<OpenTask[]>(completedKey, (rows) =>
+          rows === undefined
+            ? undefined
+            : [
+                ...rows.filter((row) => row.notePath !== receipt.notePath),
+                ...projected.filter((task) => task.checked),
+              ],
+        )
+        relocateRecentlyCompleted(graph.root, receipt, projected)
+      }),
+    [graph?.generation, graph?.root, queryClient, openKey, completedKey],
+  )
 
   const snapshot = async (): Promise<TaskCacheSnapshot> => {
     await queryClient.cancelQueries({ queryKey: openKey })

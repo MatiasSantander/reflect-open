@@ -1,3 +1,4 @@
+import { TaskDraftRecovery } from '@/components/tasks/task-draft-recovery.tsx'
 import {
   useCallback,
   useEffect,
@@ -245,9 +246,7 @@ export function TasksScreen(): ReactElement {
       aria-label="Tasks"
       className="flex h-full min-h-0 flex-col outline-none"
     >
-      <p role="status" className="px-4 py-2 text-sm text-text-muted">
-        Task editing is temporarily unavailable. Open a note to edit its tasks.
-      </p>
+      <TaskDraftRecovery />
       <header className="flex flex-none items-center gap-2 border-b border-border py-2.5 pl-2 pr-3 lg:pl-10">
         <div className="window-drag-control min-w-0 flex-1">
           <Search

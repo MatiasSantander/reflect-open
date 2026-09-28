@@ -82,4 +82,5 @@ export {
   compareTaskPaths,
   type TaskAddress,
 } from './task-path.ts'
-export { markdownPlainText } from './plain-text.ts'
+export { inlineMarkdownToDisplayText } from './plain-text.ts'
+export { editTaskDocument, type TaskEdit } from './task-mutation.ts'

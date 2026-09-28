@@ -76,6 +76,7 @@ export function useTaskSheetFinalizer({
 }: TaskSheetFinalizerDeps): TaskSheetFinalizer {
   const liveContent = task.firstParagraphMarkdown
   const [initial, setInitial] = useState(liveContent)
+  const [initialTask, setInitialTask] = useState(task)
   const [draft, setDraft] = useState(liveContent)
   // Set once an action button has already written/closed, so the dismissal
   // commit doesn't double-write on the close that follows.
@@ -86,6 +87,7 @@ export function useTaskSheetFinalizer({
     if (open) {
       setHandled(false)
       setInitial(liveContent)
+      setInitialTask(task)
       setDraft(liveContent)
       onReseed()
     }
@@ -100,15 +102,15 @@ export function useTaskSheetFinalizer({
   const commitDraft = (): void => {
     const result = resolve()
     if (result.type === 'commit') {
-      actions.edit(task, result.content)
+      actions.edit(initialTask, result.content)
     } else if (result.type === 'delete') {
-      actions.remove([task])
+      actions.remove([initialTask])
     }
   }
 
   const finishAbandonedVisit = (): void => {
     if (resolve().type === 'cancel' && currentDraft().trim() === '') {
-      actions.remove([task])
+      actions.remove([initialTask])
     } else {
       commitDraft()
     }

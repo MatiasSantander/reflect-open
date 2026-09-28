@@ -237,6 +237,8 @@ export {
   decodeTaskPath,
   encodeTaskPath,
   compareTaskPaths,
-  markdownPlainText,
+  inlineMarkdownToDisplayText,
   type TaskAddress,
 } from '../markdown/index.ts'
+
+export { editTaskDocument, type TaskEdit } from '../markdown/task-mutation.ts'

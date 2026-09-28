@@ -1,6 +1,7 @@
+import type { TaskMutationReceipt } from '@/lib/note-task.ts'
+import { encodeTaskPath } from '@reflect/core'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { OpenTask } from '@reflect/core'
-import { withCheckedMarker } from '@/lib/tasks/task-cache.ts'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
@@ -48,7 +49,7 @@ function adopt(root: string | null): void {
  * Keep `completed` showing struck (checked) in the active list until archived.
  * Stored as a fresh checked copy, deduped by {@link taskKey}. The marker in `raw`
  * is flipped to `[x]` to match disk — these rows outlive the reindex, so a stale
- * `[ ]` would later fail the reopen/edit/delete write-back ({@link withCheckedMarker}).
+ * `[ ]` would later fail the reopen/edit/delete write-back .
  */
 export function markRecentlyCompleted(root: string | null, completed: readonly OpenTask[]): void {
   if (completed.length === 0) {
@@ -57,7 +58,7 @@ export function markRecentlyCompleted(root: string | null, completed: readonly O
   adopt(root)
   const byKey = new Map(tasks.map((task) => [taskKey(task), task]))
   for (const task of completed) {
-    byKey.set(taskKey(task), withCheckedMarker(task, true))
+    byKey.set(taskKey(task), { ...task, checked: true })
   }
   tasks = [...byKey.values()]
   emit()
@@ -174,5 +175,25 @@ export function useRecentlyCompleted(
 export function resetRecentlyCompleted(): void {
   graphRoot = null
   tasks = EMPTY
+  emit()
+}
+
+/** Update session completions from a confirmed write, including changed paths. */
+export function relocateRecentlyCompleted(
+  root: string | null,
+  receipt: TaskMutationReceipt,
+  projected: readonly OpenTask[],
+): void {
+  if (root !== graphRoot) return
+  tasks = tasks.flatMap((task) => {
+    if (task.notePath !== receipt.notePath) return [task]
+    if (task.revision !== receipt.beforeRevision)
+      return task.revision === receipt.revision ? [task] : []
+    const path = receipt.paths.get(encodeTaskPath(task.astPath))
+    const next =
+      path &&
+      projected.find((candidate) => encodeTaskPath(candidate.astPath) === encodeTaskPath(path))
+    return next?.checked ? [next] : []
+  })
   emit()
 }
