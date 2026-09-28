@@ -77,7 +77,7 @@ export function plainTextOfRange( // FIXME: plainTextOfRange should not exported
 }
 
 /** Sort spans once for all projections of one parsed note. */
-export function createPlainTextReader(body: string, cuts: Span[], literalRanges: Span[]) {
+export function createPlainTextReader(body: string, cuts: Span[], literalRanges: Span[]) { // FIXME: createPlainTextReader doesn't need to be exported
   const sorted = [...cuts].sort((a, b) => a.from - b.from)
   const sortedLiteralRanges = [...literalRanges].sort((a, b) => a.from - b.from)
   return (start: number, end: number): string => {
@@ -109,8 +109,8 @@ export function buildPlainText(body: string, cuts: Span[], literalRanges: Span[]
 }
 
  // FIXME: "without storing a second task content field." is bad comment;
- // FIXME:
-/** Derive display text without storing a second task content field. */
+ // FIXME: just do a big refactor for this file. I think we can make this file much much much simpler. We just need a simple "inlineMarkdownToDisplayText" function
+ /** Derive display text without storing a second task content field. */
 export function markdownPlainText(markdown: string): string {
   const cuts: Span[] = []
   const literals: Span[] = []
