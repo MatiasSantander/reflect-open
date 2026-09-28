@@ -11,6 +11,7 @@ export interface SnippetTask {
 /** Enumerate rendered bullet checkboxes, including read-only square checklists. */
 export function extractSnippetTasks(
   snippet: string,
+  // FIXME: remvoe unsed parameters. do the refactor needed
   _lineOrigins: readonly number[],
   _lineSourceTexts: readonly string[] = [],
 ): SnippetTask[] {
