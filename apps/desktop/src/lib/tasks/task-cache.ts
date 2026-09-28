@@ -47,7 +47,7 @@ export function asOpen(rows: OpenTask[] | undefined, tasks: OpenTask[]): OpenTas
   return [...(rows ?? []).filter((row) => !reopenedKeys.has(taskKey(row))), ...reopened]
 }
 
-/** Optimistic checked state without a duplicated source marker. */
+/** Optimistic checked state without a duplicated source marker. */ // FIXME: this version of "withCheckedMarker" is too simple to be useful; Just remove this function and inline the `{ ...task, checked }`.
 export function withCheckedMarker(task: OpenTask, checked: boolean): OpenTask {
   return { ...task, checked }
 }
