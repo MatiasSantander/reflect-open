@@ -1,3 +1,4 @@
+import { compareTaskPaths } from '../markdown/task-path.ts'
 import { displayNoteTitle } from '../markdown/note-title.ts'
 import type { OpenTask } from './queries.ts'
 
@@ -119,7 +120,7 @@ function compareDated(left: OpenTask, right: OpenTask): number {
   if (left.notePath !== right.notePath) {
     return left.notePath < right.notePath ? -1 : 1
   }
-  return left.markerOffset - right.markerOffset
+  return compareTaskPaths(left.astPath, right.astPath)
 }
 
 /**
@@ -234,7 +235,7 @@ export function groupTasks(tasks: readonly OpenTask[], today: string): TaskGroup
       // A `byNote` entry only exists once a task has been pushed into it.
       label: displayNoteTitle(noteTasks[0]!.noteTitle),
       notePath: noteTasks[0]!.notePath,
-      tasks: noteTasks.sort((left, right) => left.markerOffset - right.markerOffset),
+      tasks: noteTasks.sort((left, right) => compareTaskPaths(left.astPath, right.astPath)),
     }))
     .sort(compareNoteGroups)
 

@@ -15,13 +15,10 @@ const FUTURE = '2026-06-20'
 function task(overrides: Partial<OpenTask> = {}): OpenTask {
   return {
     firstParagraphMarkdown: 'do it',
-    plainText: 'do it',
-    markerText: '[ ]',
     revision: 'test-revision',
     referenceMarkdown: '',
     notePath: 'notes/n.md',
-    markerOffset: 0,
-    raw: '[ ] do it',
+    astPath: [0],
     checked: false,
     text: 'do it',
     breadcrumbs: [],
@@ -54,14 +51,14 @@ describe('visibleTaskBreadcrumbs', () => {
 describe('groupTaskContexts', () => {
   it('groups only consecutive tasks with the same breadcrumbs', () => {
     const tasks = [
-      task({ markerOffset: 1, breadcrumbs: ['Project', 'Phase one'] }),
-      task({ markerOffset: 2, breadcrumbs: ['Project', 'Phase one'] }),
-      task({ markerOffset: 3, breadcrumbs: ['Project', 'Phase two'] }),
-      task({ markerOffset: 4, breadcrumbs: ['Project', 'Phase one'] }),
+      task({ astPath: [1], breadcrumbs: ['Project', 'Phase one'] }),
+      task({ astPath: [2], breadcrumbs: ['Project', 'Phase one'] }),
+      task({ astPath: [3], breadcrumbs: ['Project', 'Phase two'] }),
+      task({ astPath: [4], breadcrumbs: ['Project', 'Phase one'] }),
     ]
 
     const contexts = groupTaskContexts(tasks)
-    expect(contexts.map((context) => context.tasks.map((entry) => entry.markerOffset))).toEqual([
+    expect(contexts.map((context) => context.tasks.map((entry) => entry.astPath[0]))).toEqual([
       [1, 2],
       [3],
       [4],
@@ -75,8 +72,8 @@ describe('groupTaskContexts', () => {
 
   it('labels each context with its visible breadcrumbs', () => {
     const contexts = groupTaskContexts([
-      task({ markerOffset: 1, breadcrumbs: [' Project '] }),
-      task({ markerOffset: 2, breadcrumbs: ['Tasks:'] }),
+      task({ astPath: [1], breadcrumbs: [' Project '] }),
+      task({ astPath: [2], breadcrumbs: ['Tasks:'] }),
     ])
     expect(contexts.map((context) => context.visibleBreadcrumbs)).toEqual([['Project'], []])
   })
@@ -174,8 +171,8 @@ describe('groupTasks', () => {
   it('groups an undated task (no due date, regular note) under its note', () => {
     const groups = groupTasks(
       [
-        task({ notePath: 'notes/p.md', noteTitle: 'Project', markerOffset: 30, text: 'second' }),
-        task({ notePath: 'notes/p.md', noteTitle: 'Project', markerOffset: 10, text: 'first' }),
+        task({ notePath: 'notes/p.md', noteTitle: 'Project', astPath: [30], text: 'second' }),
+        task({ notePath: 'notes/p.md', noteTitle: 'Project', astPath: [10], text: 'first' }),
       ],
       TODAY,
     )
@@ -200,9 +197,9 @@ describe('groupTasks', () => {
   it('orders a date bucket by effective date, then document position', () => {
     const groups = groupTasks(
       [
-        task({ notePath: 'notes/a.md', dueDate: '2026-06-08', markerOffset: 9, text: 'b' }),
-        task({ notePath: 'notes/a.md', dueDate: '2026-06-05', markerOffset: 2, text: 'a' }),
-        task({ notePath: 'notes/a.md', dueDate: '2026-06-08', markerOffset: 1, text: 'c' }),
+        task({ notePath: 'notes/a.md', dueDate: '2026-06-08', astPath: [9], text: 'b' }),
+        task({ notePath: 'notes/a.md', dueDate: '2026-06-05', astPath: [2], text: 'a' }),
+        task({ notePath: 'notes/a.md', dueDate: '2026-06-08', astPath: [1], text: 'c' }),
       ],
       TODAY,
     )

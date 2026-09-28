@@ -246,7 +246,7 @@ beforeEach(() => {
   insertTask.mockResolvedValue(0)
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { markerOffset: 0, raw: '[ ] ' },
+    created: { astPath: [0], firstParagraphMarkdown: '' },
     offsetChanges: [],
   })
   convertTaskToBullet.mockReset()
@@ -356,21 +356,21 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
+        astPath: [2],
         text: 'first',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
       }),
       task({
         notePath: 'notes/p.md',
-        markerOffset: 20,
+        astPath: [20],
         text: 'second',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
       }),
       task({
         notePath: 'notes/p.md',
-        markerOffset: 40,
+        astPath: [40],
         text: 'third',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Later'],
@@ -393,7 +393,7 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
+        astPath: [2],
         text: 'project task',
         noteTitle: 'Project',
         breadcrumbs: ['Tasks:'],
@@ -498,7 +498,7 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        raw: '[ ] ship **bold** text',
+        firstParagraphMarkdown: 'ship **bold** text',
         text: 'ship bold text',
         noteTitle: 'Project',
       }),
@@ -513,7 +513,7 @@ describe('TasksScreen', () => {
 
   it('selects a task when clicking the row outside the text control', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', markerOffset: 2, text: 'full row', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], text: 'full row', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -528,8 +528,8 @@ describe('TasksScreen', () => {
 
   it('opens the inline editor on a sole selection, and Escape exits it', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', markerOffset: 2, text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', markerOffset: 3, text: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -554,8 +554,8 @@ describe('TasksScreen', () => {
 
   it('scrolls the focused task row into view after selection renders', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', markerOffset: 2, text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', markerOffset: 3, text: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -577,8 +577,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'P',
       }),
@@ -590,7 +590,7 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByText('commit-edit'))
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/p.md', markerOffset: 2 }),
+        expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
         'edited content',
         1,
       ),
@@ -614,8 +614,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'P',
       }),
@@ -626,7 +626,7 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByText('flush-edit'))
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/p.md', markerOffset: 2 }),
+        expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
         'edited content',
         1,
       ),
@@ -642,8 +642,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'P',
       }),
@@ -655,14 +655,14 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByText('complete-edited'))
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/p.md', markerOffset: 2 }),
+        expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
         'edited content',
         1,
       ),
     )
     await waitFor(() =>
       expect(toggleTask).toHaveBeenCalledWith(
-        expect.objectContaining({ markerOffset: 2, raw: '[ ] edited content' }),
+        expect.objectContaining({ astPath: [2], firstParagraphMarkdown: 'edited content' }),
         1,
       ),
     )
@@ -677,8 +677,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[x] done task',
+        astPath: [2],
+        firstParagraphMarkdown: 'done task',
         text: 'done task',
         checked: true,
         noteTitle: 'P',
@@ -699,8 +699,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'P',
       }),
@@ -716,9 +716,9 @@ describe('TasksScreen', () => {
 
   it('toggles rows with ⌘-click and selects a range with shift-click', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', markerOffset: 2, text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', markerOffset: 3, text: 'second', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', markerOffset: 4, text: 'third', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [4], text: 'third', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
     const pressed = (name: string) =>
@@ -743,8 +743,8 @@ describe('TasksScreen', () => {
 
   it('selects all with ⌘A and moves a single selection with the arrow keys', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/a.md', markerOffset: 2, text: 'first', noteTitle: 'A' }),
-      task({ notePath: 'notes/b.md', markerOffset: 2, text: 'second', noteTitle: 'B' }),
+      task({ notePath: 'notes/a.md', astPath: [2], text: 'first', noteTitle: 'A' }),
+      task({ notePath: 'notes/b.md', astPath: [2], text: 'second', noteTitle: 'B' }),
     ])
     const view = await renderScreen()
     const pressed = (name: string) =>
@@ -768,15 +768,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] second',
+        astPath: [2],
+        firstParagraphMarkdown: 'second',
         text: 'second',
         noteTitle: 'B',
       }),
@@ -798,15 +798,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] second',
+        astPath: [2],
+        firstParagraphMarkdown: 'second',
         text: 'second',
         noteTitle: 'B',
       }),
@@ -828,8 +828,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/proj.md',
-        markerOffset: 2,
-        raw: '[ ] a',
+        astPath: [2],
+        firstParagraphMarkdown: 'a',
         text: 'a',
         noteTitle: 'Project',
       }),
@@ -848,8 +848,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 2,
-        raw: '[ ] late',
+        astPath: [2],
+        firstParagraphMarkdown: 'late',
         text: 'late',
         noteTitle: 'P',
         dueDate: '2026-06-01',
@@ -866,8 +866,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
@@ -888,8 +888,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
@@ -918,15 +918,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] second',
+        astPath: [2],
+        firstParagraphMarkdown: 'second',
         text: 'second',
         noteTitle: 'B',
       }),
@@ -952,11 +952,17 @@ describe('TasksScreen', () => {
   it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
     deleteTask.mockResolvedValue(undefined)
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/a.md', markerOffset: 2, raw: '[ ]', text: '', noteTitle: 'A' }),
+      task({
+        notePath: 'notes/a.md',
+        astPath: [2],
+        firstParagraphMarkdown: '',
+        text: '',
+        noteTitle: 'A',
+      }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] keep',
+        astPath: [2],
+        firstParagraphMarkdown: 'keep',
         text: 'keep',
         noteTitle: 'B',
       }),
@@ -979,8 +985,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
@@ -999,28 +1005,28 @@ describe('TasksScreen', () => {
 
   it('Enter in a grouped task keeps the new row in that breadcrumb context', async () => {
     continueTaskInContext.mockResolvedValue({
-      created: { markerOffset: 40, raw: '[ ] ' },
+      created: { astPath: [40], firstParagraphMarkdown: '' },
       offsetChanges: [
         {
           from: 40,
           fromRaw: '[ ] later',
-          marker: { markerOffset: 56, raw: '[ ] later' },
+          marker: { astPath: [56], firstParagraphMarkdown: 'later' },
         },
       ],
     })
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
       }),
       task({
         notePath: 'notes/a.md',
-        markerOffset: 40,
-        raw: '[ ] later',
+        astPath: [40],
+        firstParagraphMarkdown: 'later',
         text: 'later',
         noteTitle: 'A',
         breadcrumbs: ['StartupToolbox', 'Later'],
@@ -1056,8 +1062,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
         breadcrumbs: ['Project'],
@@ -1070,7 +1076,7 @@ describe('TasksScreen', () => {
 
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/a.md', raw: '[ ] first' }),
+        expect.objectContaining({ notePath: 'notes/a.md', firstParagraphMarkdown: 'first' }),
         'edited content',
         1,
       ),
@@ -1085,8 +1091,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] scheduled',
+        astPath: [2],
+        firstParagraphMarkdown: 'scheduled',
         text: 'scheduled',
         noteTitle: 'A',
         breadcrumbs: ['Project'],
@@ -1114,8 +1120,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
@@ -1140,15 +1146,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] second',
+        astPath: [2],
+        firstParagraphMarkdown: 'second',
         text: 'second',
         noteTitle: 'B',
       }),
@@ -1169,8 +1175,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] open',
+        astPath: [2],
+        firstParagraphMarkdown: 'open',
         text: 'open',
         noteTitle: 'A',
       }),
@@ -1178,8 +1184,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[x] done',
+        astPath: [2],
+        firstParagraphMarkdown: 'done',
         text: 'done',
         checked: true,
         noteTitle: 'B',
@@ -1201,15 +1207,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] plan',
+        astPath: [2],
+        firstParagraphMarkdown: 'plan',
         text: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] ship',
+        astPath: [2],
+        firstParagraphMarkdown: 'ship',
         text: 'ship',
         noteTitle: 'B',
       }),
@@ -1235,15 +1241,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] plan',
+        astPath: [2],
+        firstParagraphMarkdown: 'plan',
         text: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] ship',
+        astPath: [2],
+        firstParagraphMarkdown: 'ship',
         text: 'ship',
         noteTitle: 'B',
       }),
@@ -1273,15 +1279,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] plan',
+        astPath: [2],
+        firstParagraphMarkdown: 'plan',
         text: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] ship',
+        astPath: [2],
+        firstParagraphMarkdown: 'ship',
         text: 'ship',
         noteTitle: 'B',
       }),
@@ -1304,8 +1310,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] plan',
+        astPath: [2],
+        firstParagraphMarkdown: 'plan',
         text: 'plan',
         noteTitle: 'A',
       }),
@@ -1318,14 +1324,14 @@ describe('TasksScreen', () => {
     // Edit first (persist the draft), then convert the rewritten line.
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/a.md', markerOffset: 2 }),
+        expect.objectContaining({ notePath: 'notes/a.md', astPath: [2] }),
         'edited content',
         1,
       ),
     )
     await waitFor(() =>
       expect(convertTaskToBullet).toHaveBeenCalledWith(
-        expect.objectContaining({ markerOffset: 2, raw: '[ ] edited content' }),
+        expect.objectContaining({ astPath: [2], firstParagraphMarkdown: 'edited content' }),
         1,
       ),
     )
@@ -1338,8 +1344,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] plan',
+        astPath: [2],
+        firstParagraphMarkdown: 'plan',
         text: 'plan',
         noteTitle: 'A',
       }),
@@ -1360,15 +1366,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] one',
+        astPath: [2],
+        firstParagraphMarkdown: 'one',
         text: 'one',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] two',
+        astPath: [2],
+        firstParagraphMarkdown: 'two',
         text: 'two',
         noteTitle: 'B',
       }),
@@ -1388,8 +1394,8 @@ describe('TasksScreen', () => {
 
   it('ignores task shortcuts coming from a portaled overlay (the filters menu)', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/a.md', markerOffset: 2, text: 'first', noteTitle: 'A' }),
-      task({ notePath: 'notes/b.md', markerOffset: 2, text: 'second', noteTitle: 'B' }),
+      task({ notePath: 'notes/a.md', astPath: [2], text: 'first', noteTitle: 'A' }),
+      task({ notePath: 'notes/b.md', astPath: [2], text: 'second', noteTitle: 'B' }),
     ])
     const view = await renderScreen()
     await view.findByRole('button', { name: 'first' })
@@ -1416,8 +1422,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1429,8 +1435,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[ ] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         1,
       ),
@@ -1446,8 +1452,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
         updatedAt: 100,
@@ -1466,8 +1472,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
         updatedAt: 200,
@@ -1484,8 +1490,8 @@ describe('TasksScreen', () => {
     toggleTask.mockResolvedValue(undefined)
     const staleRow = task({
       notePath: 'notes/p.md',
-      markerOffset: 5,
-      raw: '[ ] project task',
+      astPath: [5],
+      firstParagraphMarkdown: 'project task',
       text: 'project task',
       noteTitle: 'Project',
       updatedAt: 100,
@@ -1512,8 +1518,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1528,8 +1534,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[ ] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         1,
       ),
@@ -1542,15 +1548,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 5,
-        raw: '[ ] first task',
+        astPath: [5],
+        firstParagraphMarkdown: 'first task',
         text: 'first task',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 9,
-        raw: '[ ] second task',
+        astPath: [9],
+        firstParagraphMarkdown: 'second task',
         text: 'second task',
         noteTitle: 'B',
       }),
@@ -1564,12 +1570,20 @@ describe('TasksScreen', () => {
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
     expect(toggleTask).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ notePath: 'notes/a.md', markerOffset: 5, raw: '[ ] first task' }),
+      expect.objectContaining({
+        notePath: 'notes/a.md',
+        astPath: [5],
+        firstParagraphMarkdown: 'first task',
+      }),
       1,
     )
     expect(toggleTask).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ notePath: 'notes/b.md', markerOffset: 9, raw: '[ ] second task' }),
+      expect.objectContaining({
+        notePath: 'notes/b.md',
+        astPath: [9],
+        firstParagraphMarkdown: 'second task',
+      }),
       1,
     )
     await view.findByRole('button', { name: 'Reopen: first task' })
@@ -1583,8 +1597,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 5,
-        raw: '[ ] open task',
+        astPath: [5],
+        firstParagraphMarkdown: 'open task',
         text: 'open task',
         noteTitle: 'A',
       }),
@@ -1592,8 +1606,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/b.md',
-        markerOffset: 9,
-        raw: '[x] done task',
+        astPath: [9],
+        firstParagraphMarkdown: 'done task',
         text: 'done task',
         checked: true,
         noteTitle: 'B',
@@ -1608,7 +1622,11 @@ describe('TasksScreen', () => {
 
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
     expect(toggleTask).toHaveBeenCalledWith(
-      expect.objectContaining({ notePath: 'notes/b.md', markerOffset: 9, raw: '[x] done task' }),
+      expect.objectContaining({
+        notePath: 'notes/b.md',
+        astPath: [9],
+        firstParagraphMarkdown: 'done task',
+      }),
       1,
     )
     await view.findByRole('button', { name: 'Complete: open task' })
@@ -1622,8 +1640,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1638,8 +1656,8 @@ describe('TasksScreen', () => {
       expect(editTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[ ] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         'edited content',
         1,
@@ -1649,8 +1667,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[ ] edited content',
+          astPath: [5],
+          firstParagraphMarkdown: 'edited content',
         }),
         1,
       ),
@@ -1672,8 +1690,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1700,8 +1718,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1715,8 +1733,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenLastCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[x] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         1,
       ),
@@ -1732,8 +1750,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[x] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         checked: true,
         noteTitle: 'Project',
@@ -1747,8 +1765,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[x] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         1,
       ),
@@ -1772,8 +1790,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[x] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         checked: true,
         noteTitle: 'Project',
@@ -1797,8 +1815,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1826,8 +1844,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[x] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         checked: true,
         noteTitle: 'Project',
@@ -1843,8 +1861,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[x] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         1,
       ),
@@ -1860,8 +1878,8 @@ describe('TasksScreen', () => {
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[x] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         checked: true,
         noteTitle: 'Project',
@@ -1877,8 +1895,8 @@ describe('TasksScreen', () => {
       expect(editTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[x] project task',
+          astPath: [5],
+          firstParagraphMarkdown: 'project task',
         }),
         'edited content',
         1,
@@ -1888,8 +1906,8 @@ describe('TasksScreen', () => {
       expect(toggleTask).toHaveBeenCalledWith(
         expect.objectContaining({
           notePath: 'notes/p.md',
-          markerOffset: 5,
-          raw: '[x] edited content',
+          astPath: [5],
+          firstParagraphMarkdown: 'edited content',
         }),
         1,
       ),
@@ -1903,8 +1921,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1935,8 +1953,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'Project',
       }),
@@ -1955,8 +1973,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'P',
       }),
@@ -1980,8 +1998,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        markerOffset: 5,
-        raw: '[ ] project task',
+        astPath: [5],
+        firstParagraphMarkdown: 'project task',
         text: 'project task',
         noteTitle: 'P',
       }),
@@ -2001,8 +2019,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] one',
+        astPath: [2],
+        firstParagraphMarkdown: 'one',
         text: 'one',
         noteTitle: 'A',
       }),
@@ -2042,15 +2060,15 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
-        markerOffset: 2,
-        raw: '[ ] first',
+        astPath: [2],
+        firstParagraphMarkdown: 'first',
         text: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
-        markerOffset: 2,
-        raw: '[ ] second',
+        astPath: [2],
+        firstParagraphMarkdown: 'second',
         text: 'second',
         noteTitle: 'B',
       }),

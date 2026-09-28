@@ -128,16 +128,12 @@ export interface Tags {
 }
 
 export interface Tasks {
+  astPath: string;
   breadcrumbs: Generated<string>;
   checked: number;
   dueDate: string | null;
-  firstParagraphMarkdown: Generated<string>;
-  markerOffset: number;
-  markerText: Generated<string>;
+  firstParagraphMarkdown: string;
   notePath: string;
-  plainText: Generated<string>;
-  raw: string;
-  text: string;
 }
 
 export interface DB {

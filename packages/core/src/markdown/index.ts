@@ -16,7 +16,6 @@ export {
   type MarkdownLink,
   type Heading,
   type AssetRef,
-  type TaskMarker,
   type ParsedNote,
 } from './model.ts'
 export {
@@ -40,16 +39,9 @@ export {
   appendBlock,
   appendListItem,
   type ListItemKind,
-  appendTaskLine,
-  appendTaskToContext,
   wikiLinkSafe,
-  editTaskLine,
-  removeTaskLine,
   setTaskDueDate,
   clearTaskDueDate,
-  taskLineToBullet,
-  toggleTaskMarker,
-  TaskStaleError,
 } from './edit.ts'
 export { retitleWikiLinks, type WikiLinkRetitleOptions } from './retitle.ts'
 export { displayNoteTitle, wikiLinkTargetForTitle } from './note-title.ts'
@@ -84,11 +76,10 @@ export {
 } from './resolve.ts'
 
 export {
-  scanReflectTasks,
-  hydrateTask,
-  type SourceAnchor,
-  type TaskRanges,
-  type TaskProjection,
-  type TaskRowSnapshot,
-  type TaskSnapshot,
-} from './task-snapshot.ts'
+  taskPathSchema,
+  decodeTaskPath,
+  encodeTaskPath,
+  compareTaskPaths,
+  type TaskAddress,
+} from './task-path.ts'
+export { markdownPlainText } from './plain-text.ts'

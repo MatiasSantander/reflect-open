@@ -63,12 +63,8 @@ function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
     tasks: [
       {
         firstParagraphMarkdown: 'Do the thing',
-        plainText: 'Do the thing',
-        markerText: '[ ]',
-        markerOffset: 40,
-        text: 'Do the thing',
+        astPath: [40],
         breadcrumbs: ['Project'],
-        raw: '- [ ] Do the thing',
         checked: false,
         dueDate: null,
       },

@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import type { OpenTask } from '@reflect/core'
+import type { OpenTask, TaskAddress } from '@reflect/core'
 import {
   convertTaskToBullet,
   deleteTask,
@@ -16,18 +16,12 @@ import {
   markRecentlyCompleted,
 } from '@/lib/tasks/recently-completed.ts'
 import { scheduledContent } from '@/lib/tasks/task-schedule-content.ts'
-import {
-  asCompleted,
-  asOpen,
-  taskRawWithContent,
-  withEditedTask,
-  withoutTasks,
-} from '@/lib/tasks/task-cache.ts'
+import { asCompleted, asOpen, withEditedTask, withoutTasks } from '@/lib/tasks/task-cache.ts'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 import { insertedTaskRow, type InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { useTaskCheckboxAction } from '@/lib/tasks/use-task-checkbox-action.ts'
 import { useTaskCacheWriter } from '@/lib/tasks/use-task-cache.ts'
-import { useTaskContextInsert } from '@/lib/tasks/use-task-context-insert.ts'
+import { taskContextInsert } from '@/lib/tasks/use-task-context-insert.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
 /**
@@ -110,7 +104,7 @@ export function useTaskActions(): TaskActions {
   const root = graph?.root ?? null
   const cache = useTaskCacheWriter()
   const checkboxAction = useTaskCheckboxAction()
-  const contextInsert = useTaskContextInsert()
+  const contextInsert = taskContextInsert()
 
   const completeMutation = useMutation({
     mutationKey: mutationKeys.tasks.complete(graph?.root),
@@ -301,7 +295,7 @@ export function useTaskActions(): TaskActions {
       // wrote (the marker offset is unchanged; only the content after it moved).
       // Saving first is what keeps the inline draft from being lost to the convert.
       await editTask(task, content, generation)
-      await convertTaskToBullet({ ...task, raw: taskRawWithContent(task, content) }, generation)
+      await convertTaskToBullet(task, generation)
     },
     onMutate: async ({ task }: { task: OpenTask; content: string }) => {
       const snapshot = await cache.snapshot()
@@ -345,7 +339,7 @@ export function useTaskActions(): TaskActions {
         throw editAndToggleError('edit', cause)
       }
       try {
-        await toggleTask({ ...task, raw: taskRawWithContent(task, content) }, generation)
+        await toggleTask(task, generation)
       } catch (cause) {
         throw editAndToggleError('toggle', cause)
       }
@@ -448,13 +442,13 @@ export function useTaskActions(): TaskActions {
       if (graph?.generation === undefined) {
         return null
       }
-      let markerOffset: number
+      let address: TaskAddress
       try {
-        markerOffset = await insertMutation.mutateAsync(target)
+        address = await insertMutation.mutateAsync(target)
       } catch {
         return null // reconcile already surfaced the failure
       }
-      const created = insertedTaskRow(target, markerOffset)
+      const created = insertedTaskRow(target, address)
       cache.addOpen(created)
       return created
     },
@@ -481,13 +475,13 @@ export function useTaskActions(): TaskActions {
       if (!(await persistTaskDraft(task, content))) {
         return null // the edit/delete rollback already surfaced the failure
       }
-      let markerOffset: number
+      let address: TaskAddress
       try {
-        markerOffset = await insertMutation.mutateAsync(target)
+        address = await insertMutation.mutateAsync(target)
       } catch {
         return null
       }
-      const created = insertedTaskRow(target, markerOffset)
+      const created = insertedTaskRow(target, address)
       cache.addOpen(created)
       return created
     },

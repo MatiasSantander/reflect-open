@@ -277,24 +277,16 @@ describe('buildIndexedNote', () => {
     })
     expect(indexed.tasks).toEqual([
       {
-        markerOffset: source.indexOf('[ ]'),
-        text: 'buy milk',
+        astPath: [1],
         breadcrumbs: [],
-        raw: '[ ] buy milk',
-        markerText: '[ ]',
         firstParagraphMarkdown: 'buy milk',
-        plainText: 'buy milk',
         checked: false,
         dueDate: null,
       },
       {
-        markerOffset: source.indexOf('[x] call'),
-        text: 'call mum',
+        astPath: [5],
         breadcrumbs: [],
-        raw: '[x] call mum',
-        markerText: '[x]',
         firstParagraphMarkdown: 'call mum',
-        plainText: 'call mum',
         checked: true,
         dueDate: null,
       },

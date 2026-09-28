@@ -1,3 +1,4 @@
+import { parseBody } from './grammar.ts'
 import type { Span } from './model.ts'
 
 /**
@@ -105,4 +106,19 @@ export function createPlainTextReader(body: string, cuts: Span[], literalRanges:
 /** Body text minus the cut (syntax) ranges, with wiki brackets/pipes flattened. */
 export function buildPlainText(body: string, cuts: Span[], literalRanges: Span[]): string {
   return plainTextOfRange(body, 0, body.length, cuts, literalRanges)
+}
+
+/** Derive display text without storing a second task content field. */
+export function markdownPlainText(markdown: string): string {
+  const cuts: Span[] = []
+  const literals: Span[] = []
+  parseBody(markdown).iterate({
+    enter: ({ name, from, to }) => {
+      if (name.endsWith('Mark') || name === 'URL' || name === 'CodeInfo' || name === 'TaskMarker')
+        cuts.push({ from, to })
+      if (name === 'InlineCode' || name === 'FencedCode' || name === 'CodeBlock')
+        literals.push({ from, to })
+    },
+  })
+  return buildPlainText(markdown, cuts, literals)
 }

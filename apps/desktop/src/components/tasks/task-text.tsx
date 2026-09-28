@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 import type { OpenTask } from '@reflect/core'
 import { MarkdownPreview } from '@/editor/markdown-preview.tsx'
-import { taskContent } from '@/lib/tasks/task-content.ts'
 
 /**
  * Render a task's content (its source line minus the checkbox marker) through
@@ -12,7 +11,7 @@ import { taskContent } from '@/lib/tasks/task-content.ts'
 export function TaskText({ task }: { task: OpenTask }): ReactElement {
   return (
     <MarkdownPreview
-      content={taskContent(task.raw)}
+      content={task.firstParagraphMarkdown}
       className="reflect-task-preview pointer-events-none text-sm"
     />
   )

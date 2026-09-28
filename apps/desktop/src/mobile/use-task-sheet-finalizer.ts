@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { OpenTask } from '@reflect/core'
-import { resolveTaskEdit, taskContent, type TaskEditResult } from '@/lib/tasks/task-content.ts'
+import { resolveTaskEdit, type TaskEditResult } from '@/lib/tasks/task-content.ts'
 
 /** The two writes the finalizer itself performs; {@link TaskActions} satisfies it. */
 export interface TaskSheetWriteActions {
@@ -74,7 +74,7 @@ export function useTaskSheetFinalizer({
   onReseed,
   readDraft,
 }: TaskSheetFinalizerDeps): TaskSheetFinalizer {
-  const liveContent = taskContent(task.raw)
+  const liveContent = task.firstParagraphMarkdown
   const [initial, setInitial] = useState(liveContent)
   const [draft, setDraft] = useState(liveContent)
   // Set once an action button has already written/closed, so the dismissal

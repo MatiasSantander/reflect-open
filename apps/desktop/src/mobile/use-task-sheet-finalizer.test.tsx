@@ -49,7 +49,7 @@ describe('useTaskSheetFinalizer', () => {
     )
 
     // A reindex rewrites the row's content while the sheet stays open.
-    await rerender(deps({ task: task({ text: 'beta', raw: '[ ] beta' }) }))
+    await rerender(deps({ task: task({ text: 'beta', firstParagraphMarkdown: 'beta' }) }))
 
     act(() => result.current.handleOpenChange(false))
 
@@ -81,7 +81,7 @@ describe('useTaskSheetFinalizer', () => {
   })
 
   it('deletes an abandoned-empty task on dismissal, but not on navigate', async () => {
-    const empty = task({ text: '', raw: '[ ] ' })
+    const empty = task({ text: '', firstParagraphMarkdown: '' })
 
     const navigated = await renderHook(() => useTaskSheetFinalizer(deps({ task: empty })))
     act(() => navigated.result.current.closeNavigate())
@@ -139,7 +139,7 @@ describe('useTaskSheetFinalizer', () => {
     await rerender(deps({ open: false }))
 
     // Reopen for a row an action rewrote in the meantime.
-    await rerender(deps({ task: task({ text: 'rewritten', raw: '[ ] rewritten' }) }))
+    await rerender(deps({ task: task({ text: 'rewritten', firstParagraphMarkdown: 'rewritten' }) }))
 
     expect(result.current.draft).toBe('rewritten')
     expect(onReseed).toHaveBeenCalledTimes(1)

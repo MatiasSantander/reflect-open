@@ -1,4 +1,3 @@
-import type { TaskMarker } from '@reflect/core'
 import type { FrontmatterPatch } from './note-session-frontmatter.ts'
 import type { RoundTripFidelity } from './roundtrip.ts'
 
@@ -190,41 +189,7 @@ export interface NoteSession {
    * resolution instead (the rename alias), use `updateFrontmatter`.
    */
   commitFrontmatter: (patch: FrontmatterPatch) => Promise<boolean>
-  /**
-   * Toggle a GFM checkbox in the body from the Tasks view (Plan 18), applied to
-   * the live buffer so unsaved edits survive, then flushed now. The caller routes
-   * here whenever the note is open — the buffer is read synchronously, so there
-   * is no read/write race with the editor. Returns false when the session can't
-   * take it (loading, protected, disposed, or a parked conflict) so the caller
-   * refuses rather than clobber the buffer, and propagates `TaskStaleError` when
-   * the marker can't be located, like the disk path. An open note's toggle rides
-   * the editor, so a normalizing-fidelity note normalizes like any edit (an
-   * exact-fidelity note stays byte-identical apart from the marker).
-   */
-  commitTaskToggle: (task: TaskMarker) => Promise<boolean>
-  /**
-   * Replace a task's text from the inline Tasks editor (Plan 18): rewrites the
-   * marker's content line in the live buffer (preserving the marker and so the
-   * checked state), reflects it in the open editor, and flushes now. Same gating,
-   * `false`-when-busy, transactional revert, and `TaskStaleError` propagation as
-   * {@link commitTaskToggle}. `content` is one line of markdown.
-   */
-  commitTaskEdit: (task: TaskMarker, content: string) => Promise<boolean>
-  /**
-   * Delete a task's whole line from the Tasks view (Plan 18) — the ⌫/⌘⌫ path.
-   * Removes the physical line from the live buffer and flushes now; same gating,
-   * `false`-when-busy, transactional revert, and `TaskStaleError` propagation as
-   * {@link commitTaskToggle}.
-   */
-  commitTaskRemove: (task: TaskMarker) => Promise<boolean>
-  /**
-   * Demote a task to a plain bullet from the Tasks view — the "Convert to bullet"
-   * path (Plan 18 follow-up). Strips just the marker from the line in the live
-   * buffer (keeping its content) so the item leaves the Tasks projection while
-   * staying in the note, then flushes now; same gating, `false`-when-busy,
-   * transactional revert, and `TaskStaleError` propagation as {@link commitTaskToggle}.
-   */
-  commitTaskToBullet: (task: TaskMarker) => Promise<boolean>
+
   /**
    * Append a markdown block to the end of the body (own paragraph, blank-line
    * separated — `appendBlock`) from an out-of-editor action like the

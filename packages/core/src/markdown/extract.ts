@@ -1,20 +1,12 @@
 import { parseXPostId } from '@post-embed/schema'
-import {
-  readBlockSource,
-  scanTaskItems,
-  type SyntaxNode,
-  type TaskSourceItem,
-} from '@meowdown/markdown'
 import { dateFromDailyPath, isAttachmentPath, isDaily } from '../graph/paths.ts'
 import { parseFrontmatter, splitFrontmatter } from './frontmatter.ts'
 import { parseBody } from './grammar.ts'
 import { foldTag } from './keys.ts'
 import { parseInlineLink } from './link-syntax.ts'
 import { headingLevelOf } from './node-types.ts'
-import { buildPlainText, createPlainTextReader, unescapeMarkdownText } from './plain-text.ts'
-import { normalizeWikiTarget } from './resolve.ts'
-import { taskBreadcrumbs } from './task-breadcrumbs.ts'
-import { parseTaskMarker } from './task-marker.ts'
+import { buildPlainText, unescapeMarkdownText } from './plain-text.ts'
+import { projectTaskContext } from './task-projection.ts'
 import { isWikiNodeName, wikiBracketStart } from './wiki-nodes.ts'
 import type {
   AssetRef,
@@ -22,7 +14,6 @@ import type {
   Heading,
   MarkdownLink,
   ParsedNote,
-  ParsedTask,
   Span,
   WikiLink,
 } from './model.ts'
@@ -287,80 +278,6 @@ function readLink(body: string, from: number, to: number, offset: number): Markd
   return { href, text, from: from + offset, to: to + offset, domain: hostOf(href) }
 }
 
-/**
- * A Reflect task is the round Meowdown checkbox syntax: optional indentation,
- * then `+`, then whitespace, then the GFM marker. Square checklist items
- * (`- [ ]`/`* [ ]`) are intentionally not projected into Tasks.
- */
-function hasRoundTaskListMarker(body: string, markerStart: number): boolean {
-  const lineStart = body.lastIndexOf('\n', markerStart - 1) + 1
-  return /^[\t ]*\+[\t ]+$/.test(body.slice(lineStart, markerStart))
-}
-
-function lineEndAfter(body: string, from: number): number {
-  const newline = body.indexOf('\n', from)
-  return newline === -1 ? body.length : newline
-}
-
-/**
- * Resolve a `Task` Lezer node (the marker starts at `from`) into a
- * {@link ParsedTask}, or `null` when the marker shape isn't Reflect's task
- * syntax. `text` is the marker line minus its syntax; `raw` is that physical
- * line verbatim from the marker onward for the write-back guard.
- */
-function readTask(
-  body: string,
-  taskNode: SyntaxNode,
-  bodyOffset: number,
-  cuts: Span[],
-  literalRanges: Span[],
-  wikiLinks: WikiLink[],
-  sourceTask: TaskSourceItem,
-  readText: (from: number, to: number) => string,
-  labels: Map<number, string | null>,
-): ParsedTask | null {
-  const { from, to } = taskNode
-  if (!hasRoundTaskListMarker(body, from)) {
-    return null
-  }
-  const marker = parseTaskMarker(body.slice(from, from + 3))
-  if (marker === null) {
-    return null
-  }
-  const lineEnd = lineEndAfter(body, from)
-  const markerOffset = from + bodyOffset
-  return {
-    text: readText(from, sourceTask.firstParagraph.to),
-    plainText: readText(from, sourceTask.firstParagraph.to),
-    firstParagraphMarkdown: sourceTask.firstParagraphMarkdown,
-    markerText: sourceTask.markerText,
-    breadcrumbs: taskBreadcrumbs(body, taskNode, cuts, literalRanges, readText, labels),
-    raw: body.slice(from, lineEnd),
-    checked: marker.checked,
-    markerOffset,
-    dueDate: firstDueDate(wikiLinks, markerOffset, to + bodyOffset),
-  }
-}
-
-/**
- * The task's due date: the first calendar-valid `[[YYYY-MM-DD]]` link inside the
- * task's span `[from, to)` (file coords). `wikiLinks` are in document order, so
- * "first" is the first such link in the item. Reuses {@link normalizeWikiTarget}
- * so an impossible date (`2026-02-31`) is not treated as a due date — exactly the
- * dailies the resolver recognises.
- */
-function firstDueDate(wikiLinks: WikiLink[], from: number, to: number): string | null {
-  for (const link of wikiLinks) {
-    if (link.from >= from && link.from < to) {
-      const { date } = normalizeWikiTarget(link.target)
-      if (date !== undefined) {
-        return date
-      }
-    }
-  }
-  return null
-}
-
 function inAnyRange(index: number, ranges: Span[]): boolean {
   return ranges.some((range) => index >= range.from && index < range.to)
 }
@@ -433,8 +350,6 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
   const cuts: Span[] = [] // body coords — syntax to drop from plain text
   const tagExcluded: Span[] = [] // body coords — regions that don't yield tags
   const literalPlainText: Span[] = [] // body coords — regions that render backslashes literally
-  const referenceDefinitions: string[] = []
-  const taskNodes: SyntaxNode[] = [] // body coords — `Task` nodes, resolved after the walk
 
   tree.iterate({
     enter: (node) => {
@@ -442,16 +357,6 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
 
       if (isSyntaxNode(name)) {
         cuts.push({ from, to })
-      }
-      if (name === 'LinkReference') {
-        referenceDefinitions.push(readBlockSource(body, node.node))
-      }
-      if (name === 'Task') {
-        // Resolve after the walk: the child `TaskMarker`/emphasis cuts this task
-        // needs to strip its text — and the `[[date]]` due-date link inside it —
-        // aren't collected until their own `enter`. The node span bounds the
-        // due-date search to this task.
-        taskNodes.push(node.node)
       }
       if (isTagExcludedNode(name)) {
         tagExcluded.push({ from, to })
@@ -525,29 +430,6 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
   const tags = new Map<string, string>()
   collectTags(body, tagExcluded, tags)
 
-  const readText = createPlainTextReader(body, cuts, literalPlainText)
-  const labels = new Map<number, string | null>()
-  const sourceTasks = new Map(scanTaskItems(body, tree).map((task) => [task.marker.from, task]))
-  const tasks: ParsedTask[] = []
-  for (const taskNode of taskNodes) {
-    const sourceTask = sourceTasks.get(taskNode.from)
-    if (!sourceTask) continue
-    const task = readTask(
-      body,
-      taskNode,
-      bodyOffset,
-      cuts,
-      literalPlainText,
-      wikiLinks,
-      sourceTask,
-      readText,
-      labels,
-    )
-    if (task) {
-      tasks.push(task)
-    }
-  }
-
   return {
     path,
     id: stringField(frontmatter, 'id'),
@@ -559,8 +441,7 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
     tags: [...tags.values()],
     headings,
     assets,
-    tasks,
-    referenceMarkdown: referenceDefinitions.join('\n\n'),
+    ...projectTaskContext(body),
     displayText: buildPlainText(body, cuts, literalPlainText),
   }
 }

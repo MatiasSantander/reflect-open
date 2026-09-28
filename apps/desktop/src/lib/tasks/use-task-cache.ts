@@ -1,9 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { errorMessage, type OpenTask } from '@reflect/core'
-import type { TaskMarkerOffsetChange } from '@/lib/note-task.ts'
 import { startOperation } from '@/lib/operations.ts'
 import { queryKeys } from '@/lib/query-client.ts'
-import { withRelocatedTaskMarkers } from '@/lib/tasks/task-cache.ts'
 import { sameTask } from '@/lib/tasks/task-identity.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
@@ -28,7 +26,6 @@ export interface TaskCacheWriter {
    */
   addOpen: (task: OpenTask) => void
   /** Re-key existing rows shifted by a contextual write, in both task caches. */
-  relocate: (notePath: string, changes: readonly TaskMarkerOffsetChange[]) => void
   /** Restore both lists from a snapshot and surface the failure once (single-write undo). */
   rollback: (captured: TaskCacheSnapshot | undefined, label: string, cause: unknown) => void
   /**
@@ -80,13 +77,6 @@ export function useTaskCacheWriter(): TaskCacheWriter {
     )
   }
 
-  const relocate = (notePath: string, changes: readonly TaskMarkerOffsetChange[]): void => {
-    patch(
-      (rows) => withRelocatedTaskMarkers(rows, notePath, changes),
-      (rows) => withRelocatedTaskMarkers(rows, notePath, changes),
-    )
-  }
-
   const rollback = (
     captured: TaskCacheSnapshot | undefined,
     label: string,
@@ -107,5 +97,5 @@ export function useTaskCacheWriter(): TaskCacheWriter {
     startOperation(label).fail(errorMessage(cause))
   }
 
-  return { snapshot, patch, addOpen, relocate, rollback, reconcile }
+  return { snapshot, patch, addOpen, rollback, reconcile }
 }

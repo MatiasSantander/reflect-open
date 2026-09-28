@@ -261,7 +261,7 @@ beforeEach(async () => {
   insertTask.mockResolvedValue(0)
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { markerOffset: 0, raw: '[ ] ' },
+    created: { astPath: [0], firstParagraphMarkdown: '' },
     offsetChanges: [],
   })
   convertTaskToBullet.mockReset()
@@ -289,16 +289,16 @@ describe('MobileTasks', () => {
         text: 'jotted today',
         dailyDate: '2026-06-14',
         notePath: 'daily/2026-06-14.md',
-        markerOffset: 0,
+        astPath: [0],
       }),
       task({
         text: 'late',
         dueDate: '2026-06-01',
         dailyDate: '2026-06-01',
         notePath: 'daily/2026-06-01.md',
-        markerOffset: 0,
+        astPath: [0],
       }),
-      task({ text: 'undated', markerOffset: 0 }),
+      task({ text: 'undated', astPath: [0] }),
     ])
     const view = await renderScreen()
 
@@ -313,10 +313,10 @@ describe('MobileTasks', () => {
 
   it('renders one read-only breadcrumb per consecutive task context', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ markerOffset: 2, text: 'first', breadcrumbs: ['Project', 'Release'] }),
-      task({ markerOffset: 20, text: 'second', breadcrumbs: ['Project', 'Release'] }),
-      task({ markerOffset: 40, text: 'third', breadcrumbs: ['Project', 'Later'] }),
-      task({ markerOffset: 60, text: 'fourth', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [2], text: 'first', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [20], text: 'second', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [40], text: 'third', breadcrumbs: ['Project', 'Later'] }),
+      task({ astPath: [60], text: 'fourth', breadcrumbs: ['Project', 'Release'] }),
     ])
     const view = await renderScreen()
 
@@ -328,7 +328,7 @@ describe('MobileTasks', () => {
 
   it('hides a lone generic task breadcrumb', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ markerOffset: 2, text: 'project task', breadcrumbs: ['Tasks:'] }),
+      task({ astPath: [2], text: 'project task', breadcrumbs: ['Tasks:'] }),
     ])
     const view = await renderScreen()
 
@@ -464,7 +464,11 @@ describe('MobileTasks', () => {
 
   it('clears the due date from the schedule row', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'late [[2026-06-01]]', raw: '[ ] late [[2026-06-01]]', dueDate: '2026-06-01' }),
+      task({
+        text: 'late [[2026-06-01]]',
+        firstParagraphMarkdown: 'late [[2026-06-01]]',
+        dueDate: '2026-06-01',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -584,7 +588,7 @@ describe('MobileTasks', () => {
   })
 
   it('opens the source note of an untouched empty task without deleting it', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: '', raw: '[ ] ' })])
+    getOpenTasks.mockResolvedValue([task({ text: '', firstParagraphMarkdown: '' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -762,7 +766,12 @@ describe('MobileTasks', () => {
   it('reveals the completed history behind “Show archived”', async () => {
     getOpenTasks.mockResolvedValue([task({ text: 'still open' })])
     getCompletedTasks.mockResolvedValue([
-      task({ text: 'long done', markerOffset: 40, checked: true, raw: '[x] long done' }),
+      task({
+        text: 'long done',
+        astPath: [40],
+        checked: true,
+        firstParagraphMarkdown: 'long done',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -779,8 +788,8 @@ describe('MobileTasks', () => {
 
   it('filters rows by the search text', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'buy milk', markerOffset: 0 }),
-      task({ text: 'call mum', markerOffset: 10 }),
+      task({ text: 'buy milk', astPath: [0] }),
+      task({ text: 'call mum', astPath: [10] }),
     ])
     const user = userEvent
     const view = await renderScreen()

@@ -9,9 +9,9 @@ function task(over: Partial<OpenTask> = {}): OpenTask {
 }
 
 describe('previousTaskKey', () => {
-  const a = task({ notePath: 'a.md', markerOffset: 1 })
-  const b = task({ notePath: 'b.md', markerOffset: 1 })
-  const c = task({ notePath: 'c.md', markerOffset: 1 })
+  const a = task({ notePath: 'a.md', astPath: [1] })
+  const b = task({ notePath: 'b.md', astPath: [1] })
+  const c = task({ notePath: 'c.md', astPath: [1] })
   const ordered = [a, b, c]
 
   it('selects the row above a middle row', () => {
@@ -27,7 +27,7 @@ describe('previousTaskKey', () => {
   })
 
   it('returns null when the row is not in the order', () => {
-    expect(previousTaskKey(ordered, task({ notePath: 'z.md', markerOffset: 9 }))).toBeNull()
+    expect(previousTaskKey(ordered, task({ notePath: 'z.md', astPath: [9] }))).toBeNull()
   })
 })
 

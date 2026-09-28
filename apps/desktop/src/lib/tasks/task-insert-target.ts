@@ -1,4 +1,4 @@
-import type { OpenTask } from '@reflect/core'
+import type { OpenTask, TaskAddress } from '@reflect/core'
 
 /**
  * The note a new task is added to (Return-to-add, V1): its path plus the context
@@ -15,19 +15,13 @@ export interface InsertTaskTarget {
 /** Build the optimistic open row for a just-written empty task. */
 export function insertedTaskRow(
   target: InsertTaskTarget,
-  markerOffset: number,
+  address: TaskAddress,
   breadcrumbs: readonly string[] = [],
-  raw = '[ ] ',
 ): OpenTask {
   return {
     firstParagraphMarkdown: '',
-    plainText: '',
-    markerText: '[ ]',
-    revision: '',
     referenceMarkdown: '',
-    notePath: target.notePath,
-    markerOffset,
-    raw,
+    ...address,
     checked: false,
     text: '',
     breadcrumbs,

@@ -1,14 +1,9 @@
 import {
   appendBlock,
   detectConflictMarkers,
-  editTaskLine,
   errorMessage,
   isAppError,
-  removeTaskLine,
-  taskLineToBullet,
-  toggleTaskMarker,
   upsertFrontmatter,
-  type TaskMarker,
 } from '@reflect/core'
 import { splitDoc } from './note-session-doc.ts'
 import { frontmatterPatchToYaml, type FrontmatterPatch } from './note-session-frontmatter.ts'
@@ -479,22 +474,6 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     return true
   }
 
-  function commitTaskToggle(task: TaskMarker): Promise<boolean> {
-    return commitBodyEdit((full) => toggleTaskMarker(full, task).source)
-  }
-
-  function commitTaskEdit(task: TaskMarker, content: string): Promise<boolean> {
-    return commitBodyEdit((full) => editTaskLine(full, task, content))
-  }
-
-  function commitTaskRemove(task: TaskMarker): Promise<boolean> {
-    return commitBodyEdit((full) => removeTaskLine(full, task))
-  }
-
-  function commitTaskToBullet(task: TaskMarker): Promise<boolean> {
-    return commitBodyEdit((full) => taskLineToBullet(full, task))
-  }
-
   function commitBodyAppend(block: string): Promise<boolean> {
     if (block.trim() === '') {
       return Promise.resolve(false)
@@ -558,10 +537,6 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     cancelDelete,
     updateFrontmatter,
     commitFrontmatter,
-    commitTaskToggle,
-    commitTaskEdit,
-    commitTaskRemove,
-    commitTaskToBullet,
     commitBodyAppend,
     commitSourceEdit: commitBodyEdit,
     dispose,

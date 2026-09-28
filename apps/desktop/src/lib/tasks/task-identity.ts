@@ -1,19 +1,15 @@
-import type { OpenTask } from '@reflect/core'
+import { encodeTaskPath, type TaskAddress } from '@reflect/core'
 
-/** The fields that identify a task: its note and the marker's offset in that note. */
-type TaskIdentity = Pick<OpenTask, 'notePath' | 'markerOffset'>
-
-/**
- * A task's stable key — its note path and the marker's offset within that file.
- * The Tasks view's React keys and its optimistic-update predicate ({@link
- * sameTask}) derive from the same definition, so a row's key can't drift from
- * the row the completion mutation removes.
- */
-export function taskKey(task: TaskIdentity): string {
-  return `${task.notePath}:${task.markerOffset}`
+/** Revision scopes paths so cached rows never alias a different source revision. */
+export function taskKey(task: TaskAddress): string {
+  return JSON.stringify([task.notePath, task.revision, task.astPath])
 }
 
-/** Whether two task references point at the same checkbox. */
-export function sameTask(a: TaskIdentity, b: TaskIdentity): boolean {
-  return a.notePath === b.notePath && a.markerOffset === b.markerOffset
+/** Whether two rows address the same task in the same note revision. */
+export function sameTask(left: TaskAddress, right: TaskAddress): boolean {
+  return (
+    left.notePath === right.notePath &&
+    left.revision === right.revision &&
+    encodeTaskPath(left.astPath) === encodeTaskPath(right.astPath)
+  )
 }

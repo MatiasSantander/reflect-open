@@ -14,7 +14,6 @@ import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
-import { taskContent } from '@/lib/tasks/task-content.ts'
 import {
   useTaskEditorFinalizer,
   type TaskEditorApi,
@@ -170,8 +169,8 @@ export function TaskEditor({
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
 
   // Frozen at mount: the editor is seeded once (uncontrolled), so the commit
-  // baseline must stay the seed even if `task.raw` is re-derived mid-edit.
-  const [initial] = useState(() => taskContent(task.raw))
+  // baseline must stay the seed even if `task.firstParagraphMarkdown` is re-derived mid-edit.
+  const [initial] = useState(() => task.firstParagraphMarkdown)
   const { apiRef, onChange } = useTaskEditorFinalizer({
     initial,
     onCommit,

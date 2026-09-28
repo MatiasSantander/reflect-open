@@ -1,22 +1,15 @@
 import type { OpenTask } from '@reflect/core'
 
-/**
- * An open-task row with sensible defaults for tests; override only what a
- * case needs. The row renders `raw`, so it tracks `text` (the marker line)
- * unless a case pins `raw` explicitly.
- */
+/** An indexed task with defaults for UI tests. */
 export function makeOpenTask(overrides: Partial<OpenTask> = {}): OpenTask {
   const text = overrides.text ?? 'do it'
   const checked = overrides.checked ?? false
   return {
-    firstParagraphMarkdown: 'do it',
-    plainText: 'do it',
-    markerText: '[ ]',
+    firstParagraphMarkdown: text,
     revision: 'test-revision',
     referenceMarkdown: '',
     notePath: 'notes/n.md',
-    markerOffset: 2,
-    raw: `[${checked ? 'x' : ' '}] ${text}`,
+    astPath: [0],
     checked,
     text,
     breadcrumbs: [],

@@ -144,7 +144,7 @@ describe('useTaskKeyboard', () => {
   })
 
   it('toggles the resolved selection on ⌘↵ and deletes it on ⌘⌫', async () => {
-    const t = task({ notePath: 'notes/a.md', markerOffset: 2 })
+    const t = task({ notePath: 'notes/a.md', astPath: [2] })
     const selection = makeSelection({
       selected: new Set(['k']),
       selectedCount: 1,
@@ -221,8 +221,8 @@ describe('useTaskKeyboard', () => {
   })
 
   it('plain ⌫ removes a single empty row and selects the previous (V1)', async () => {
-    const a = task({ notePath: 'notes/a.md', markerOffset: 2, text: 'first' })
-    const empty = task({ notePath: 'notes/b.md', markerOffset: 2, text: '' })
+    const a = task({ notePath: 'notes/a.md', astPath: [2], text: 'first' })
+    const empty = task({ notePath: 'notes/b.md', astPath: [2], text: '' })
     const selection = makeSelection({
       selected: new Set(['b']),
       selectedCount: 1,
@@ -249,10 +249,10 @@ describe('useTaskKeyboard', () => {
   })
 
   it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
-    const empty = task({ notePath: 'notes/a.md', markerOffset: 2, text: '' })
+    const empty = task({ notePath: 'notes/a.md', astPath: [2], text: '' })
     const full = task({
       notePath: 'notes/b.md',
-      markerOffset: 2,
+      astPath: [2],
       text: 'keep',
     })
     const selection = makeSelection({
@@ -333,7 +333,7 @@ describe('useTaskKeyboard', () => {
   it('Return adds a task to today’s daily when nothing is selected', async () => {
     const created = task({
       notePath: 'daily/2026-06-15.md',
-      markerOffset: 0,
+      astPath: [0],
       text: '',
     })
     const insert = vi.fn().mockResolvedValue(created)

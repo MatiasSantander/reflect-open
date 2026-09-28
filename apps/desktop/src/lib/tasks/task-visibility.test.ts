@@ -30,10 +30,10 @@ describe('composeVisibleTaskGroups', () => {
   it('groups open tasks into desktop’s buckets', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'today', dueDate: TODAY, markerOffset: 0 }),
-        task({ text: 'late', dueDate: '2026-06-01', markerOffset: 10 }),
-        task({ text: 'later', dueDate: '2026-07-01', markerOffset: 20 }),
-        task({ text: 'undated', markerOffset: 30 }),
+        task({ text: 'today', dueDate: TODAY, astPath: [0] }),
+        task({ text: 'late', dueDate: '2026-06-01', astPath: [10] }),
+        task({ text: 'later', dueDate: '2026-07-01', astPath: [20] }),
+        task({ text: 'undated', astPath: [30] }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -62,13 +62,13 @@ describe('composeVisibleTaskGroups', () => {
   })
 
   it('keeps this session’s completed tasks struck, replacing their open rows', () => {
-    const done = task({ text: 'done', markerOffset: 0 })
+    const done = task({ text: 'done', astPath: [0] })
     const groups = composeVisibleTaskGroups({
       // A refetch can briefly restore the completed row to the open cache; the
       // struck copy must win or React keys collide.
-      open: [done, task({ text: 'still open', markerOffset: 10 })],
+      open: [done, task({ text: 'still open', astPath: [10] })],
       completed: undefined,
-      recentlyCompleted: [{ ...done, checked: true, raw: '[x] done' }],
+      recentlyCompleted: [{ ...done, checked: true, firstParagraphMarkdown: 'done' }],
       filters: ALL_ON,
       needle: '',
       today: TODAY,
@@ -79,8 +79,8 @@ describe('composeVisibleTaskGroups', () => {
   })
 
   it('unions the completed history and the session set when archived is on', () => {
-    const sessionDone = task({ text: 'just now', markerOffset: 0, checked: true })
-    const historical = task({ text: 'long ago', markerOffset: 10, checked: true })
+    const sessionDone = task({ text: 'just now', astPath: [0], checked: true })
+    const historical = task({ text: 'long ago', astPath: [10], checked: true })
     const groups = composeVisibleTaskGroups({
       open: [],
       // The session row is also in the history — it must not list twice.
@@ -96,10 +96,7 @@ describe('composeVisibleTaskGroups', () => {
 
   it('filters by the search needle across open and struck rows', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
-        task({ text: 'buy milk', markerOffset: 0 }),
-        task({ text: 'call mum', markerOffset: 10 }),
-      ],
+      open: [task({ text: 'buy milk', astPath: [0] }), task({ text: 'call mum', astPath: [10] })],
       completed: undefined,
       recentlyCompleted: [],
       filters: ALL_ON,
@@ -113,8 +110,8 @@ describe('composeVisibleTaskGroups', () => {
   it('filters by breadcrumb context', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'ship', markerOffset: 0, breadcrumbs: ['StartupToolbox', 'Reflections'] }),
-        task({ text: 'buy milk', markerOffset: 10, breadcrumbs: ['Personal'] }),
+        task({ text: 'ship', astPath: [0], breadcrumbs: ['StartupToolbox', 'Reflections'] }),
+        task({ text: 'buy milk', astPath: [10], breadcrumbs: ['Personal'] }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -129,8 +126,8 @@ describe('composeVisibleTaskGroups', () => {
   it('filters by source-note title', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'ship it', markerOffset: 0, noteTitle: 'Desktop launch' }),
-        task({ text: 'buy milk', markerOffset: 10, noteTitle: 'Home' }),
+        task({ text: 'ship it', astPath: [0], noteTitle: 'Desktop launch' }),
+        task({ text: 'buy milk', astPath: [10], noteTitle: 'Home' }),
       ],
       completed: undefined,
       recentlyCompleted: [],

@@ -7,7 +7,6 @@ import type { SnippetTask } from '@reflect/core'
 import { useOpenExternalLink } from '@/editor/open-external-link.ts'
 import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 import { useNoteAttachments } from '@/editor/use-note-attachments.ts'
-import { useSnippetTaskToggle } from '@/hooks/use-snippet-task-toggle.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
 interface BacklinkSnippetProps {
@@ -30,10 +29,7 @@ interface BacklinkSnippetProps {
  * renders unclamped: truncating would cut the nested structure the context
  * exists to show. The source's fold state must not hide it either:
  * `expandCollapsed` renders `+` collapsed items expanded at every depth.
- * Round `+ [ ]` task checkboxes are live — a click writes the
- * toggle through to the source note ({@link useSnippetTaskToggle}), old
- * Reflect's backlink-context behavior — while square GFM boxes stay read-only
- * (the `reflect-backlink-snippet` CSS keeps them inert-looking). Images and
+ * Checkboxes are read-only. Images and
  * `![[embeds]]` resolve from the source note's folder, as in its editor. The
  * `reflect-editor` class shares the editor's chip styling; the
  * `reflect-backlink-snippet` wrapper keeps it in the panel's compact line box.
@@ -41,13 +37,11 @@ interface BacklinkSnippetProps {
 export function BacklinkSnippet({
   text,
   notePath,
-  tasks,
   onWikilinkClick,
 }: BacklinkSnippetProps): ReactElement {
   const generation = useGraph({ optional: true })?.graph?.generation ?? null
   const { resolveImageUrl, resolveWikiEmbed } = useNoteAttachments(generation, notePath)
   const resolveXPost = useXPostResolver()
-  const onTaskClick = useSnippetTaskToggle(notePath, tasks)
   const openExternalLink = useOpenExternalLink()
   return (
     <div className="reflect-backlink-snippet select-text text-xs text-text">
@@ -61,7 +55,6 @@ export function BacklinkSnippet({
         resolveWikilink={resolveWikilink}
         onWikilinkClick={onWikilinkClick}
         onLinkClick={openExternalLink}
-        {...(onTaskClick ? { onTaskClick } : {})}
         resolveImageUrl={resolveImageUrl}
         resolveWikiEmbed={resolveWikiEmbed}
       />

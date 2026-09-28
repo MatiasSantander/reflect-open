@@ -143,6 +143,9 @@ export function MobileTasks(): ReactElement {
       className="flex h-full w-screen flex-col"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
+      <p role="status" className="px-4 py-2 text-sm text-text-muted">
+        Task editing is temporarily unavailable. Open a note to edit its tasks.
+      </p>
       <MobileTopBar>
         <MobileTopBarRow>
           <SearchInput

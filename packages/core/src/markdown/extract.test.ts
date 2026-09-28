@@ -174,23 +174,15 @@ describe('parseNote — tasks', () => {
     const note = parse('+ [ ] buy milk\n+ [x] call mum\n')
     expect(note.tasks).toEqual([
       {
-        text: 'buy milk',
         breadcrumbs: [],
-        raw: '[ ] buy milk',
-        markerText: '[ ]',
         firstParagraphMarkdown: 'buy milk',
-        plainText: 'buy milk',
         checked: false,
-        markerOffset: 2,
+        astPath: [0],
         dueDate: null,
       },
       {
-        text: 'call mum',
         breadcrumbs: [],
-        raw: '[x] call mum',
-        markerText: '[x]',
         firstParagraphMarkdown: 'call mum',
-        plainText: 'call mum',
         checked: true,
         markerOffset: 17,
         dueDate: null,
@@ -202,14 +194,10 @@ describe('parseNote — tasks', () => {
     const note = parse('+ [X] done\n')
     expect(note.tasks).toEqual([
       {
-        text: 'done',
         breadcrumbs: [],
-        raw: '[X] done',
-        markerText: '[X]',
         firstParagraphMarkdown: 'done',
-        plainText: 'done',
         checked: true,
-        markerOffset: 2,
+        astPath: [0],
         dueDate: null,
       },
     ])
@@ -218,24 +206,23 @@ describe('parseNote — tasks', () => {
   it('strips inline syntax from text but keeps it verbatim in raw', () => {
     const note = parse('+ [ ] call [[Bob]] about **billing**\n')
     const item = note.tasks[0]!
-    expect(item.text).toBe('call Bob about billing')
-    expect(item.raw).toBe('[ ] call [[Bob]] about **billing**')
-    // markerOffset points at the `[` of the checkbox, not the wiki link.
+    expect(item.firstParagraphMarkdown).toBe('call [[Bob]] about **billing**')
     expect(item.checked).toBe(false)
-    expect(item.markerOffset).toBe(2)
+    expect(item.astPath).toEqual([0])
   })
 
-  it('offsets the marker past frontmatter', () => {
+  it('addresses the body independently of frontmatter', () => {
     const source = '---\nid: abc\n---\n+ [ ] later\n'
     const note = parse(source)
     const item = note.tasks[0]!
-    expect(item.markerOffset).toBe(source.indexOf('[ ]'))
-    expect(source.slice(item.markerOffset, item.markerOffset + item.raw.length)).toBe(item.raw)
+    expect(item.astPath).toEqual([0])
   })
 
   it('captures nested sub-tasks as their own rows', () => {
     const note = parse('+ [ ] parent\n  + [x] child\n')
-    expect(note.tasks.map((task) => ({ text: task.text, checked: task.checked }))).toEqual([
+    expect(
+      note.tasks.map((task) => ({ text: task.firstParagraphMarkdown, checked: task.checked })),
+    ).toEqual([
       { text: 'parent', checked: false },
       { text: 'child', checked: true },
     ])
@@ -245,7 +232,6 @@ describe('parseNote — tasks', () => {
     const note = parse('+ Project [[Alpha]]\n  + **Phase one**\n    + [ ] ship it\n')
     expect(note.tasks).toEqual([
       expect.objectContaining({
-        text: 'ship it',
         breadcrumbs: ['Project Alpha', 'Phase one'],
       }),
     ])
@@ -258,7 +244,12 @@ describe('parseNote — tasks', () => {
 
   it('uses parent task rows as breadcrumbs for nested subtasks', () => {
     const note = parse('+ [ ] parent task\n  + [x] child task\n')
-    expect(note.tasks.map((task) => ({ text: task.text, breadcrumbs: task.breadcrumbs }))).toEqual([
+    expect(
+      note.tasks.map((task) => ({
+        text: task.firstParagraphMarkdown,
+        breadcrumbs: task.breadcrumbs,
+      })),
+    ).toEqual([
       { text: 'parent task', breadcrumbs: [] },
       { text: 'child task', breadcrumbs: ['parent task'] },
     ])
@@ -268,14 +259,10 @@ describe('parseNote — tasks', () => {
     const note = parse('+ [ ] real\n\n```\n+ [ ] not a task\n```\n')
     expect(note.tasks).toEqual([
       {
-        text: 'real',
         breadcrumbs: [],
-        raw: '[ ] real',
-        markerText: '[ ]',
         firstParagraphMarkdown: 'real',
-        plainText: 'real',
         checked: false,
-        markerOffset: 2,
+        astPath: [0],
         dueDate: null,
       },
     ])
@@ -308,9 +295,11 @@ describe('parseNote — tasks', () => {
 
   it('does not borrow a due-date link from a nested child task', () => {
     const note = parse('+ [ ] parent\n  + [ ] child [[2026-07-01]]\n')
-    expect(note.tasks.map((task) => ({ text: task.text, dueDate: task.dueDate }))).toEqual([
+    expect(
+      note.tasks.map((task) => ({ text: task.firstParagraphMarkdown, dueDate: task.dueDate })),
+    ).toEqual([
       { text: 'parent', dueDate: null },
-      { text: 'child 2026-07-01', dueDate: '2026-07-01' },
+      { text: 'child [[2026-07-01]]', dueDate: '2026-07-01' },
     ])
   })
 })

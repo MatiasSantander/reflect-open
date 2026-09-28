@@ -23,7 +23,7 @@ pub const INDEX_FILE: &str = "index.sqlite";
 /// `user_version` after every migration has run. Read-only consumers compare
 /// this against `PRAGMA user_version` to detect an index written by a newer
 /// (or older) app than they were built for.
-pub const LATEST_SCHEMA_VERSION: usize = 23;
+pub const LATEST_SCHEMA_VERSION: usize = 24;
 
 /// The `index_meta` key holding the TS-owned projection version (the rows'
 /// derivation version, distinct from the schema version above).
@@ -68,6 +68,7 @@ mod schema {
             M::up(include_str!("../migrations/0021_note_has_content.sql")),
             M::up(include_str!("../migrations/0022_drop_note_text.sql")),
             M::up(include_str!("../migrations/0023_task_paragraph.sql")),
+            M::up(include_str!("../migrations/0024_task_ast_path.sql")),
         ])
     });
 
@@ -216,23 +217,69 @@ mod schema {
         }
 
         #[test]
-        fn task_paragraph_upgrade_invalidates_incomplete_task_rows() {
-            let mut conn = open_in_memory().unwrap();
-            migrate_to(&mut conn, 22).unwrap();
-            conn.execute_batch(
-                "INSERT INTO notes(path, title, title_key, file_hash) VALUES('a.md', 'A', 'a', 'h');
-                 INSERT INTO tasks(note_path, marker_offset, text, raw, checked)
-                 VALUES('a.md', 2, 'first line', '[ ] first line', 0);",
-            ).unwrap();
-            migrate(&mut conn).unwrap();
-            let tasks: i64 = conn
-                .query_row("SELECT count(*) FROM tasks", [], |row| row.get(0))
-                .unwrap();
-            let notes: i64 = conn
-                .query_row("SELECT count(*) FROM notes", [], |row| row.get(0))
-                .unwrap();
-            assert_eq!(tasks, 0);
-            assert_eq!(notes, 1);
+        fn task_ast_upgrade_rebuilds_master_and_draft_without_losing_chat() {
+            for version in [22, 23] {
+                let mut conn = open_in_memory().unwrap();
+                migrate_to(&mut conn, version).unwrap();
+                conn.execute_batch(
+                    "INSERT INTO notes(path, title, title_key, file_hash) VALUES('a.md', 'A', 'a', 'h');
+                     INSERT INTO tasks(note_path, marker_offset, text, raw, checked) VALUES('a.md', 2, 'old', '[ ] old', 0);
+                     INSERT INTO index_meta(key, value) VALUES('projection_version', '21');
+                     INSERT INTO chat_conversations(id, title, created_ms, updated_ms) VALUES('chat', 'Keep', 1, 1);
+                     INSERT INTO chat_messages(id, conversation_id, seq, user_text, attachments, parts, response_messages, created_ms)
+                     VALUES('message', 'chat', 0, 'Keep this', '[]', '[]', '[]', 1);",
+                ).unwrap();
+                if version == 23 {
+                    conn.execute("UPDATE notes SET reference_markdown = '[ref]: /target'", [])
+                        .unwrap();
+                }
+                migrate(&mut conn).unwrap();
+                let columns: Vec<String> = conn
+                    .prepare("PRAGMA table_info(tasks)")
+                    .unwrap()
+                    .query_map([], |row| row.get(1))
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect();
+                assert_eq!(
+                    columns,
+                    [
+                        "note_path",
+                        "ast_path",
+                        "first_paragraph_markdown",
+                        "checked",
+                        "due_date",
+                        "breadcrumbs"
+                    ]
+                );
+                for (table, count) in [
+                    ("tasks", 0),
+                    ("notes", 1),
+                    ("chat_conversations", 1),
+                    ("chat_messages", 1),
+                ] {
+                    let actual: i64 = conn
+                        .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                            row.get(0)
+                        })
+                        .unwrap();
+                    assert_eq!(actual, count);
+                }
+                let stamps: i64 = conn
+                    .query_row(
+                        "SELECT count(*) FROM index_meta WHERE key = 'projection_version'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(stamps, 0);
+                if version == 23 {
+                    let references: String = conn
+                        .query_row("SELECT reference_markdown FROM notes", [], |row| row.get(0))
+                        .unwrap();
+                    assert_eq!(references, "[ref]: /target");
+                }
+            }
         }
 
         #[test]

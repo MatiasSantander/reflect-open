@@ -1,5 +1,4 @@
-import { parseNote, type OpenTask } from '@reflect/core'
-import type { TaskMarkerOffsetChange } from '@/lib/note-task.ts'
+import { markdownPlainText, type OpenTask } from '@reflect/core'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
@@ -19,109 +18,6 @@ export function withoutTasks(
   tasks: OpenTask[],
 ): OpenTask[] | undefined {
   return rows?.filter((row) => !tasks.some((task) => sameTask(row, task)))
-}
-
-function markerChangeForTask(
-  task: OpenTask,
-  changes: readonly TaskMarkerOffsetChange[],
-  matchUniqueRaw: boolean,
-): TaskMarkerOffsetChange | undefined {
-  const exact = changes.find(
-    (change) => change.from === task.markerOffset && change.fromRaw === task.raw,
-  )
-  if (exact !== undefined) {
-    return exact
-  }
-  if (!matchUniqueRaw) {
-    return undefined
-  }
-  const rawMatches = changes.filter((change) => change.fromRaw === task.raw)
-  return rawMatches.length === 1 ? rawMatches[0] : undefined
-}
-
-interface TaskMarkerRelocationOptions {
-  /** Relocate a stale offset when its raw marker has exactly one source match. */
-  readonly matchUniqueRaw?: boolean
-}
-
-interface TaskLineProjection {
-  readonly text: string
-  readonly dueDate: string | null
-}
-
-function taskLineProjection(raw: string): TaskLineProjection {
-  const projected = parseNote({ path: '', source: `+ ${raw}` }).tasks[0]
-  return {
-    text: projected?.text ?? '',
-    dueDate: projected?.dueDate ?? null,
-  }
-}
-
-/**
- * Re-key cached rows after a contextual note write shifts marker offsets. Exact
- * offset + raw identity is the default. A caller holding a stale shadow row can
- * opt into unique-raw matching; query caches must not because their optimistic
- * anchor edit may now share another task's original raw.
- */
-export function withRelocatedTaskMarkers(
-  rows: OpenTask[] | undefined,
-  notePath: string,
-  changes: readonly TaskMarkerOffsetChange[],
-  options?: TaskMarkerRelocationOptions,
-): OpenTask[] | undefined
-export function withRelocatedTaskMarkers(
-  rows: readonly OpenTask[],
-  notePath: string,
-  changes: readonly TaskMarkerOffsetChange[],
-  options?: TaskMarkerRelocationOptions,
-): readonly OpenTask[]
-export function withRelocatedTaskMarkers(
-  rows: readonly OpenTask[] | undefined,
-  notePath: string,
-  changes: readonly TaskMarkerOffsetChange[],
-  options: TaskMarkerRelocationOptions = {},
-): readonly OpenTask[] | undefined {
-  if (rows === undefined || changes.length === 0) {
-    return rows
-  }
-  let changed = false
-  const relocated = rows.flatMap((task) => {
-    if (task.notePath !== notePath) {
-      return [task]
-    }
-    const change = markerChangeForTask(task, changes, options.matchUniqueRaw === true)
-    if (change === undefined) {
-      return [task]
-    }
-    const { marker } = change
-    if (marker === null) {
-      changed = true
-      return []
-    }
-    if (marker.markerOffset === task.markerOffset && marker.raw === task.raw) {
-      return [task]
-    }
-    changed = true
-    return [
-      {
-        ...task,
-        ...marker,
-        ...(marker.raw === task.raw ? {} : taskLineProjection(marker.raw)),
-      },
-    ]
-  })
-  return changed ? relocated : rows
-}
-
-/**
- * The same task line with its checkbox flipped to `checked` — the marker rewritten
- * in `raw` to match. An optimistic checked/reopened row MUST carry this, not the
- * pre-toggle `raw`: the write-back locates the line by `raw`, so a struck row
- * still holding `[ ]` while disk has `[x]` would fail `locateTaskMarker` on the
- * next reopen/edit/delete. The marker always begins `raw`, so slice past it.
- */
-export function withCheckedMarker(task: OpenTask, checked: boolean): OpenTask {
-  return { ...task, checked, raw: `${checked ? '[x]' : '[ ]'}${task.raw.slice(3)}` }
 }
 
 /**
@@ -151,43 +47,20 @@ export function asOpen(rows: OpenTask[] | undefined, tasks: OpenTask[]): OpenTas
   return [...(rows ?? []).filter((row) => !reopenedKeys.has(taskKey(row))), ...reopened]
 }
 
-/**
- * The `raw` line a task would have after an inline edit: the indexed line's exact
- * marker kept, the content after it replaced. The marker is taken verbatim from
- * `raw` (not rebuilt from `checked`), so GitHub's `[X]` survives; a CRLF raw line
- * likewise keeps its trailing carriage return. Otherwise a follow-up edit/delete
- * would fail the staleness guard until reindexing. Empty content clears to a bare
- * marker, matching the disk edit ({@link editTaskLine}).
- */
-export function taskRawWithContent(task: OpenTask, content: string): string {
-  const marker = task.raw.slice(0, 3) // `[ ]` / `[x]` / `[X]` — raw always begins with it
-  const carriageReturn = task.raw.endsWith('\r') ? '\r' : ''
-  return content === '' ? `${marker}${carriageReturn}` : `${marker} ${content}${carriageReturn}`
+/** Optimistic checked state without a duplicated source marker. */
+export function withCheckedMarker(task: OpenTask, checked: boolean): OpenTask {
+  return { ...task, checked }
 }
 
-/**
- * The plain text the indexer would derive for a task line — markdown stripped,
- * wiki links flattened — by reparsing the rebuilt line through the same path the
- * projection uses. So the optimistic `text` (search + a11y) matches what the
- * reindex will store, not the raw markdown the editor produced.
- */
-function plainTextOfTaskLine(raw: string): string {
-  return taskLineProjection(raw).text
-}
-
-/**
- * Rewrite one task's content (and its `raw`) in a cached list before the reindex
- * re-derives it. The row keeps its place — the bucket only moves once the index
- * re-reads any due date — but shows the new text, with its rebuilt `raw` keeping
- * the next edit's staleness guard honest and its `text` carrying the *plain*
- * rendering (so search and the row label never see raw `[[…]]`/markup).
- */
+/** Update derived display text alongside editable Markdown. */
 export function withEditedTask(
   rows: OpenTask[] | undefined,
   task: OpenTask,
   content: string,
 ): OpenTask[] | undefined {
-  const raw = taskRawWithContent(task, content)
-  const text = plainTextOfTaskLine(raw)
-  return rows?.map((row) => (sameTask(row, task) ? { ...row, raw, text } : row))
+  return rows?.map((row) =>
+    sameTask(row, task)
+      ? { ...row, firstParagraphMarkdown: content, text: markdownPlainText(content) }
+      : row,
+  )
 }
