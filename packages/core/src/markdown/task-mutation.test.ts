@@ -132,3 +132,21 @@ it('can remove and continue a task with no later detail block', async () => {
   )
   expect(plan.source).toBe('+ [ ] \n')
 })
+
+it('edits and converts one paragraph atomically while retaining details', async () => {
+  const source = '+ [ ] before\n  wrapped\n\n  > detail\n'
+  const { revision, tasks } = await snapshot(source)
+  const result = planTaskMutations(
+    source,
+    revision,
+    [
+      {
+        base: tasks[0]!,
+        firstParagraphMarkdown: '**after\nwrapped**',
+        toBullet: true,
+      },
+    ],
+    () => undefined,
+  )
+  expect(result.source).toBe('+ **after\n  wrapped**\n\n  > detail\n')
+})

@@ -230,20 +230,31 @@ export function planTaskMutations(
           )
     if (operation.dueDate !== undefined)
       markdown = scheduleTaskParagraph(markdown, operation.dueDate)
-    if (markdown !== task.firstParagraphMarkdown) {
-      edits.push(
-        ...planTaskSourceEdits(source, task, {
-          kind: 'replaceFirstParagraph',
-          firstParagraphMarkdown: markdown,
-        }),
-      )
-    }
+    const paragraphEdits =
+      markdown === task.firstParagraphMarkdown
+        ? []
+        : planTaskSourceEdits(source, task, {
+            kind: 'replaceFirstParagraph',
+            firstParagraphMarkdown: markdown,
+          })
     if (operation.toBullet) {
-      if (markdown !== task.firstParagraphMarkdown)
-        return conflict('Convert and edit must be separate operations.')
       removed.add(task.marker.from)
-      edits.push(...planTaskSourceEdits(source, task, { kind: 'toBullet' }))
-    } else if (operation.checked !== undefined) {
+      // Fold the overlapping checkbox separator and paragraph replacement into
+      // one patch. The rest of the list item remains byte-for-byte untouched.
+      if (paragraphEdits.length) {
+        const replacement = paragraphEdits[0]!
+        edits.push({
+          range: { from: task.marker.from, to: replacement.range.to },
+          expected: source.slice(task.marker.from, replacement.range.to),
+          insert: replacement.insert.replace(/^ /, ''),
+        })
+      } else {
+        edits.push(...planTaskSourceEdits(source, task, { kind: 'toBullet' }))
+      }
+    } else {
+      edits.push(...paragraphEdits)
+    }
+    if (!operation.toBullet && operation.checked !== undefined) {
       edits.push(
         ...planTaskSourceEdits(source, task, { kind: 'setChecked', value: operation.checked }),
       )
