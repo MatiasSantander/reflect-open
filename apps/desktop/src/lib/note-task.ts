@@ -61,7 +61,8 @@ async function mutateNote(
       if (session) {
         const live = session.liveContent()
         if (live === null) throw new Error('The note is still loading. Try again shortly.')
-        source = session.isDirty() ? live : await readNote(path, generation)
+        const disk = await readNote(path, generation)
+        source = session.isDirty() ? live : disk
       } else {
         try {
           source = await readNote(path, generation)
@@ -83,7 +84,7 @@ async function mutateNote(
       if (result.source !== source) {
         if (session) {
           const applied = await session.commitSourceEdit((current) => {
-            if (current !== sessionSource)
+            if (openSession(path) !== session || current !== sessionSource)
               throw new Error('This note changed while saving. Your draft is kept.')
             return result.source
           })
@@ -124,7 +125,7 @@ async function mutateNote(
 }
 
 export function toggleTask(
-  task: TaskAddress & { checked?: boolean },
+  task: TaskAddress & { checked: boolean },
   generation: number,
 ): Promise<void> {
   return mutateTasks([{ task, edit: { checked: !task.checked } }], generation)

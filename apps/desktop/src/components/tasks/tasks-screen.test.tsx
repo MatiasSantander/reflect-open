@@ -1,3 +1,4 @@
+import { resetTaskDrafts } from '@/lib/tasks/task-drafts.ts'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
 import { userEvent, type Locator } from 'vitest/browser'
@@ -256,6 +257,7 @@ function renderScreen(client = new QueryClient({ defaultOptions: { queries: { re
 const waitFor = vi.waitFor
 
 beforeEach(() => {
+  resetTaskDrafts()
   window.sessionStorage.clear()
   getOpenTasks.mockReset()
   getCompletedTasks.mockReset()
@@ -532,8 +534,8 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     const row = await view.findByRole('button', { name: 'ship bold text' })
-    expect(row.querySelector('strong')?.textContent).toBe('bold')
-    expect(row.textContent).not.toContain('**bold**')
+    expect(row.querySelector('strong')?.textContent).toContain('bold')
+    expect(row.getAttribute('aria-label')).toBe('ship bold text')
     await view.unmount()
   })
 
@@ -1063,15 +1065,13 @@ describe('TasksScreen', () => {
     await userEvent.click(await view.findByRole('button', { name: 'first' }))
     await userEvent.click(view.getByRole('button', { name: 'continue-edit' }))
 
-    await waitFor(() =>
-      expect(editTask).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/a.md', firstParagraphMarkdown: 'first' }),
-        'edited content',
-        1,
-      ),
-    )
+    await waitFor(() => expect(fail).toHaveBeenCalledWith('This note is open.'))
+    expect(editTask).not.toHaveBeenCalled()
     expect(insertTask).not.toHaveBeenCalled()
-    expect(await view.findByRole('button', { name: 'edited content' })).toBeDefined()
+    expect(
+      view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Unsaved task draft"]')
+        ?.value,
+    ).toBe('edited content')
     expect(fail).toHaveBeenCalledWith('This note is open.')
     await view.unmount()
   })
@@ -1931,7 +1931,11 @@ describe('TasksScreen', () => {
     await waitFor(() => expect(fail).toHaveBeenCalledWith('disk full'))
     expect(startOperation).toHaveBeenCalledWith('Reopening task')
     await view.findByRole('button', { name: 'Reopen: project task' })
-    expect(view.queryByText('edited content')).toBeNull()
+    expect(view.queryByRole('button', { name: 'edited content', exact: true })).toBeNull()
+    expect(
+      view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Unsaved task draft"]')
+        ?.value,
+    ).toBe('edited content')
     await view.unmount()
   })
 

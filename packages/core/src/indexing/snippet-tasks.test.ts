@@ -13,3 +13,14 @@ describe('snippet checkboxes', () => {
     expect(extractSnippetTasks('1. [ ] ordered\n\n```\n+ [ ] code\n```')).toEqual([])
   })
 })
+
+it('maps a dedented nested checkbox back to the complete note AST', () => {
+  const content = '# Note\n\n+ parent\n  + [ ] child\n'
+  const tasks = extractSnippetTasks('+ [ ] child', {
+    content,
+    notePath: 'notes/a.md',
+    revision: 'hash',
+    lineOrigins: [content.indexOf('+ [ ] child')],
+  })
+  expect(tasks[0]?.address).toEqual({ notePath: 'notes/a.md', revision: 'hash', astPath: [1, 1] })
+})

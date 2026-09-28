@@ -178,6 +178,7 @@ export function TaskRow({
           role="button"
           tabIndex={0}
           aria-pressed={selected}
+          aria-label={label}
           onKeyDown={selectFromKeyboard}
           className={cn(
             'min-w-0 flex-1 break-words text-left text-sm leading-6 text-text focus-visible:outline-none',

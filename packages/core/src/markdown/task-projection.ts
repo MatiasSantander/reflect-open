@@ -5,6 +5,7 @@ import {
   parseMarkdownAst,
   walkMarkdownAst,
   type MarkdownNode,
+  type MarkdownDocument,
 } from '@meowdown/markdown'
 import type { ParsedTask } from './model.ts'
 import { parseBody } from './grammar.ts'
@@ -22,8 +23,15 @@ export function projectTaskContext(body: string): {
   tasks: ParsedTask[]
   referenceMarkdown: string
 } {
+  return projectTaskDocument(parseMarkdownAst(body))
+}
+
+/** Extract task rows and reference context from a parsed document. */
+export function projectTaskDocument(document: MarkdownDocument): {
+  tasks: ParsedTask[]
+  referenceMarkdown: string
+} {
   const definitions: string[] = []
-  const document = parseMarkdownAst(body)
   const contexts = new Map<
     MarkdownNode,
     { quoted: boolean; table: boolean; breadcrumbs: readonly string[] }

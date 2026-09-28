@@ -1,18 +1,90 @@
 import { useEffect } from 'react'
 import { onTaskMutation } from '@/lib/note-task.ts'
 import { relocateRecentlyCompleted } from './recently-completed.ts'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { errorMessage, inlineMarkdownToDisplayText, parseNote, type OpenTask } from '@reflect/core'
 import { startOperation } from '@/lib/operations.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { sameTask } from '@/lib/tasks/task-identity.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
+const versions = new WeakMap<QueryClient, number>()
+const subscriptions = new WeakMap<
+  QueryClient,
+  Map<number, { count: number; unsubscribe: () => void }>
+>()
+function subscribeTaskCache(
+  queryClient: QueryClient,
+  root: string,
+  generation: number,
+): () => void {
+  let clients = subscriptions.get(queryClient)
+  if (!clients) {
+    clients = new Map()
+    subscriptions.set(queryClient, clients)
+  }
+  let subscription = clients.get(generation)
+  if (!subscription) {
+    const openKey = queryKeys.index.openTasks(root)
+    const completedKey = queryKeys.index.completedTasks(root)
+    subscription = {
+      count: 0,
+      unsubscribe: onTaskMutation((receipt) => {
+        if (receipt.generation !== generation) return
+        versions.set(queryClient, (versions.get(queryClient) ?? 0) + 1)
+        const open = queryClient.getQueryData<OpenTask[]>(openKey) ?? []
+        const completed = queryClient.getQueryData<OpenTask[]>(completedKey) ?? []
+        const context = [...open, ...completed].find((task) => task.notePath === receipt.notePath)
+        if (
+          !context ||
+          (context.revision !== receipt.beforeRevision && context.revision !== receipt.revision)
+        )
+          return
+        const referenceMarkdown = parseNote({
+          path: receipt.notePath,
+          source: receipt.source,
+        }).referenceMarkdown
+        const projected = receipt.tasks.map((task) => ({
+          ...context,
+          ...task,
+          revision: receipt.revision,
+          referenceMarkdown,
+          text: inlineMarkdownToDisplayText(task.firstParagraphMarkdown),
+          updatedAt: Date.now(),
+        }))
+        queryClient.setQueryData<OpenTask[]>(openKey, (rows) => [
+          ...(rows ?? []).filter((row) => row.notePath !== receipt.notePath),
+          ...projected.filter((task) => !task.checked),
+        ])
+        queryClient.setQueryData<OpenTask[]>(completedKey, (rows) =>
+          rows === undefined
+            ? undefined
+            : [
+                ...rows.filter((row) => row.notePath !== receipt.notePath),
+                ...projected.filter((task) => task.checked),
+              ],
+        )
+        relocateRecentlyCompleted(root, receipt, projected)
+      }),
+    }
+    clients.set(generation, subscription)
+  }
+  subscription.count++
+  const current = subscription
+  return () => {
+    if (--current.count === 0) {
+      current.unsubscribe()
+      clients.delete(generation)
+    }
+  }
+}
+
 /** Updates a cached task list in place; returning the same `undefined` is a no-op. */
 type TaskListPatch = (rows: OpenTask[] | undefined) => OpenTask[] | undefined
 
 /** The open + completed task lists captured before an optimistic write, for rollback. */
 export interface TaskCacheSnapshot {
+  version: number
   open: OpenTask[] | undefined
   completed: OpenTask[] | undefined
 }
@@ -55,46 +127,17 @@ export function useTaskCacheWriter(): TaskCacheWriter {
   const completedKey = queryKeys.index.completedTasks(graph?.root)
 
   useEffect(
-    () =>
-      onTaskMutation((receipt) => {
-        if (receipt.generation !== graph?.generation) return
-        const open = queryClient.getQueryData<OpenTask[]>(openKey) ?? []
-        const completed = queryClient.getQueryData<OpenTask[]>(completedKey) ?? []
-        const context = [...open, ...completed].find((task) => task.notePath === receipt.notePath)
-        if (!context) return
-        const referenceMarkdown = parseNote({
-          path: receipt.notePath,
-          source: receipt.source,
-        }).referenceMarkdown
-        const projected = receipt.tasks.map((task) => ({
-          ...context,
-          ...task,
-          revision: receipt.revision,
-          referenceMarkdown,
-          text: inlineMarkdownToDisplayText(task.firstParagraphMarkdown),
-          updatedAt: Date.now(),
-        }))
-        queryClient.setQueryData<OpenTask[]>(openKey, (rows) => [
-          ...(rows ?? []).filter((row) => row.notePath !== receipt.notePath),
-          ...projected.filter((task) => !task.checked),
-        ])
-        queryClient.setQueryData<OpenTask[]>(completedKey, (rows) =>
-          rows === undefined
-            ? undefined
-            : [
-                ...rows.filter((row) => row.notePath !== receipt.notePath),
-                ...projected.filter((task) => task.checked),
-              ],
-        )
-        relocateRecentlyCompleted(graph.root, receipt, projected)
-      }),
-    [graph?.generation, graph?.root, queryClient, openKey, completedKey],
+    () => (graph ? subscribeTaskCache(queryClient, graph.root, graph.generation) : undefined),
+    [queryClient, graph?.root, graph?.generation],
   )
 
   const snapshot = async (): Promise<TaskCacheSnapshot> => {
     await queryClient.cancelQueries({ queryKey: openKey })
     await queryClient.cancelQueries({ queryKey: completedKey })
+    const version = (versions.get(queryClient) ?? 0) + 1
+    versions.set(queryClient, version)
     return {
+      version,
       open: queryClient.getQueryData<OpenTask[]>(openKey),
       completed: queryClient.getQueryData<OpenTask[]>(completedKey),
     }
@@ -117,6 +160,10 @@ export function useTaskCacheWriter(): TaskCacheWriter {
     label: string,
     cause: unknown,
   ): void => {
+    if (captured && captured.version !== versions.get(queryClient)) {
+      reconcile(label, cause)
+      return
+    }
     if (captured?.open !== undefined) {
       queryClient.setQueryData(openKey, captured.open)
     }

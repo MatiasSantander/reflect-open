@@ -28,3 +28,8 @@ export function dismissTaskDraft(key: string): void {
 export function useFailedTaskDrafts(): readonly FailedTaskDraft[] {
   return useSyncExternalStore(subscribe, () => drafts)
 }
+
+export function resetTaskDrafts(): void {
+  drafts = []
+  for (const listener of listeners) listener()
+}

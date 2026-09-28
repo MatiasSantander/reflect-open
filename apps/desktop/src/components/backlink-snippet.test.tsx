@@ -59,12 +59,24 @@ beforeEach(() => {
 })
 
 describe('BacklinkSnippet task checkboxes', () => {
-  it('keeps every checkbox read-only until AST writes are connected', async () => {
+  it('does not write checkboxes without an exact source address', async () => {
     const view = await renderSnippet()
     const boxes = view.container.querySelectorAll('input[type="checkbox"]')
     expect(boxes).toHaveLength(3)
     for (const box of boxes) await userEvent.click(box, { force: true })
     expect(toggleTask).not.toHaveBeenCalled()
+    await view.unmount()
+  })
+
+  it('toggles only the addressed round checkbox at the rendered index', async () => {
+    const tasks = anchors()
+    tasks[2]!.address = { notePath: 'notes/meeting.md', revision: 'hash', astPath: [0, 3] }
+    const view = await renderSnippet(tasks)
+    const boxes = view.container.querySelectorAll('input[type="checkbox"]')
+    await userEvent.click(boxes[2]!, { force: true })
+    await vi.waitFor(() =>
+      expect(toggleTask).toHaveBeenCalledWith({ ...tasks[2]!.address, checked: true }, 7),
+    )
     await view.unmount()
   })
 

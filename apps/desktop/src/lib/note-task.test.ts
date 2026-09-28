@@ -1,3 +1,5 @@
+import { createNoteSession } from '@/editor/note-session.ts'
+import { registerOpenDocument } from '@/editor/open-documents.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { setBridge, hashContent } from '@reflect/core'
 import { editTask, mutateTasks } from './note-task.ts'
@@ -32,4 +34,36 @@ describe('AST task writes', () => {
       contents: '+ [x] one\n+ [x] two\n',
     })
   })
+})
+
+it('refuses stale disk addresses without losing unsaved editor content', async () => {
+  const disk = '+ [ ] old\n'
+  const live = '+ [ ] unsaved\n'
+  const session = createNoteSession({
+    path: 'notes/n.md',
+    io: { read: async () => disk, write: vi.fn() },
+    classify: () => 'exact',
+    onSnapshot: () => {},
+    applyContent: () => {},
+  })
+  const unregister = registerOpenDocument({ session })
+  session.load()
+  await vi.waitFor(() => expect(session.liveContent()).toBe(disk))
+  session.editorChanged(live)
+  const invoke = vi.fn().mockResolvedValue(disk)
+  setBridge({ invoke, listen: async () => () => {} })
+  try {
+    await expect(
+      editTask(
+        { notePath: 'notes/n.md', revision: await hashContent(disk), astPath: [0] },
+        'overwrite',
+        1,
+      ),
+    ).rejects.toThrow('note changed')
+    expect(session.liveContent()).toBe(live)
+    expect(invoke.mock.calls.filter(([command]) => command === 'note_write')).toHaveLength(0)
+  } finally {
+    unregister()
+    session.discard()
+  }
 })

@@ -1,5 +1,5 @@
 import { onTaskMutation } from '@/lib/note-task.ts'
-import { encodeTaskPath, type TaskAddress } from '@reflect/core'
+import { encodeTaskPath, decodeTaskPath, type TaskAddress } from '@reflect/core'
 
 const identities = new Map<string, string>()
 function addressKey(task: TaskAddress): string {
@@ -10,7 +10,7 @@ onTaskMutation((receipt) => {
     const oldKey = addressKey({
       notePath: receipt.notePath,
       revision: receipt.beforeRevision,
-      astPath: JSON.parse(previous),
+      astPath: decodeTaskPath(previous),
     })
     const nextKey = addressKey({ notePath: receipt.notePath, revision: receipt.revision, astPath })
     identities.set(nextKey, identities.get(oldKey) ?? oldKey)

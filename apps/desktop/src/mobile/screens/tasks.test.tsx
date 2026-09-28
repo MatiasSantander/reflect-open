@@ -1,3 +1,4 @@
+import { resetTaskDrafts } from '@/lib/tasks/task-drafts.ts'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
@@ -270,6 +271,7 @@ async function revealSwipeActions(
 }
 
 beforeEach(async () => {
+  resetTaskDrafts()
   await page.viewport(375, 700)
   window.sessionStorage.clear()
   getOpenTasks.mockReset()

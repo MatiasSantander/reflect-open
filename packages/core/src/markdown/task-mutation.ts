@@ -7,7 +7,7 @@ import {
   type MarkdownListItem,
 } from '@meowdown/markdown'
 import { splitFrontmatter } from './frontmatter.ts'
-import { getTaskParagraph, projectTaskContext } from './task-projection.ts'
+import { getTaskParagraph, projectTaskContext, projectTaskDocument } from './task-projection.ts'
 import { encodeTaskPath } from './task-path.ts'
 
 /** Structural changes applied atomically to one revision of a note. */
@@ -88,11 +88,15 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
     }
   }
   if (append) {
+    if (body === '') document.children = []
     created = create()
     document.children.push(created)
   }
   const nextSource = changed ? source.slice(0, bodyOffset) + serializeMarkdownAst(document) : source
-  const finalTasks = projectTaskContext(splitFrontmatter(nextSource).body).tasks
+  const nextBody = splitFrontmatter(nextSource).body
+  const finalTasks = projectTaskContext(nextBody).tasks
+  const expectedTasks = projectTaskDocument(document).tasks
+  const sameTaskProjection = JSON.stringify(expectedTasks) === JSON.stringify(finalTasks)
   const nodes = [...walkMarkdownAst(document)].filter(
     ({ node }) =>
       node.type === 'listItem' &&
@@ -103,7 +107,7 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   const paths = new Map<string, readonly number[]>()
   let createdPath: readonly number[] | undefined
   // Pair only structurally unchanged addresses with the reparsed output.
-  for (const { node, path } of nodes) {
+  for (const { node, path } of sameTaskProjection ? nodes : []) {
     const task = finalTasks.find((task) => encodeTaskPath(task.astPath) === encodeTaskPath(path))
     const paragraph = getTaskParagraph(node)
     if (
