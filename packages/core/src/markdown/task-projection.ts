@@ -18,6 +18,7 @@ export function projectTaskContext(body: string): {
   referenceMarkdown: string
 } {
   const definitions: string[] = []
+  // FIXME: meowdown@master already has this replaceAll. replaceAll is not needed here.
   const document = parseMarkdownAst(body.replaceAll(/\r\n?/g, '\n'))
   const contexts = new Map<
     MarkdownNode,
