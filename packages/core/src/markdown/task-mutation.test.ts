@@ -150,3 +150,29 @@ it('edits and converts one paragraph atomically while retaining details', async 
   )
   expect(result.source).toBe('+ **after\n  wrapped**\n\n  > detail\n')
 })
+
+it.each(['``` [[2026-09-28]]', '[ref]: [[2026-09-28]]'])(
+  'schedules in paragraph context: %s',
+  async (markdown) => {
+    const source = '+ [ ] ' + markdown + '\n'
+    const { tasks } = await snapshot(source)
+    expect(tasks[0]?.projection.dueDate).toBe('2026-09-28')
+    expect(scheduleTaskParagraph(markdown, null)).toBe(markdown.replace(' [[2026-09-28]]', ''))
+    expect(scheduleTaskParagraph(markdown, '2026-09-29')).toBe(
+      markdown.replace('2026-09-28', '2026-09-29'),
+    )
+  },
+)
+
+it('does not recreate a task when converting checkbox-like paragraph content', async () => {
+  const source = '+ [ ] old\n'
+  const { revision, tasks } = await snapshot(source)
+  const result = planTaskMutations(
+    source,
+    revision,
+    [{ base: tasks[0]!, firstParagraphMarkdown: '[ ] inner', toBullet: true }],
+    () => undefined,
+  )
+  expect(result.source).toBe('+ \\[ ] inner\n')
+  expect(projectTaskSnapshots('a.md', result.source, 'after')).toEqual([])
+})

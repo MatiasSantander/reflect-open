@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashContent, projectTaskSnapshots, ReflectError } from '@reflect/core'
-import { mutateNoteTasks, mutateTaskBatch } from './task-mutation-service.ts'
+import { mutateNoteTasks, mutateTaskBatch, pinTaskDraft } from './task-mutation-service.ts'
 
 const io = vi.hoisted(() => ({
   read: vi.fn(),
@@ -8,6 +8,7 @@ const io = vi.hoisted(() => ({
   owner: null as null | {
     path: string
     generation: () => number
+    liveContent?: () => string
     commitSourceMutation: ReturnType<typeof vi.fn>
   },
 }))
@@ -92,5 +93,22 @@ it('does not route an old graph command into a new graph session with identical 
     /graph changed/,
   )
   expect(commit).not.toHaveBeenCalled()
+  expect(io.write).not.toHaveBeenCalled()
+})
+
+it('pins the indexed disk revision while an open note contains unsaved edits', async () => {
+  const source = '+ [ ] original\n'
+  const [base] = projectTaskSnapshots('pin.md', source, await hashContent(source))
+  io.owner = {
+    path: 'pin.md',
+    generation: () => 501,
+    liveContent: () => '+ [ ] unsaved\n',
+    commitSourceMutation: vi.fn(),
+  }
+  io.read.mockResolvedValue(source)
+  const release = await pinTaskDraft(base!, 501)
+  expect(io.read).toHaveBeenCalledExactlyOnceWith('pin.md')
+  release()
+  release()
   expect(io.write).not.toHaveBeenCalled()
 })

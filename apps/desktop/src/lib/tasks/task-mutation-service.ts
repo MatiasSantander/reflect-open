@@ -53,8 +53,14 @@ export async function pinTaskDraft(base: TaskRowSnapshot, generation: number): P
     const owner = openSession(base.anchor.notePath)
     if (owner && owner.generation() !== generation)
       throw new ReflectError('io', 'The graph changed.')
-    const source = owner?.liveContent() ?? (await readNote(base.anchor.notePath))
-    const revision = await hashContent(source)
+    let source = owner?.liveContent()
+    let revision = source == null ? undefined : await hashContent(source)
+    // An indexed row can still name the disk revision while its open note has
+    // unsaved input. Retain that exact base rather than rejecting the draft.
+    if (source == null || revision !== base.anchor.revision) {
+      source = await readNote(base.anchor.notePath)
+      revision = await hashContent(source)
+    }
     if (revision !== base.anchor.revision)
       throw new ReflectError('revisionConflict', 'Refresh this task before editing.')
     rememberTaskSource(generation, base.anchor.notePath, revision, source)

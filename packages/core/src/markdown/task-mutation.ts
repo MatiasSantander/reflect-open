@@ -1,5 +1,8 @@
 import {
   applySourceEdits,
+  parseInline,
+  collectInlineElements,
+  LEZER_NODE_IDS,
   planTaskInsertion,
   planTaskSourceEdits,
   type SourceEdit,
@@ -10,7 +13,6 @@ import { splitFrontmatter } from './frontmatter.ts'
 import { parseBody } from './grammar.ts'
 import { parseNote } from './extract.ts'
 import { normalizeWikiTarget } from './resolve.ts'
-import { scanInlineWikiLinks } from './scan.ts'
 import { scanReflectTasks, type TaskRowSnapshot } from './task-snapshot.ts'
 
 export interface TaskMutation {
@@ -102,9 +104,19 @@ export function scheduleTaskParagraph(markdown: string, date: string | null): st
   if (date !== null && normalizeWikiTarget(date).date === undefined) {
     throw new Error('Expected a calendar date')
   }
-  const dates = scanInlineWikiLinks(markdown).filter(
-    (link) => normalizeWikiTarget(link.target).date !== undefined,
+  const dates = collectInlineElements(
+    parseInline(markdown),
+    (node) => node.type === LEZER_NODE_IDS.Wikilink || node.type === LEZER_NODE_IDS.WikiEmbed,
   )
+    .map((node) => {
+      const from = node.from + (node.type === LEZER_NODE_IDS.WikiEmbed ? 1 : 0)
+      const target = markdown
+        .slice(from + 2, node.to - 2)
+        .split('|')[0]!
+        .trim()
+      return { from, to: node.to, target }
+    })
+    .filter((link) => normalizeWikiTarget(link.target).date !== undefined)
   if (date !== null && dates.length === 0) return `${markdown.trimEnd()} [[${date}]]`.trimStart()
   const selected = date === null ? dates : dates.slice(0, 1)
   return applySourceEdits(
@@ -230,29 +242,21 @@ export function planTaskMutations(
           )
     if (operation.dueDate !== undefined)
       markdown = scheduleTaskParagraph(markdown, operation.dueDate)
-    const paragraphEdits =
-      markdown === task.firstParagraphMarkdown
-        ? []
-        : planTaskSourceEdits(source, task, {
-            kind: 'replaceFirstParagraph',
-            firstParagraphMarkdown: markdown,
-          })
     if (operation.toBullet) {
       removed.add(task.marker.from)
-      // Fold the overlapping checkbox separator and paragraph replacement into
-      // one patch. The rest of the list item remains byte-for-byte untouched.
-      if (paragraphEdits.length) {
-        const replacement = paragraphEdits[0]!
-        edits.push({
-          range: { from: task.marker.from, to: replacement.range.to },
-          expected: source.slice(task.marker.from, replacement.range.to),
-          insert: replacement.insert.replace(/^ /, ''),
-        })
-      } else {
-        edits.push(...planTaskSourceEdits(source, task, { kind: 'toBullet' }))
-      }
-    } else {
-      edits.push(...paragraphEdits)
+      edits.push(
+        ...planTaskSourceEdits(source, task, {
+          kind: 'toBullet',
+          firstParagraphMarkdown: markdown,
+        }),
+      )
+    } else if (markdown !== task.firstParagraphMarkdown) {
+      edits.push(
+        ...planTaskSourceEdits(source, task, {
+          kind: 'replaceFirstParagraph',
+          firstParagraphMarkdown: markdown,
+        }),
+      )
     }
     if (!operation.toBullet && operation.checked !== undefined) {
       edits.push(
