@@ -118,11 +118,13 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   const nextSource = changed ? source.slice(0, bodyOffset) + serializeMarkdownAst(document) : source
   const nextBody = splitFrontmatter(nextSource).body
   const finalDocument = parseMarkdownAst(nextBody)
+  const finalEntries = [...walkMarkdownAst(document)]
+  const finalPaths = new Map(finalEntries.map(({ node, path }) => [node, path]))
   // Check only paragraphs this operation edits, before the caller writes anything.
   for (const { edit, item } of targets) {
     if (edit.remove || (edit.firstParagraphMarkdown === undefined && !edit.toBullet)) continue
-    const entry = [...walkMarkdownAst(document)].find(({ node }) => node === item)
-    const saved = entry && resolveMarkdownAstPath(finalDocument, entry.path)?.node
+    const path = finalPaths.get(item)
+    const saved = path && resolveMarkdownAstPath(finalDocument, path)?.node
     if (
       !saved ||
       saved.type !== 'listItem' ||
@@ -137,27 +139,20 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   const finalTasks = projectTaskDocument(finalDocument).tasks
   const expectedTasks = projectTaskDocument(document).tasks
   const sameTaskProjection = JSON.stringify(expectedTasks) === JSON.stringify(finalTasks)
-  const nodes = [...walkMarkdownAst(document)].filter(
+  const nodes = finalEntries.filter(
     ({ node }) =>
       node.type === 'listItem' &&
       node.kind === 'task' &&
       node.marker === '+' &&
       getTaskParagraph(node),
   )
+  const finalTaskPaths = new Set(finalTasks.map((task) => encodeTaskPath(task.astPath)))
   const paths = new Map<string, readonly number[]>()
   let createdPath: readonly number[] | undefined
   // Pair only structurally unchanged addresses with the reparsed output.
   for (const { node, path } of sameTaskProjection ? nodes : []) {
-    const task = finalTasks.find((task) => encodeTaskPath(task.astPath) === encodeTaskPath(path))
-    const paragraph = getTaskParagraph(node)
-    if (
-      !task ||
-      !paragraph ||
-      task.firstParagraphMarkdown !== paragraph.value ||
-      node.type !== 'listItem' ||
-      task.checked !== node.checked
-    )
-      continue
+    // Projection equality already verifies each surviving task's content and state.
+    if (node.type !== 'listItem' || !finalTaskPaths.has(encodeTaskPath(path))) continue
     const previous = originals.get(node)
     if (previous) paths.set(encodeTaskPath(previous), path)
     if (node === created) createdPath = path

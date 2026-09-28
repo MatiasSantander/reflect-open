@@ -94,3 +94,30 @@ it('does not escape inline syntax when protecting another continuation line', ()
   ])
   expect(result.tasks[0]?.firstParagraphMarkdown).toBe('<https://example.com>\n**bold**\n\\+ item')
 })
+
+it('maps duplicate text by structural address and excludes quoted tasks', () => {
+  const result = editTaskDocument('> + [ ] same\n\n+ [ ] same\n+ [ ] same\n', [
+    { astPath: [1], checked: true },
+  ])
+  expect([...result.paths]).toEqual([
+    ['[1]', [1]],
+    ['[2]', [2]],
+  ])
+  expect(result.tasks.map(({ astPath, checked }) => ({ astPath, checked }))).toEqual([
+    { astPath: [1], checked: true },
+    { astPath: [2], checked: false },
+  ])
+})
+
+it('checks edited descendants at their final path after promoting them', () => {
+  const result = editTaskDocument('+ [ ] parent\n  + [ ] child\n+ [ ] sibling\n', [
+    { astPath: [0], remove: true },
+    { astPath: [0, 1], firstParagraphMarkdown: 'changed child' },
+    { astPath: [1], firstParagraphMarkdown: 'changed sibling' },
+  ])
+  expect(result.source).toBe('+ [ ] changed child\n+ [ ] changed sibling\n')
+  expect([...result.paths]).toEqual([
+    ['[0,1]', [0]],
+    ['[1]', [1]],
+  ])
+})
