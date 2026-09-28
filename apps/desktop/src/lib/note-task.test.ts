@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { setBridge } from '@reflect/core'
 import {
+  continueTaskInContext,
   toggleTask,
   editTask,
   deleteTask,
@@ -15,6 +16,7 @@ describe('aggregate task writes', () => {
     setBridge({ invoke, listen: async () => () => {} })
     const task = { notePath: 'notes/n.md', revision: 'hash', astPath: [0] }
     for (const operation of [
+      continueTaskInContext(task, null, 1),
       toggleTask(task, 1),
       editTask(task, 'changed', 1),
       deleteTask(task, 1),

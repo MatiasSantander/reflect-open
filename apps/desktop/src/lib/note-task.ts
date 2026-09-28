@@ -16,3 +16,9 @@ export const convertTaskToBullet: (task: TaskAddress, generation: number) => Pro
   unavailable
 export const insertTask: (notePath: string, generation: number) => Promise<TaskAddress> =
   unavailable
+
+export const continueTaskInContext: (
+  task: TaskAddress,
+  content: string | null,
+  generation: number,
+) => Promise<never> = unavailable

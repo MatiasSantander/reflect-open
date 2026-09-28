@@ -243,7 +243,11 @@ beforeEach(() => {
   deleteTask.mockReset()
   editTask.mockReset()
   insertTask.mockReset()
-  insertTask.mockResolvedValue(0)
+  insertTask.mockImplementation(async (notePath: string) => ({
+    notePath,
+    revision: 'inserted-revision',
+    astPath: [0],
+  }))
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
     created: { astPath: [0], firstParagraphMarkdown: '' },
@@ -518,7 +522,11 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByRole('button', { name: 'full row' })
-    const row = view.container.querySelector('[data-task-key="notes/p.md:2"]')
+    const row = [...view.container.querySelectorAll('[data-task-key]')].find(
+      (element) =>
+        element.getAttribute('data-task-key') ===
+        JSON.stringify(['notes/p.md', 'test-revision', [2]]),
+    )
     expect(row).toBeInstanceOf(HTMLElement)
     await userEvent.click(row as HTMLElement)
 
@@ -560,7 +568,11 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'second' }))
-    const row = view.container.querySelector('[data-task-key="notes/p.md:3"]') as HTMLElement
+    const row = [...view.container.querySelectorAll('[data-task-key]')].find(
+      (element) =>
+        element.getAttribute('data-task-key') ===
+        JSON.stringify(['notes/p.md', 'test-revision', [3]]),
+    ) as HTMLElement
 
     await waitFor(() => {
       const rect = row.getBoundingClientRect()
@@ -662,7 +674,7 @@ describe('TasksScreen', () => {
     )
     await waitFor(() =>
       expect(toggleTask).toHaveBeenCalledWith(
-        expect.objectContaining({ astPath: [2], firstParagraphMarkdown: 'edited content' }),
+        expect.objectContaining({ astPath: [2], revision: 'test-revision' }),
         1,
       ),
     )
@@ -824,7 +836,11 @@ describe('TasksScreen', () => {
   })
 
   it('a note group’s "+ Add" button inserts into that note and opens the editor', async () => {
-    insertTask.mockResolvedValue(0)
+    insertTask.mockImplementation(async (notePath: string) => ({
+      notePath,
+      revision: 'inserted-revision',
+      astPath: [0],
+    }))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/proj.md',
@@ -981,7 +997,11 @@ describe('TasksScreen', () => {
 
   it('Enter in the editor saves the row and opens the next task (continuous entry)', async () => {
     editTask.mockResolvedValue(undefined)
-    insertTask.mockResolvedValue(7)
+    insertTask.mockImplementation(async (notePath: string) => ({
+      notePath,
+      revision: 'inserted-revision',
+      astPath: [7],
+    }))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
@@ -1000,59 +1020,6 @@ describe('TasksScreen', () => {
     // Persists this row's edit, then appends the next task in the same note.
     await waitFor(() => expect(editTask).toHaveBeenCalled())
     await waitFor(() => expect(insertTask).toHaveBeenCalledWith('notes/a.md', 1))
-    await view.unmount()
-  })
-
-  it('Enter in a grouped task keeps the new row in that breadcrumb context', async () => {
-    continueTaskInContext.mockResolvedValue({
-      created: { astPath: [40], firstParagraphMarkdown: '' },
-      offsetChanges: [
-        {
-          from: 40,
-          fromRaw: '[ ] later',
-          marker: { astPath: [56], firstParagraphMarkdown: 'later' },
-        },
-      ],
-    })
-    getOpenTasks.mockResolvedValue([
-      task({
-        notePath: 'notes/a.md',
-        astPath: [2],
-        firstParagraphMarkdown: 'first',
-        text: 'first',
-        noteTitle: 'A',
-        breadcrumbs: ['StartupToolbox', 'Reflections'],
-      }),
-      task({
-        notePath: 'notes/a.md',
-        astPath: [40],
-        firstParagraphMarkdown: 'later',
-        text: 'later',
-        noteTitle: 'A',
-        breadcrumbs: ['StartupToolbox', 'Later'],
-      }),
-    ])
-    const view = await renderScreen()
-
-    await userEvent.click(await view.findByRole('button', { name: 'first' }))
-    await userEvent.click(view.getByRole('button', { name: 'continue-edit' }))
-
-    await waitFor(() =>
-      expect(continueTaskInContext).toHaveBeenCalledWith(
-        expect.objectContaining({
-          notePath: 'notes/a.md',
-          breadcrumbs: ['StartupToolbox', 'Reflections'],
-        }),
-        'edited content',
-        1,
-      ),
-    )
-    expect(insertTask).not.toHaveBeenCalled()
-    await view.findByTestId('task-editor')
-    expect(view.getByText('later')).toBeDefined()
-
-    await userEvent.click(view.getByRole('button', { name: 'StartupToolbox → Reflections' }))
-    expect(view.getByRole('button', { name: 'Convert to bullet 2' })).toBeDefined()
     await view.unmount()
   })
 
@@ -1116,7 +1083,11 @@ describe('TasksScreen', () => {
 
   it('Enter on a cleared row deletes it instead of leaving a bare task (no ghost)', async () => {
     deleteTask.mockResolvedValue(undefined)
-    insertTask.mockResolvedValue(0)
+    insertTask.mockImplementation(async (notePath: string) => ({
+      notePath,
+      revision: 'inserted-revision',
+      astPath: [0],
+    }))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
@@ -1331,7 +1302,7 @@ describe('TasksScreen', () => {
     )
     await waitFor(() =>
       expect(convertTaskToBullet).toHaveBeenCalledWith(
-        expect.objectContaining({ astPath: [2], firstParagraphMarkdown: 'edited content' }),
+        expect.objectContaining({ astPath: [2], revision: 'test-revision' }),
         1,
       ),
     )
@@ -1668,7 +1639,6 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'edited content',
         }),
         1,
       ),
@@ -1907,7 +1877,6 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'edited content',
         }),
         1,
       ),

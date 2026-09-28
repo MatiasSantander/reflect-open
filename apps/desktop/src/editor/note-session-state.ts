@@ -435,8 +435,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
    * refreshes promptly. Returns false when the session can't safely take a body
    * edit (no write channel, disposed, protected/read-only, still loading, or a
    * parked conflict) so the caller refuses rather than clobber the buffer via disk.
-   * `transform` runs before any mutation, so a `TaskStaleError` (the marker can't
-   * be located) propagates with nothing changed. And the write is all-or-nothing:
+   * `transform` runs before any mutation; a thrown error leaves the buffer unchanged.
    * a failed flush reverts the in-memory edit so the editor and the Tasks list
    * can't diverge, then re-throws the failure.
    */

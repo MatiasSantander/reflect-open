@@ -8,6 +8,7 @@ import {
   getDuplicateNoteIds,
   getNoteIdsByPath,
   getOpenTasks,
+  getCompletedTasks,
   getPinnedNotes,
   getWikiAddressForPath,
   listDailyNotes,
@@ -686,5 +687,51 @@ describe('getOpenTasks', () => {
     const [, args] = mockInvoke.mock.calls[0]!
     expect(String(args['sql'])).toContain('"notes"."kind" != ?')
     expect(args['params']).toContain('template')
+  })
+})
+
+describe('task address ordering', () => {
+  function row(notePath: string, astPath: number[], updatedAt = 1) {
+    return {
+      note_path: notePath,
+      ast_path: JSON.stringify(astPath),
+      first_paragraph_markdown: '**same**',
+      breadcrumbs: '[]',
+      due_date: null,
+      revision: 'file-hash',
+      reference_markdown: '[ref]: /target',
+      note_title: 'N',
+      daily_date: null,
+      is_pinned: 0,
+      pinned_order: null,
+      updated_at: updatedAt,
+    }
+  }
+  it('sorts duplicate task content by numeric child indexes and preserves note context', async () => {
+    mockInvoke.mockResolvedValue([row('n.md', [10]), row('n.md', [2, 1]), row('n.md', [2])])
+    const tasks = await getOpenTasks()
+    expect(tasks.map((task) => task.astPath)).toEqual([[2], [2, 1], [10]])
+    expect(tasks[0]).toMatchObject({
+      text: 'same',
+      revision: 'file-hash',
+      referenceMarkdown: '[ref]: /target',
+    })
+    expect(String(mockInvoke.mock.calls[0]?.[1]['sql'])).not.toContain('order by')
+  })
+  it('sorts completed rows by note time, then note path and numeric path', async () => {
+    mockInvoke.mockResolvedValue([
+      row('b.md', [0]),
+      row('a.md', [10]),
+      row('a.md', [2]),
+      row('z.md', [0], 2),
+    ])
+    const tasks = await getCompletedTasks()
+    expect(tasks.map((task) => [task.notePath, task.astPath])).toEqual([
+      ['z.md', [0]],
+      ['a.md', [2]],
+      ['a.md', [10]],
+      ['b.md', [0]],
+    ])
+    expect(tasks.every((task) => task.checked)).toBe(true)
   })
 })

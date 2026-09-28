@@ -3,8 +3,8 @@ import { z } from 'zod'
 /**
  * The markdown document model (Plan 03) — the canonical, parser-agnostic shape
  * the indexer (Plan 04), backlinks (Plan 07), and search/AI consume. All
- * positions are character offsets into the **original** file (frontmatter
- * included), so they map straight back for splice edits and editor decorations.
+ * source spans use character offsets into the original file, including frontmatter.
+ * Tasks instead use child indexes from the body AST root.
  */
 
 /** A half-open character range `[from, to)` in the original source. */

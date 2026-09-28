@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import type { OpenTask, TaskAddress } from '@reflect/core'
 import {
+  continueTaskInContext,
   convertTaskToBullet,
   deleteTask,
   editTask,
@@ -21,7 +22,6 @@ import { taskKey } from '@/lib/tasks/task-identity.ts'
 import { insertedTaskRow, type InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { useTaskCheckboxAction } from '@/lib/tasks/use-task-checkbox-action.ts'
 import { useTaskCacheWriter } from '@/lib/tasks/use-task-cache.ts'
-import { taskContextInsert } from '@/lib/tasks/use-task-context-insert.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
 /**
@@ -32,11 +32,6 @@ import { useGraph } from '@/providers/graph-provider.tsx'
  * single-row checkbox toggle takes — so the selection reacts instantly,
  * then the reindex reconciles. A failed write rolls every row back and surfaces
  * the reason once.
- *
- * Writes within a batch run **sequentially**: tasks can share a note, and two
- * concurrent edits to one file would race (the loser's read predates the
- * winner's write). The core edits relocate by the task's `raw`, so the offset
- * drift a prior edit causes in the same note is tolerated, not a wrong write.
  */
 export interface TaskActions {
   complete: (tasks: OpenTask[]) => void
@@ -90,8 +85,7 @@ export interface TaskActions {
    * Convert the inline-edited task to a bullet, saving its edit first (⌘⇧K while
    * editing). The two writes run **sequentially** — edit then strip the marker
    * from the rebuilt line — so the unsaved draft is never lost to the convert
-   * landing first; the convert is given the post-edit `raw`, like {@link
-   * editAndToggle}.
+   * landing first.
    */
   editAndConvertToBullet: (task: OpenTask, content: string) => void
   /** Archive (⌘⇧↵): stop showing the session's completed tasks in the active list. */
@@ -104,7 +98,6 @@ export function useTaskActions(): TaskActions {
   const root = graph?.root ?? null
   const cache = useTaskCacheWriter()
   const checkboxAction = useTaskCheckboxAction()
-  const contextInsert = taskContextInsert()
 
   const completeMutation = useMutation({
     mutationKey: mutationKeys.tasks.complete(graph?.root),
@@ -225,8 +218,6 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      // Sequential, like the other batch writes — tasks can share a note, and the
-      // core edit relocates by `raw`, so a same-note batch tolerates offset drift.
       for (const task of tasks) {
         await editTask(task, scheduledContent(task, isoDate), generation)
       }
@@ -253,8 +244,6 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      // Sequential, like the other batch writes — tasks can share a note, and the
-      // core edit relocates by `raw`, so a same-note batch tolerates offset drift.
       for (const task of tasks) {
         await convertTaskToBullet(task, generation)
       }
@@ -290,10 +279,6 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      // Edit, then strip the marker off the *rewritten* line — sequential, and the
-      // convert is given the post-edit `raw` so it locates the line the edit just
-      // wrote (the marker offset is unchanged; only the content after it moved).
-      // Saving first is what keeps the inline draft from being lost to the convert.
       await editTask(task, content, generation)
       await convertTaskToBullet(task, generation)
     },
@@ -330,9 +315,6 @@ export function useTaskActions(): TaskActions {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      // Edit, then toggle the *rewritten* line — sequential, and the toggle is
-      // given the post-edit `raw` so it locates the line the edit just wrote
-      // (the marker offset is unchanged; only the content after it moved).
       try {
         await editTask(task, content, generation)
       } catch (cause) {
@@ -399,7 +381,6 @@ export function useTaskActions(): TaskActions {
       editAndToggleMutation.isPending ||
       checkboxAction.isPending ||
       insertMutation.isPending ||
-      contextInsert.isPending ||
       scheduleMutation.isPending ||
       convertMutation.isPending ||
       editAndConvertMutation.isPending,
@@ -458,18 +439,15 @@ export function useTaskActions(): TaskActions {
       }
       if (task.breadcrumbs.length > 0) {
         try {
-          const created = await contextInsert.insert(task, content)
-          if (created !== null) {
-            return created
-          }
-        } catch {
-          // Failure already surfaced; fall through to preserve the draft.
+          await continueTaskInContext(task, content, graph.generation)
+        } catch (cause) {
+          cache.reconcile('Adding task', cause)
         }
         await persistTaskDraft(task, content)
         return null
       }
       // Resolve the current row first and *await* it, so the append reads the
-      // settled source — the new offset can't drift when the line above resized.
+      // settled source.
       // Emptied content (the row was cleared) deletes that row rather than leaving
       // a bare `+ [ ]` ghost; a real change persists; null (unchanged) is left be.
       if (!(await persistTaskDraft(task, content))) {

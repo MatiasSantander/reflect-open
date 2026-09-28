@@ -19,13 +19,8 @@ export interface TaskCacheWriter {
   snapshot: () => Promise<TaskCacheSnapshot>
   /** Optimistically rewrite the open and completed lists at once. */
   patch: (open: TaskListPatch, completed: TaskListPatch) => void
-  /**
-   * Upsert one optimistic open row (Return-to-add) and remove the same identity
-   * from completed. Contextual callers relocate shifted source rows first so the
-   * new marker cannot collide with an existing cache identity.
-   */
+  /** Add an open row and remove the same address from completed rows. */
   addOpen: (task: OpenTask) => void
-  /** Re-key existing rows shifted by a contextual write, in both task caches. */
   /** Restore both lists from a snapshot and surface the failure once (single-write undo). */
   rollback: (captured: TaskCacheSnapshot | undefined, label: string, cause: unknown) => void
   /**

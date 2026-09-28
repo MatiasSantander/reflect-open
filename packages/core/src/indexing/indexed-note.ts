@@ -97,6 +97,8 @@ import { serializeWikiSuggestionAddress } from './suggest.ts'
  * 20 - `notes.has_content` records whether a note would render blank, and
  * `search_fts.body` now carries the raw Markdown body, so every note must
  * reproject.
+ * 21 - complete task first paragraphs and note reference context (draft).
+ * 22 - AST task addresses and the six-column task projection.
  */
 export const PROJECTION_VERSION = 22
 

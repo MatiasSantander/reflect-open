@@ -27,9 +27,7 @@ describe('recently-completed', () => {
     act(() => markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [2] })]))
     expect(result.current).toHaveLength(1)
     expect(result.current[0]!.checked).toBe(true)
-    // The marker in raw is flipped to [x] to match disk — these rows outlive the
-    // reindex, so a stale [ ] would later fail a reopen/edit/delete write-back.
-    expect(result.current[0]!.firstParagraphMarkdown).toBe('[x] do it')
+    expect(result.current[0]!.firstParagraphMarkdown).toBe('do it')
   })
 
   it('dedupes by task key', async () => {
@@ -48,7 +46,7 @@ describe('recently-completed', () => {
         task({ notePath: 'b.md', astPath: [2] }),
       ]),
     )
-    act(() => forgetRecentlyCompleted('/g', ['a.md:2']))
+    act(() => forgetRecentlyCompleted('/g', [JSON.stringify(['a.md', 'test-revision', [2]])]))
     expect(result.current.map((row) => row.notePath)).toEqual(['b.md'])
 
     act(() => archiveRecentlyCompleted('/g'))
@@ -127,7 +125,7 @@ describe('recently-completed', () => {
       open: [task({ notePath: 'a.md', astPath: [2], updatedAt: 200 })],
     })
     expect(result.current).toEqual([])
-    expect(hasRecentlyCompleted('/g', 'a.md:2')).toBe(false)
+    expect(hasRecentlyCompleted('/g', JSON.stringify(['a.md', 'test-revision', [2]]))).toBe(false)
   })
 
   it('excludes a reopened task during the render that sees it, before the store prune', async () => {

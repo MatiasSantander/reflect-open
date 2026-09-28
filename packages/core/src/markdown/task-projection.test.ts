@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { markdownPlainText } from './plain-text.ts'
 import { parseNote } from './extract.ts'
 import { decodeTaskPath, encodeTaskPath, compareTaskPaths } from './task-path.ts'
 
@@ -47,6 +48,16 @@ describe('AST task projection', () => {
     expect(parse('+ parent\n\n  [link]: /target\n\n> [other]: /other').referenceMarkdown).toBe(
       '[link]: /target\n\n[other]: /other',
     )
+  })
+  it('keeps paragraph block-opening characters as inline text', () => {
+    expect(markdownPlainText('# **heading-looking**')).toBe('# heading-looking')
+    expect(markdownPlainText('> *quote-looking*')).toBe('> quote-looking')
+    expect(parse('+ [ ] ``` [[2026-10-01]]').tasks[0]?.dueDate).toBe('2026-10-01')
+  })
+  it('does not promote inline reference-looking text into note definitions', () => {
+    expect(
+      parse('+ [ ] [task]: /url\n\n| column |\n| --- |\n| [cell]: /url |').referenceMarkdown,
+    ).toBe('')
   })
   it('orders numeric paths and places ancestors first', () => {
     const paths = [[10], [2, 10], [2, 1], [2], [0]]

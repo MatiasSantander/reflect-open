@@ -119,8 +119,10 @@ describe('createDevIndexDb', () => {
     const tags = db.query('SELECT tag FROM tags WHERE note_path = ?', ['notes/sample.md'])
     expect(tags).toEqual([{ tag: 'book' }])
 
-    const tasks = db.query('SELECT text, breadcrumbs, checked FROM tasks', [])
-    expect(tasks).toEqual([{ text: 'Do the thing', breadcrumbs: '["Project"]', checked: 0 }])
+    const tasks = db.query('SELECT first_paragraph_markdown, breadcrumbs, checked FROM tasks', [])
+    expect(tasks).toEqual([
+      { first_paragraph_markdown: 'Do the thing', breadcrumbs: '["Project"]', checked: 0 },
+    ])
 
     const emails = db.query('SELECT email, email_key FROM note_emails', [])
     expect(emails).toEqual([{ email: 'Sample@Example.com', email_key: 'sample@example.com' }])

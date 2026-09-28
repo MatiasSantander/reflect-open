@@ -195,7 +195,7 @@ export interface NoteSession {
    * separated — `appendBlock`) from an out-of-editor action like the
    * suggested-contact card's Add, applied to the live buffer so unsaved edits
    * survive, reflected in the open editor, and flushed now. Same gating,
-   * `false`-when-busy, and transactional revert as {@link commitTaskToggle}.
+   * refusal when busy, and transactional revert as {@link commitSourceEdit}.
    * A blank block is refused (`false`) — there is nothing to write.
    */
   commitBodyAppend: (block: string) => Promise<boolean>

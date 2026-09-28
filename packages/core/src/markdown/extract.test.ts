@@ -170,7 +170,7 @@ describe('parseNote — links, assets, tags, text', () => {
 })
 
 describe('parseNote — tasks', () => {
-  it('extracts open and checked round task checkboxes with text, raw, marker offset', () => {
+  it('extracts open and checked round task checkboxes with first paragraph Markdown and AST paths', () => {
     const note = parse('+ [ ] buy milk\n+ [x] call mum\n')
     expect(note.tasks).toEqual([
       {
@@ -184,7 +184,7 @@ describe('parseNote — tasks', () => {
         breadcrumbs: [],
         firstParagraphMarkdown: 'call mum',
         checked: true,
-        markerOffset: 17,
+        astPath: [1],
         dueDate: null,
       },
     ])
@@ -203,7 +203,7 @@ describe('parseNote — tasks', () => {
     ])
   })
 
-  it('strips inline syntax from text but keeps it verbatim in raw', () => {
+  it('preserves inline Markdown in the first paragraph', () => {
     const note = parse('+ [ ] call [[Bob]] about **billing**\n')
     const item = note.tasks[0]!
     expect(item.firstParagraphMarkdown).toBe('call [[Bob]] about **billing**')

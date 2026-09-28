@@ -1,4 +1,4 @@
-import { parseBody } from './grammar.ts'
+import { gfmParser, parseInline, type InlineElement } from '@meowdown/markdown'
 import type { Span } from './model.ts'
 
 /**
@@ -112,13 +112,15 @@ export function buildPlainText(body: string, cuts: Span[], literalRanges: Span[]
 export function markdownPlainText(markdown: string): string {
   const cuts: Span[] = []
   const literals: Span[] = []
-  parseBody(markdown).iterate({
-    enter: ({ name, from, to }) => {
-      if (name.endsWith('Mark') || name === 'URL' || name === 'CodeInfo' || name === 'TaskMarker')
-        cuts.push({ from, to })
-      if (name === 'InlineCode' || name === 'FencedCode' || name === 'CodeBlock')
-        literals.push({ from, to })
-    },
-  })
+  function visit(nodes: readonly InlineElement[]): void {
+    for (const node of nodes) {
+      const name = gfmParser.nodeSet.types[node.type]?.name ?? ''
+      if (name === 'Wikilink' || name === 'WikiEmbed') continue
+      if (name.endsWith('Mark') || name === 'URL') cuts.push(node)
+      if (name === 'InlineCode') literals.push(node)
+      visit(node.children)
+    }
+  }
+  visit(parseInline(markdown))
   return buildPlainText(markdown, cuts, literals)
 }

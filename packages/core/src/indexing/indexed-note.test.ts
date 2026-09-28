@@ -8,8 +8,8 @@ import {
 } from './indexed-note.ts'
 
 describe('buildIndexedNote', () => {
-  it('carries the projection version that rebuilds has_content and the FTS body', () => {
-    expect(PROJECTION_VERSION).toBe(21)
+  it('carries the projection version that rebuilds task AST paths', () => {
+    expect(PROJECTION_VERSION).toBe(22)
   })
 
   it('flattens a parsed note into the index payload', () => {

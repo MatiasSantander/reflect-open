@@ -258,7 +258,11 @@ beforeEach(async () => {
   deleteTask.mockReset()
   editTask.mockReset()
   insertTask.mockReset()
-  insertTask.mockResolvedValue(0)
+  insertTask.mockImplementation(async (notePath: string) => ({
+    notePath,
+    revision: 'inserted-revision',
+    astPath: [0],
+  }))
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
     created: { astPath: [0], firstParagraphMarkdown: '' },
