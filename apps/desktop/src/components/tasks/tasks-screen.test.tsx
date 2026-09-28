@@ -9,6 +9,7 @@ import { makeOpenTask as task } from '@/lib/tasks/open-task-fixture.ts'
 import { resetRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
 import { RouterProvider, useRouter } from '@/routing/router.tsx'
 import { fireEvent } from '@/test-utils/fire-event.ts'
+import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import '@/test-utils/locator.ts'
 import { TasksScreen } from './tasks-screen.tsx'
 
@@ -740,7 +741,7 @@ describe('TasksScreen', () => {
     // ⌘-click adds the row without clearing the rest (modifier set explicitly —
     // userEvent's held modifiers don't reach its synthetic click).
     act(() => {
-      fireEvent.click(view.getByRole('button', { name: 'third' }), { metaKey: true })
+      fireEvent.click(view.getByRole('button', { name: 'third' }), MOD_KEY)
     })
     expect([pressed('first'), pressed('second'), pressed('third')]).toEqual([true, false, true])
     expect(openRouteInNewWindow).not.toHaveBeenCalled()
@@ -763,7 +764,7 @@ describe('TasksScreen', () => {
       view.getByRole('button', { name }).element().getAttribute('aria-pressed') === 'true'
 
     await view.findByRole('button', { name: 'first' })
-    await userEvent.keyboard('{Meta>}a{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
     // Two selected → both stay buttons (the editor only opens for a sole row).
     expect([pressed('first'), pressed('second')]).toEqual([true, true])
 
@@ -796,8 +797,8 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByRole('button', { name: 'first' })
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select all
-    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select all
+    await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}')
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
     // Completing keeps both showing struck (the middle state), not dropped.
     await waitFor(() => expect(view.getAllByRole('button', { name: /^Reopen:/ })).toHaveLength(2))
@@ -828,8 +829,8 @@ describe('TasksScreen', () => {
     // ⌘⌫ deletes only outside the inline editor (a multi-selection mounts none);
     // while editing a sole task it's a text edit, so it can't race the commit.
     await userEvent.click(await view.findByRole('button', { name: 'first' }))
-    fireEvent.click(view.getByRole('button', { name: 'second' }), { metaKey: true })
-    await userEvent.keyboard('{Meta>}{Backspace}{/Meta}')
+    fireEvent.click(view.getByRole('button', { name: 'second' }), MOD_KEY)
+    await userEvent.keyboard('{ControlOrMeta>}{Backspace}{/ControlOrMeta}')
     await waitFor(() => expect(deleteTask).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(view.queryByText('first')).toBeNull())
     await view.unmount()
@@ -986,7 +987,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByText('keep')
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select both
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select both
     act(() => {
       fireEvent.keyDown(view.getByLabelText('Tasks', { exact: true }), { key: 'Backspace' })
     })
@@ -1165,8 +1166,8 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByRole('button', { name: 'open' })
-    await userEvent.keyboard('{Meta>}a{/Meta}') // selects the open and the completed row
-    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // selects the open and the completed row
+    await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}')
     // Only the open row toggles; the completed one is left untouched.
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
     expect(toggleTask).toHaveBeenCalledWith(expect.objectContaining({ notePath: 'notes/a.md' }), 1)
@@ -1194,7 +1195,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByText('plan')
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select both (no editor)
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select both (no editor)
     await userEvent.click(view.getByRole('button', { name: /Schedule 2/ }))
     // Pick June 20 in the calendar (today mock = 2026-06-14, so it opens on June).
     await userEvent.click(await view.findByText('20'))
@@ -1228,7 +1229,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByText('plan')
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select both (no editor mounts)
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select both (no editor mounts)
     await userEvent.click(view.getByRole('button', { name: /Convert to bullet 2/ }))
 
     await waitFor(() => expect(convertTaskToBullet).toHaveBeenCalledTimes(2))
@@ -1266,8 +1267,8 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByText('plan')
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select both (no editor mounts)
-    await userEvent.keyboard('{Meta>}{Shift>}k{/Shift}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select both (no editor mounts)
+    await userEvent.keyboard('{ControlOrMeta>}{Shift>}k{/Shift}{/ControlOrMeta}')
     await waitFor(() => expect(convertTaskToBullet).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(view.queryByText('plan')).toBeNull())
     await view.unmount()
@@ -1353,12 +1354,12 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByText('one')
-    await userEvent.keyboard('{Meta>}a{/Meta}') // select both (no editor)
-    await userEvent.keyboard('{Meta>}{Enter}{/Meta}') // complete both
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}') // select both (no editor)
+    await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}') // complete both
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
 
     // The struck rows stay selected; ⌘↵ again reopens them (two more toggles).
-    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}')
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(4))
     await view.unmount()
   })
@@ -1535,7 +1536,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByRole('button', { name: 'first task' })
-    await userEvent.keyboard('{Meta>}a{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
     await userEvent.click(view.getByRole('button', { name: 'Complete: first task' }))
 
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
@@ -1588,7 +1589,7 @@ describe('TasksScreen', () => {
 
     await view.findByRole('button', { name: 'open task' })
     await view.findByRole('button', { name: 'done task' })
-    await userEvent.keyboard('{Meta>}a{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
     await userEvent.click(view.getByRole('button', { name: 'Reopen: done task' }))
 
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
@@ -1977,7 +1978,7 @@ describe('TasksScreen', () => {
 
     await userEvent.click(await view.findByRole('button', { name: 'Complete: project task' }))
     await view.findByRole('button', { name: 'Reopen: project task' })
-    await userEvent.keyboard('{Meta>}{Shift>}{Enter}{/Shift}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}{Shift>}{Enter}{/Shift}{/ControlOrMeta}')
     await waitFor(() => expect(view.queryByText('project task')).toBeNull())
     await view.unmount()
   })
@@ -2045,8 +2046,8 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await view.findByRole('button', { name: 'first' })
-    await userEvent.keyboard('{Meta>}a{/Meta}')
-    await userEvent.keyboard('{Meta>}{Enter}{/Meta}')
+    await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
+    await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}')
     await waitFor(() => expect(fail).toHaveBeenCalledWith('stale index'))
     // A batch failure reconciles by refetching the index, not by restoring the
     // pre-batch snapshot (which would un-do any write that already landed).

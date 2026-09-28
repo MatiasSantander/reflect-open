@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
 import type { OpenTask } from '@reflect/core'
-import { getIsComposing } from '@meowdown/core'
+import { getIsComposing, isModEvent } from '@meowdown/core'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 import {
   insertTargetForBucket,
@@ -93,22 +93,14 @@ export function useTaskKeyboard({
       // ⌘⇧E toggles the filters menu (V1) — a screen-level chord that fires
       // regardless of focus, before the surface-scoping bails, so the same keys
       // open and close it (the open menu portals outside the surface).
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        (event.key === 'e' || event.key === 'E')
-      ) {
+      if (isModEvent(event) && event.shiftKey && (event.key === 'e' || event.key === 'E')) {
         event.preventDefault()
         onToggleFilters()
         return
       }
       // ⌘⇧S opens/closes the schedule calendar for the selection (V1) — also a
       // screen-level chord, but only when there's something to schedule.
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        (event.key === 's' || event.key === 'S')
-      ) {
+      if (isModEvent(event) && event.shiftKey && (event.key === 's' || event.key === 'S')) {
         if (selection.selectedCount > 0) {
           event.preventDefault()
           onToggleSchedule()
@@ -150,7 +142,7 @@ export function useTaskKeyboard({
         selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
         scrollToKey(key)
       }
-      const mod = event.metaKey || event.ctrlKey
+      const mod = isModEvent(event)
       const selectedTasks = (): OpenTask[] =>
         [...selection.selected]
           .map((key) => tasksByKey.get(key))
