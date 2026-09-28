@@ -461,7 +461,9 @@ fn write_note_revision(
             Err(error) => return Err(error.into()),
         };
         if current.as_deref() != expected {
-            return Err(AppError::io("Note changed on disk; reload before retrying"));
+            return Err(AppError::RevisionConflict {
+                message: "Note changed on disk; reload before retrying".into(),
+            });
         }
     }
     atomic_write(root, target, contents)
@@ -1341,7 +1343,10 @@ mod note_revision_tests {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("daily.md");
         write_note_revision(directory.path(), &target, "first", true, None).unwrap();
-        assert!(write_note_revision(directory.path(), &target, "second", true, None).is_err());
+        assert!(matches!(
+            write_note_revision(directory.path(), &target, "second", true, None),
+            Err(AppError::RevisionConflict { .. })
+        ));
         assert_eq!(fs::read_to_string(&target).unwrap(), "first");
     }
 }

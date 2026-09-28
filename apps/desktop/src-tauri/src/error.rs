@@ -16,6 +16,8 @@ use serde::Serialize;
 pub enum AppError {
     /// Filesystem / IO failure.
     Io { message: String },
+    /// The source changed after the caller read it.
+    RevisionConflict { message: String },
     /// A requested note or file does not exist.
     NotFound { message: String },
     /// A path escaped the graph root (security guard).

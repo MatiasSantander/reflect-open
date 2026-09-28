@@ -16,6 +16,10 @@ const dbQueryArgsSchema = z.object({ sql: z.string(), params: z.array(z.unknown(
 const pathArgsSchema = z.object({ path: z.string() })
 const writeArgsSchema = z.object({ path: z.string(), contents: z.string() })
 const createArgsSchema = writeArgsSchema.extend({ generation: z.number().int().nonnegative() })
+const revisionWriteArgsSchema = createArgsSchema.extend({
+  checkContents: z.boolean().optional(),
+  expectedContents: z.string().nullable().optional(),
+})
 const moveArgsSchema = z.object({ from: z.string(), to: z.string() })
 const moveRequestArgsSchema = z.object({
   request: z.object({ from: z.string(), to: z.string() }),
@@ -176,7 +180,14 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
         return { kind: 'content', content: contents }
       }
       case 'note_write': {
-        const { path, contents } = writeArgsSchema.parse(args)
+        const { path, contents, generation, checkContents, expectedContents } =
+          revisionWriteArgsSchema.parse(args)
+        if (generation !== graphInfo.generation) {
+          throw new ReflectError('io', 'The graph changed before this write.')
+        }
+        if (checkContents && files.read(path) !== (expectedContents ?? null)) {
+          throw new ReflectError('revisionConflict', 'Note changed on disk; reload before retrying')
+        }
         return files.write(path, contents)
       }
       case 'note_create': {

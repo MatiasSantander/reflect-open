@@ -60,6 +60,8 @@ export interface NoteSessionIo {
 export type NoteContentOrigin = 'load' | 'external' | 'saved'
 
 export interface NoteSessionOptions {
+  /** Current graph generation, read at the actual write boundary. */
+  generation?: () => number | null
   /** Graph-relative path of the note this session owns. */
   path: string
   io: NoteSessionIo
@@ -107,8 +109,15 @@ export interface NoteSessionOptions {
   missingSeed?: string | undefined
   saveDebounceMs?: number
 }
+export interface NoteMutationReceipt {
+  candidateSource: string
+  persistedSource: string
+  bufferSource: string
+}
+
 /** One open note's document lifecycle. Create via {@link createNoteSession}. */
 export interface NoteSession {
+  readonly generation: () => number | null
   /** The graph-relative path this session is bound to (mutable via {@link NoteSession.retarget}). */
   readonly path: string
   /**
@@ -236,6 +245,11 @@ export interface NoteSession {
   commitBodyAppend: (block: string) => Promise<boolean>
   /** Apply a synchronous full-source transform through the live save pipeline. */
   commitSourceEdit: (transform: (source: string) => string) => Promise<boolean>
+  /** Apply after loading and report what the save chain actually persisted. */
+  commitSourceMutation: (
+    transform: (source: string) => string | Promise<string>,
+    expectedGeneration?: number,
+  ) => Promise<NoteMutationReceipt | null>
   /** Flush pending edits and detach: no further snapshots are emitted. */
   dispose: () => void
   /**

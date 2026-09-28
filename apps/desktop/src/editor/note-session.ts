@@ -9,6 +9,7 @@ export type { FrontmatterPatch } from './note-session-frontmatter.ts'
 export type {
   NoteContentOrigin,
   NoteSession,
+  NoteMutationReceipt,
   NoteSessionIo,
   NoteSessionOptions,
   NoteSessionSnapshot,

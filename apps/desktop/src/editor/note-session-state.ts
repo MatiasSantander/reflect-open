@@ -4,6 +4,8 @@ import {
   editTaskLine,
   errorMessage,
   isAppError,
+  mergeTaskParagraph,
+  ReflectError,
   removeTaskLine,
   taskLineToBullet,
   toggleTaskMarker,
@@ -14,6 +16,7 @@ import { splitDoc } from './note-session-doc.ts'
 import { frontmatterPatchToYaml, type FrontmatterPatch } from './note-session-frontmatter.ts'
 import type {
   NoteSession,
+  NoteMutationReceipt,
   NoteSessionOptions,
   NoteSessionSnapshot,
   NoteSessionStatus,
@@ -38,6 +41,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
   let missing = false
   let conflict: string | null = null
   let error: string | null = null
+  let saveFailure: unknown = null
 
   // Pipeline state (never surfaces).
   /** The **body** as of the last editor change (the editor never sees frontmatter). */
@@ -48,7 +52,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
   let disk = ''
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   /** Serializes writes so a flush can't interleave with a debounced save. */
-  let saveChain: Promise<void> = Promise.resolve()
+  let saveChain: Promise<string | null> = Promise.resolve(null)
   /** Settles when the current initial load has committed its state. */
   let loadPromise: Promise<void> = Promise.resolve()
   /**
@@ -102,7 +106,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     onSnapshot(next)
   }
 
-  function save(): void {
+  function save(expectedGeneration?: number): void {
     // A discarded session never writes: its file is being deleted, so any
     // save — including a teardown `flush()` (the pane unmounts via flush →
     // dispose) or an already-queued step — would recreate it. A parked
@@ -113,6 +117,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
       return
     }
     const write = io.write
+    const expectedPath = path
     saveChain = saveChain
       .then(async () => {
         // Re-check at execution time and take the freshest buffer — a queued
@@ -121,7 +126,13 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
         // for a delete. (After dispose the buffer is frozen, so this same step
         // doubles as the final flush.)
         if (discarded || deleting || !dirty || isProtected || conflict !== null) {
-          return
+          return null
+        }
+        if (
+          expectedGeneration !== undefined &&
+          (options.generation?.() !== expectedGeneration || path !== expectedPath)
+        ) {
+          throw new ReflectError('io', 'The graph changed before this write.')
         }
         const content = header + buffer
         inFlightWrite = content
@@ -130,18 +141,22 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
           disk = content
           dirty = header + buffer !== content
           missing = false // the landed write created the file if it was missing
+          saveFailure = null
           error = null // a previous save failure is resolved by this success
           emit()
           onContent?.(content, 'saved')
+          return content
         } finally {
           inFlightWrite = null
         }
       })
       .catch(async (cause) => {
+        saveFailure = cause
         console.error('failed to save note:', cause)
         error = errorMessage(cause)
         await reconcileFromDisk()
         emit()
+        return null
       })
   }
 
@@ -165,13 +180,17 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     }
   }
 
-  function flush(): Promise<void> {
+  function flushSavedSource(expectedGeneration?: number): Promise<string | null> {
     reconcilePendingEditorInput?.()
     cancelScheduledSave()
-    save()
+    save(expectedGeneration)
     // save() extended the chain synchronously (or left it settled when there
     // was nothing to do) — the chain as of now is exactly this flush's write.
     return saveChain
+  }
+
+  function flush(): Promise<void> {
+    return flushSavedSource().then(() => {})
   }
 
   function editorChanged(markdown: string): void {
@@ -445,7 +464,11 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
    * a failed flush reverts the in-memory edit so the editor and the Tasks list
    * can't diverge, then re-throws the failure.
    */
-  async function commitBodyEdit(transform: (full: string) => string): Promise<boolean> {
+  async function commitBodyEdit(
+    transform: (full: string) => string,
+    onPersisted?: (source: string) => void,
+    expectedGeneration?: number,
+  ): Promise<boolean> {
     if (io.write === null || disposed || isProtected || status !== 'ready' || conflict !== null) {
       return false
     }
@@ -461,11 +484,16 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     // surfaced save error must not be mistaken for this edit's failure.
     const shouldPersist = dirty
     emit()
-    await flush()
+    const persistedSource = await flushSavedSource(expectedGeneration)
     // `flush()` resolves even when the write failed (captured in `error`, not
     // thrown). Revert and surface the failure: it persists, or nothing changes.
-    if (shouldPersist && error !== null) {
-      const message = error
+    if (
+      shouldPersist &&
+      (error !== null ||
+        (persistedSource === null && (conflict !== null || discarded || deleting || isProtected)))
+    ) {
+      const message = error ?? 'This note cannot be saved right now.'
+      const cause = error !== null ? saveFailure : new ReflectError('revisionConflict', message)
       if (header === doc.header) header = previousHeader
       if (buffer === doc.body) {
         buffer = previousBuffer
@@ -474,9 +502,83 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
       dirty = header + buffer !== disk
       error = null
       emit()
-      throw new Error(message)
+      throw cause ?? new Error(message)
     }
+    onPersisted?.(shouldPersist ? (persistedSource ?? disk) : disk)
     return true
+  }
+
+  async function commitSourceMutation(
+    transform: (source: string) => string | Promise<string>,
+    expectedGeneration?: number,
+  ): Promise<NoteMutationReceipt | null> {
+    const expectedPath = path
+    const assertIdentity = () => {
+      if (
+        path !== expectedPath ||
+        (expectedGeneration !== undefined && options.generation?.() !== expectedGeneration)
+      ) {
+        throw new ReflectError('io', 'The note or graph changed before this operation.')
+      }
+    }
+    await loadPromise
+    assertIdentity()
+    if (conflict !== null) return null
+    for (let attempt = 0; ; attempt++) {
+      reconcilePendingEditorInput?.()
+      const previousSource = header + buffer
+      const previousDisk = disk
+      const candidateSource = await transform(previousSource)
+      assertIdentity()
+      if (header + buffer !== previousSource) {
+        if (attempt < 2) continue
+        throw new ReflectError(
+          'revisionConflict',
+          'The note is still changing. Your draft has been kept.',
+        )
+      }
+      let persistedSource = disk
+      try {
+        const accepted = await commitBodyEdit(
+          (source) => {
+            assertIdentity()
+            if (source !== previousSource)
+              throw new ReflectError('revisionConflict', 'New input arrived before the operation.')
+            return candidateSource
+          },
+          (source) => {
+            persistedSource = source
+          },
+          expectedGeneration,
+        )
+        return accepted ? { candidateSource, persistedSource, bufferSource: header + buffer } : null
+      } catch (cause) {
+        if (
+          attempt >= 2 ||
+          !isAppError(cause) ||
+          cause.kind !== 'revisionConflict' ||
+          conflict === null ||
+          header + buffer !== previousSource ||
+          isProtected ||
+          disposed ||
+          deleting
+        )
+          throw cause
+        // Only a conflict caused by this operation can auto-recover. Preserve
+        // later typing and never unpark an existing user-visible conflict.
+        const external: string = conflict
+        const merged = mergeTaskParagraph(previousDisk, external, previousSource)
+        const doc = splitDoc(merged)
+        disk = external
+        header = doc.header
+        buffer = doc.body
+        conflict = null
+        error = null
+        dirty = merged !== disk
+        applyToEditor(buffer)
+        emit()
+      }
+    }
   }
 
   function commitTaskToggle(task: TaskMarker): Promise<boolean> {
@@ -564,6 +666,8 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     commitTaskToBullet,
     commitBodyAppend,
     commitSourceEdit: commitBodyEdit,
+    commitSourceMutation,
+    generation: () => options.generation?.() ?? null,
     dispose,
     discard,
   }

@@ -92,3 +92,15 @@ export {
   type TaskRowSnapshot,
   type TaskSnapshot,
 } from './task-snapshot.ts'
+
+export {
+  planTaskMutations,
+  projectTaskSnapshots,
+  mapTaskOffset,
+  mapTaskOffsets,
+  mergeTaskParagraph,
+  scheduleTaskParagraph,
+  type TaskMutation,
+  type TaskMutationPlan,
+  type TaskRelocation,
+} from './task-mutation.ts'

@@ -116,6 +116,7 @@ export function useNoteDocument(
           : null,
       session: (coordinator) =>
         createNoteSession({
+          generation: () => generationRef.current,
           path,
           io: {
             read: readNote,

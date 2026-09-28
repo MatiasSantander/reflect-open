@@ -8,6 +8,7 @@ import { z } from 'zod'
  * opaque strings. Kinds mirror the Rust `AppError` enum (camelCase via serde).
  */
 export const appErrorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('revisionConflict'), message: z.string() }),
   z.object({ kind: z.literal('io'), message: z.string() }),
   z.object({ kind: z.literal('notFound'), message: z.string() }),
   z.object({ kind: z.literal('traversal'), message: z.string() }),
