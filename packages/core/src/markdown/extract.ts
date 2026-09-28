@@ -1,12 +1,17 @@
 import { parseXPostId } from '@post-embed/schema'
-import type { SyntaxNode } from '@meowdown/markdown'
+import {
+  readBlockSource,
+  scanTaskItems,
+  type SyntaxNode,
+  type TaskSourceItem,
+} from '@meowdown/markdown'
 import { dateFromDailyPath, isAttachmentPath, isDaily } from '../graph/paths.ts'
 import { parseFrontmatter, splitFrontmatter } from './frontmatter.ts'
 import { parseBody } from './grammar.ts'
 import { foldTag } from './keys.ts'
 import { parseInlineLink } from './link-syntax.ts'
 import { headingLevelOf } from './node-types.ts'
-import { buildPlainText, plainTextOfRange, unescapeMarkdownText } from './plain-text.ts'
+import { buildPlainText, createPlainTextReader, unescapeMarkdownText } from './plain-text.ts'
 import { normalizeWikiTarget } from './resolve.ts'
 import { taskBreadcrumbs } from './task-breadcrumbs.ts'
 import { parseTaskMarker } from './task-marker.ts'
@@ -310,6 +315,9 @@ function readTask(
   cuts: Span[],
   literalRanges: Span[],
   wikiLinks: WikiLink[],
+  sourceTask: TaskSourceItem,
+  readText: (from: number, to: number) => string,
+  labels: Map<number, string | null>,
 ): ParsedTask | null {
   const { from, to } = taskNode
   if (!hasRoundTaskListMarker(body, from)) {
@@ -322,8 +330,11 @@ function readTask(
   const lineEnd = lineEndAfter(body, from)
   const markerOffset = from + bodyOffset
   return {
-    text: plainTextOfRange(body, from, lineEnd, cuts, literalRanges),
-    breadcrumbs: taskBreadcrumbs(body, taskNode, cuts, literalRanges),
+    text: readText(from, sourceTask.firstParagraph.to),
+    plainText: readText(from, sourceTask.firstParagraph.to),
+    firstParagraphMarkdown: sourceTask.firstParagraphMarkdown,
+    markerText: sourceTask.markerText,
+    breadcrumbs: taskBreadcrumbs(body, taskNode, cuts, literalRanges, readText, labels),
     raw: body.slice(from, lineEnd),
     checked: marker.checked,
     markerOffset,
@@ -422,6 +433,7 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
   const cuts: Span[] = [] // body coords — syntax to drop from plain text
   const tagExcluded: Span[] = [] // body coords — regions that don't yield tags
   const literalPlainText: Span[] = [] // body coords — regions that render backslashes literally
+  const referenceDefinitions: string[] = []
   const taskNodes: SyntaxNode[] = [] // body coords — `Task` nodes, resolved after the walk
 
   tree.iterate({
@@ -430,6 +442,9 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
 
       if (isSyntaxNode(name)) {
         cuts.push({ from, to })
+      }
+      if (name === 'LinkReference') {
+        referenceDefinitions.push(readBlockSource(body, node.node))
       }
       if (name === 'Task') {
         // Resolve after the walk: the child `TaskMarker`/emphasis cuts this task
@@ -510,9 +525,24 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
   const tags = new Map<string, string>()
   collectTags(body, tagExcluded, tags)
 
+  const readText = createPlainTextReader(body, cuts, literalPlainText)
+  const labels = new Map<number, string | null>()
+  const sourceTasks = new Map(scanTaskItems(body, tree).map((task) => [task.marker.from, task]))
   const tasks: ParsedTask[] = []
   for (const taskNode of taskNodes) {
-    const task = readTask(body, taskNode, bodyOffset, cuts, literalPlainText, wikiLinks)
+    const sourceTask = sourceTasks.get(taskNode.from)
+    if (!sourceTask) continue
+    const task = readTask(
+      body,
+      taskNode,
+      bodyOffset,
+      cuts,
+      literalPlainText,
+      wikiLinks,
+      sourceTask,
+      readText,
+      labels,
+    )
     if (task) {
       tasks.push(task)
     }
@@ -530,6 +560,7 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
     headings,
     assets,
     tasks,
+    referenceMarkdown: referenceDefinitions.join('\n\n'),
     displayText: buildPlainText(body, cuts, literalPlainText),
   }
 }

@@ -9,7 +9,7 @@ import {
 
 describe('buildIndexedNote', () => {
   it('carries the projection version that rebuilds has_content and the FTS body', () => {
-    expect(PROJECTION_VERSION).toBe(20)
+    expect(PROJECTION_VERSION).toBe(21)
   })
 
   it('flattens a parsed note into the index payload', () => {
@@ -281,6 +281,9 @@ describe('buildIndexedNote', () => {
         text: 'buy milk',
         breadcrumbs: [],
         raw: '[ ] buy milk',
+        markerText: '[ ]',
+        firstParagraphMarkdown: 'buy milk',
+        plainText: 'buy milk',
         checked: false,
         dueDate: null,
       },
@@ -289,6 +292,9 @@ describe('buildIndexedNote', () => {
         text: 'call mum',
         breadcrumbs: [],
         raw: '[x] call mum',
+        markerText: '[x]',
+        firstParagraphMarkdown: 'call mum',
+        plainText: 'call mum',
         checked: true,
         dueDate: null,
       },

@@ -1,4 +1,4 @@
-import type { TaskMarker } from '../markdown/index.ts'
+import type { TaskMarker, TaskRowSnapshot } from '../markdown/index.ts'
 import { db } from './db.ts'
 import { decodeTaskBreadcrumbs } from './indexed-note.ts'
 
@@ -7,6 +7,11 @@ import { decodeTaskBreadcrumbs } from './indexed-note.ts'
  * renders by.
  */
 export interface OpenTask extends TaskMarker {
+  firstParagraphMarkdown: string
+  plainText: string
+  markerText: string
+  revision: string
+  referenceMarkdown: string
   notePath: string
   /** Whether the checkbox is ticked. Open lists are all `false`; archived rows are `true`. */
   checked: boolean
@@ -31,6 +36,11 @@ function taskRowsQuery() {
     .innerJoin('notes', 'notes.path', 'tasks.notePath')
     .where('notes.kind', '!=', 'template')
     .select([
+      'tasks.firstParagraphMarkdown',
+      'tasks.plainText',
+      'tasks.markerText',
+      'notes.fileHash as revision',
+      'notes.referenceMarkdown',
       'tasks.notePath',
       'tasks.markerOffset',
       'tasks.raw',
@@ -89,4 +99,23 @@ export async function getCompletedTasks(): Promise<OpenTask[]> {
     .orderBy('tasks.markerOffset')
     .execute()
   return rows.map(toTaskRow)
+}
+
+/** Freeze the source identity and editable projection before starting a draft. */
+export function taskSnapshotFromRow(row: OpenTask): TaskRowSnapshot {
+  return {
+    anchor: {
+      notePath: row.notePath,
+      revision: row.revision,
+      markerOffset: row.markerOffset,
+      markerText: row.markerText,
+    },
+    projection: {
+      firstParagraphMarkdown: row.firstParagraphMarkdown,
+      plainText: row.plainText,
+      checked: row.checked,
+      dueDate: row.dueDate,
+      breadcrumbs: row.breadcrumbs,
+    },
+  }
 }

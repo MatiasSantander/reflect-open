@@ -9,6 +9,11 @@ export function makeOpenTask(overrides: Partial<OpenTask> = {}): OpenTask {
   const text = overrides.text ?? 'do it'
   const checked = overrides.checked ?? false
   return {
+    firstParagraphMarkdown: 'do it',
+    plainText: 'do it',
+    markerText: '[ ]',
+    revision: 'test-revision',
+    referenceMarkdown: '',
     notePath: 'notes/n.md',
     markerOffset: 2,
     raw: `[${checked ? 'x' : ' '}] ${text}`,

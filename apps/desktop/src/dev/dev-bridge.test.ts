@@ -26,6 +26,7 @@ function projection(path: string, mtime: number, fileHash: string): IndexedNote 
     hasContent: true,
     gistUrl: null,
     gistStale: false,
+    referenceMarkdown: '',
     fileHash,
     mtime,
     text: 'body',

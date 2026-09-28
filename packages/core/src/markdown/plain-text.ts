@@ -72,27 +72,34 @@ export function plainTextOfRange(
   cuts: Span[],
   literalRanges: Span[],
 ): string {
+  return createPlainTextReader(body, cuts, literalRanges)(start, end)
+}
+
+/** Sort spans once for all projections of one parsed note. */
+export function createPlainTextReader(body: string, cuts: Span[], literalRanges: Span[]) {
   const sorted = [...cuts].sort((a, b) => a.from - b.from)
   const sortedLiteralRanges = [...literalRanges].sort((a, b) => a.from - b.from)
-  let kept = ''
-  let pos = start
-  for (const cut of sorted) {
-    if (cut.to <= start) {
-      continue
+  return (start: number, end: number): string => {
+    let kept = ''
+    let pos = start
+    for (const cut of sorted) {
+      if (cut.to <= start) {
+        continue
+      }
+      if (cut.from >= end) {
+        break
+      }
+      const cutFrom = Math.max(start, cut.from)
+      if (cutFrom > pos) {
+        kept += appendPlainTextChunk(body, pos, cutFrom, sortedLiteralRanges)
+      }
+      pos = Math.max(pos, Math.min(end, cut.to))
     }
-    if (cut.from >= end) {
-      break
+    if (pos < end) {
+      kept += appendPlainTextChunk(body, pos, end, sortedLiteralRanges)
     }
-    const cutFrom = Math.max(start, cut.from)
-    if (cutFrom > pos) {
-      kept += appendPlainTextChunk(body, pos, cutFrom, sortedLiteralRanges)
-    }
-    pos = Math.max(pos, Math.min(end, cut.to))
+    return kept.replaceAll(/\s+/g, ' ').trim()
   }
-  if (pos < end) {
-    kept += appendPlainTextChunk(body, pos, end, sortedLiteralRanges)
-  }
-  return kept.replaceAll(/\s+/g, ' ').trim()
 }
 
 /** Body text minus the cut (syntax) ranges, with wiki brackets/pipes flattened. */

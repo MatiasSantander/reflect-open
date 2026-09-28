@@ -120,8 +120,8 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
       removeNote(db, note.path)
       run(
         db,
-        `INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, has_conflict, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, has_conflict, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content, reference_markdown)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           note.path,
           note.id,
@@ -141,6 +141,7 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
           note.mtime,
           note.preview,
           note.hasContent,
+          note.referenceMarkdown,
         ],
       )
       for (const link of note.links) {
@@ -194,7 +195,7 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
       for (const task of note.tasks) {
         run(
           db,
-          'INSERT INTO tasks(note_path, marker_offset, text, breadcrumbs, raw, checked, due_date) VALUES(?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO tasks(note_path, marker_offset, text, breadcrumbs, raw, checked, due_date, first_paragraph_markdown, plain_text, marker_text) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             note.path,
             task.markerOffset,
@@ -203,6 +204,9 @@ export async function createDevIndexDb(): Promise<DevIndexDb> {
             task.raw,
             task.checked,
             task.dueDate,
+            task.firstParagraphMarkdown,
+            task.plainText,
+            task.markerText,
           ],
         )
       }

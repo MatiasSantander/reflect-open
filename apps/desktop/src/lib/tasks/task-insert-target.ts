@@ -20,6 +20,11 @@ export function insertedTaskRow(
   raw = '[ ] ',
 ): OpenTask {
   return {
+    firstParagraphMarkdown: '',
+    plainText: '',
+    markerText: '[ ]',
+    revision: '',
+    referenceMarkdown: '',
     notePath: target.notePath,
     markerOffset,
     raw,

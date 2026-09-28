@@ -194,6 +194,9 @@ export interface TaskMarker {
  * note only and are intentionally excluded from the aggregate Tasks view.
  */
 export interface ParsedTask extends TaskMarker {
+  firstParagraphMarkdown: string
+  plainText: string
+  markerText: string
   /** Inline text of the item's marker line, markdown stripped, for display + search. */
   text: string
   /** Parent outline/list item text, top-down, for the Tasks view breadcrumb. */
@@ -215,7 +218,7 @@ export interface ParsedTask extends TaskMarker {
  * 3 — tasks limited to round Meowdown `+ [ ]` / `+ [x]` syntax; square checklist
  * checkboxes are excluded.
  * 4 — task rows carry parent outline/list breadcrumbs. */
-export const PARSED_NOTE_VERSION = 4
+export const PARSED_NOTE_VERSION = 5
 
 /** The full parse of one note — the stable contract downstream plans depend on. */
 export interface ParsedNote {
@@ -236,6 +239,8 @@ export interface ParsedNote {
   assets: AssetRef[]
   /** Reflect task items in document order — the Tasks projection (Plan 18). */
   tasks: ParsedTask[]
+  /** Reference definitions from this same source revision. */
+  referenceMarkdown: string
   /**
    * One-line plain text of the body, for UI slots that render a plain string
    * rather than Markdown (the All Notes row preview, task rows).

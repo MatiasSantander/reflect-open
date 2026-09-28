@@ -60,6 +60,7 @@ fn note(path: &str, title: &str, links: Vec<IndexedLink>) -> IndexedNote {
         has_content: true,
         gist_url: None,
         gist_stale: false,
+        reference_markdown: String::new(),
         file_hash: "h".to_string(),
         mtime: 0,
         text: format!("{title} body"),
@@ -137,6 +138,9 @@ fn moved_address(to: &str) -> MovedNoteAddress {
 
 fn task(marker_offset: i64, text: &str, checked: bool) -> IndexedTask {
     IndexedTask {
+        first_paragraph_markdown: text.to_string(),
+        plain_text: text.to_string(),
+        marker_text: if checked { "[x]" } else { "[ ]" }.to_string(),
         marker_offset,
         text: text.to_string(),
         raw: format!("[{}] {text}", if checked { "x" } else { " " }),

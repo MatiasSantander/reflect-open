@@ -109,6 +109,7 @@ export interface Notes {
   pathKey: Generated<string>;
   pinnedOrder: number | null;
   preview: Generated<string>;
+  referenceMarkdown: Generated<string>;
   title: string;
   titleKey: string;
   updatedAt: Generated<number>;
@@ -130,8 +131,11 @@ export interface Tasks {
   breadcrumbs: Generated<string>;
   checked: number;
   dueDate: string | null;
+  firstParagraphMarkdown: Generated<string>;
   markerOffset: number;
+  markerText: Generated<string>;
   notePath: string;
+  plainText: Generated<string>;
   raw: string;
   text: string;
 }

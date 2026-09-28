@@ -35,6 +35,7 @@ function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
     hasContent: true,
     gistUrl: null,
     gistStale: false,
+    referenceMarkdown: '',
     fileHash: 'hash-1',
     mtime: 1_700_000_000_000,
     text: 'Sample Note body about local-first sync',
@@ -61,6 +62,9 @@ function sampleNote(overrides: Partial<IndexedNote> = {}): IndexedNote {
     assets: [],
     tasks: [
       {
+        firstParagraphMarkdown: 'Do the thing',
+        plainText: 'Do the thing',
+        markerText: '[ ]',
         markerOffset: 40,
         text: 'Do the thing',
         breadcrumbs: ['Project'],

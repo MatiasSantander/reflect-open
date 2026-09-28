@@ -23,7 +23,7 @@ pub const INDEX_FILE: &str = "index.sqlite";
 /// `user_version` after every migration has run. Read-only consumers compare
 /// this against `PRAGMA user_version` to detect an index written by a newer
 /// (or older) app than they were built for.
-pub const LATEST_SCHEMA_VERSION: usize = 22;
+pub const LATEST_SCHEMA_VERSION: usize = 23;
 
 /// The `index_meta` key holding the TS-owned projection version (the rows'
 /// derivation version, distinct from the schema version above).
@@ -67,6 +67,7 @@ mod schema {
             )),
             M::up(include_str!("../migrations/0021_note_has_content.sql")),
             M::up(include_str!("../migrations/0022_drop_note_text.sql")),
+            M::up(include_str!("../migrations/0023_task_paragraph.sql")),
         ])
     });
 
@@ -212,6 +213,26 @@ mod schema {
         #[test]
         fn migrations_are_valid() {
             validate().unwrap();
+        }
+
+        #[test]
+        fn task_paragraph_upgrade_invalidates_incomplete_task_rows() {
+            let mut conn = open_in_memory().unwrap();
+            migrate_to(&mut conn, 22).unwrap();
+            conn.execute_batch(
+                "INSERT INTO notes(path, title, title_key, file_hash) VALUES('a.md', 'A', 'a', 'h');
+                 INSERT INTO tasks(note_path, marker_offset, text, raw, checked)
+                 VALUES('a.md', 2, 'first line', '[ ] first line', 0);",
+            ).unwrap();
+            migrate(&mut conn).unwrap();
+            let tasks: i64 = conn
+                .query_row("SELECT count(*) FROM tasks", [], |row| row.get(0))
+                .unwrap();
+            let notes: i64 = conn
+                .query_row("SELECT count(*) FROM notes", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(tasks, 0);
+            assert_eq!(notes, 1);
         }
 
         #[test]

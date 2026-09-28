@@ -71,6 +71,7 @@ export {
   getNote,
   getNotesByTag,
   getOpenTasks,
+  taskSnapshotFromRow,
   getCompletedTasks,
   getPinnedNotes,
   getWikiAddressForPath,

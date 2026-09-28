@@ -29,12 +29,13 @@ function listItemBreadcrumbLabel(
   item: SyntaxNode,
   cuts: Span[],
   literalRanges: Span[],
+  readText = (from: number, to: number) => plainTextOfRange(body, from, to, cuts, literalRanges),
 ): string | null {
   const textblock = listItemLeadTextblock(item)
   if (textblock === null) {
     return null
   }
-  const text = plainTextOfRange(body, textblock.from, textblock.to, cuts, literalRanges)
+  const text = readText(textblock.from, textblock.to)
   return text === '' ? null : text
 }
 
@@ -44,6 +45,8 @@ export function taskBreadcrumbs(
   taskNode: SyntaxNode,
   cuts: Span[],
   literalRanges: Span[],
+  readText = (from: number, to: number) => plainTextOfRange(body, from, to, cuts, literalRanges),
+  labels = new Map<number, string | null>(),
 ): string[] {
   const ownItem = taskNode.parent
   if (ownItem?.name !== 'ListItem') {
@@ -53,7 +56,13 @@ export function taskBreadcrumbs(
   const breadcrumbs: string[] = []
   for (let ancestor = ownItem.parent; ancestor !== null; ancestor = ancestor.parent) {
     if (ancestor.name === 'ListItem') {
-      const text = listItemBreadcrumbLabel(body, ancestor, cuts, literalRanges)
+      if (!labels.has(ancestor.from)) {
+        labels.set(
+          ancestor.from,
+          listItemBreadcrumbLabel(body, ancestor, cuts, literalRanges, readText),
+        )
+      }
+      const text = labels.get(ancestor.from) ?? null
       if (text !== null) {
         breadcrumbs.push(text)
       }

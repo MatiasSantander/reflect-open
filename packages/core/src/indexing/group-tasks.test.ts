@@ -14,6 +14,11 @@ const FUTURE = '2026-06-20'
 /** An open-task row with sensible defaults; override only what a case needs. */
 function task(overrides: Partial<OpenTask> = {}): OpenTask {
   return {
+    firstParagraphMarkdown: 'do it',
+    plainText: 'do it',
+    markerText: '[ ]',
+    revision: 'test-revision',
+    referenceMarkdown: '',
     notePath: 'notes/n.md',
     markerOffset: 0,
     raw: '[ ] do it',

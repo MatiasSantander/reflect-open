@@ -82,3 +82,13 @@ export {
   type WikiLookup,
   type AsyncWikiLookup,
 } from './resolve.ts'
+
+export {
+  scanReflectTasks,
+  hydrateTask,
+  type SourceAnchor,
+  type TaskRanges,
+  type TaskProjection,
+  type TaskRowSnapshot,
+  type TaskSnapshot,
+} from './task-snapshot.ts'
