@@ -662,6 +662,7 @@ describe('getOpenTasks', () => {
 
     await expect(getOpenTasks()).resolves.toEqual([
       {
+        key: 'notes/project.md#[2,1]',
         notePath: 'notes/project.md',
         astPath: [2, 1],
         text: 'ship it',
@@ -697,7 +698,6 @@ describe('task address ordering', () => {
       text: '**same**',
       breadcrumbs: '[]',
       due_date: null,
-      revision: 'file-hash',
       note_title: 'N',
       daily_date: null,
       is_pinned: 0,
@@ -711,7 +711,6 @@ describe('task address ordering', () => {
     expect(tasks.map((task) => task.astPath)).toEqual([[2], [2, 1], [10]])
     expect(tasks[0]).toMatchObject({
       displayText: 'same',
-      revision: 'file-hash',
     })
     expect(String(mockInvoke.mock.calls[0]?.[1]['sql'])).not.toContain('order by')
   })

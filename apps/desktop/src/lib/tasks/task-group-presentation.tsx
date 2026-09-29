@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 import { AlarmClock, Calendar, FileText, Pin, Star } from 'lucide-react'
-import type { TaskGroup } from '@reflect/core'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
+import type { TaskGroup, TaskTarget } from '@reflect/core'
 import { insertTargetForTask, todaysDailyTarget } from '@/lib/tasks/task-navigation.ts'
 
 /**
@@ -37,7 +36,7 @@ export function taskGroupHeaderStyle(group: TaskGroup): TaskGroupHeaderStyle {
  * note → that note), or `null` for the aggregate Overdue/Upcoming buckets,
  * which span many notes and so show no add button.
  */
-export function addTargetForGroup(group: TaskGroup, today: string): InsertTaskTarget | null {
+export function addTargetForGroup(group: TaskGroup, today: string): TaskTarget | null {
   if (group.kind === 'current') {
     return todaysDailyTarget(today)
   }

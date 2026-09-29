@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { hashContent, type TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { createNoteSession } from '@/editor/note-session.ts'
 import { registerOpenDocument } from '@/editor/open-documents.ts'
-import { taskController } from './task-controller.ts'
+import { taskStore } from './task-store.ts'
 
 const readNote = vi.hoisted(() => vi.fn<(path: string, generation?: number) => Promise<string>>())
 const writeNote = vi.hoisted(() =>
@@ -14,6 +14,8 @@ vi.mock('@reflect/core', async (original) => ({
   ...(await original<typeof import('@reflect/core')>()),
   readNote,
   writeNote,
+  indexNote: async () => {},
+  emitIndexApplied: () => {},
 }))
 const toast = vi.hoisted(() => ({ add: vi.fn(), close: vi.fn() }))
 vi.mock('@/components/ui/toast.tsx', () => ({ toast }))
@@ -52,10 +54,10 @@ it('routes through a matching live NoteSession and preserves its dirty buffer', 
   session.editorChanged('+ [ ] original\n\nunsaved prose\n')
   const unregister = registerOpenDocument({ session, generation: () => 7 })
   try {
-    const controller = taskController(crypto.randomUUID(), 7)
-    const row: TaskListItem = {
+    const controller = taskStore(crypto.randomUUID(), 7)
+    const row: Task = {
       ...target,
-      revision: await hashContent(session.liveContent()!),
+      key: 'notes/a.md#[0]',
       astPath: [0],
       text: 'original',
       displayText: 'original',
@@ -63,7 +65,7 @@ it('routes through a matching live NoteSession and preserves its dirty buffer', 
       dueDate: null,
       updatedAt: 0,
     }
-    controller.submit(row, { text: 'edited' })
+    controller.update(row, { text: 'edited' })
     await controller.flush()
     expect(disk).toContain('[ ] edited')
     expect(disk).toContain('unsaved prose')
@@ -88,8 +90,8 @@ it('does not edit an identically named live note belonging to another graph gene
   const unregister = registerOpenDocument({ session, generation: () => 9 })
   readNote.mockRejectedValue(new Error('stale generation'))
   try {
-    const controller = taskController(crypto.randomUUID(), 7)
-    controller.submit(controller.begin(target), { text: 'old graph draft' })
+    const controller = taskStore(crypto.randomUUID(), 7)
+    controller.update(controller.create(target), { text: 'old graph draft' })
     await controller.flush()
     expect(session.liveContent()).toContain('other graph')
     expect(session.liveContent()).not.toContain('old graph draft')

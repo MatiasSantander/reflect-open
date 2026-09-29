@@ -2,7 +2,13 @@ import { useState, useSyncExternalStore } from 'react'
 import { render, cleanup } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { TaskController, type TaskListItem } from '@reflect/core'
+import {
+  TaskStore,
+  indexedTaskKey,
+  inlineMarkdownToDisplayText,
+  projectTasks,
+  type Task,
+} from '@reflect/core'
 import '@/test-utils/locator.ts'
 import { TaskEditor } from './task-editor.tsx'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
@@ -25,7 +31,7 @@ vi.mock('@/editor/use-editor-autocomplete.ts', () => ({
 }))
 vi.mock('@/editor/use-wiki-link-navigation.ts', () => ({ useWikiLinkNavigation: () => () => {} }))
 vi.mock('@/editor/use-tag-navigation.ts', () => ({ useTagNavigation: () => () => {} }))
-vi.mock('@/lib/tasks/task-controller.ts', () => ({ taskController: () => controller }))
+vi.mock('@/lib/tasks/task-store.ts', () => ({ useTaskStore: () => store }))
 
 const target = {
   notePath: 'notes/a.md',
@@ -35,7 +41,17 @@ const target = {
   pinnedOrder: null,
 }
 let source: string | null
-let controller: TaskController
+/** What the index would return for `source`. */
+function indexed() {
+  return projectTasks(source ?? '').map((task) => ({
+    ...target,
+    ...task,
+    key: indexedTaskKey(target.notePath, task.astPath),
+    displayText: inlineMarkdownToDisplayText(task.text),
+    updatedAt: 0,
+  }))
+}
+let store: TaskStore
 const write = vi.fn<(path: string, before: string | null, next: string) => Promise<void>>()
 const failure = vi.fn()
 
@@ -48,7 +64,7 @@ beforeEach(() => {
       source = next
     })
   failure.mockReset()
-  controller = new TaskController({
+  store = new TaskStore({
     read: async () => source,
     write,
     saved: () => {},
@@ -57,16 +73,16 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-function Harness({ initial }: { initial: TaskListItem }) {
-  const [active, setActive] = useState<TaskListItem | null>(initial)
-  useSyncExternalStore(controller.subscribe, controller.snapshot)
+function Harness({ initial }: { initial: Task }) {
+  const [active, setActive] = useState<Task | null>(initial)
+  useSyncExternalStore(store.subscribe, store.snapshot)
   const actions = useTaskActions()
-  const task = active && controller.current(active)
+  const task = active && store.current(active)
   return (
     <>
       {task && (
         <TaskEditor
-          key={task.taskId}
+          key={task.key}
           task={task}
           onContinue={() => setActive(actions.insertAfter(task, target))}
           onCancel={() => setActive(null)}
@@ -91,11 +107,11 @@ function Harness({ initial }: { initial: TaskListItem }) {
 }
 
 it('keeps typing inside the real editor without publishing task state until the edit ends', async () => {
-  const initial = controller.begin({ ...target, breadcrumbs: [] })
+  const initial = store.create({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
-  const version = controller.snapshot()
+  const version = store.snapshot()
   await userEvent.type(page.locate('.ProseMirror'), '你好，任务内容')
-  expect(controller.snapshot()).toBe(version)
+  expect(store.snapshot()).toBe(version)
   expect(write).not.toHaveBeenCalled()
   await userEvent.click(page.getByRole('button', { name: 'Close' }))
   await vi.waitFor(() => expect(source).toContain('你好，任务内容'))
@@ -103,12 +119,12 @@ it('keeps typing inside the real editor without publishing task state until the 
 })
 
 it('abandons an untouched placeholder without any file write', async () => {
-  const initial = controller.begin({ ...target, breadcrumbs: [] })
+  const initial = store.create({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
   await userEvent.click(page.getByRole('button', { name: 'Close' }))
-  await controller.flush()
+  await store.flush()
   expect(write).not.toHaveBeenCalled()
-  await vi.waitFor(() => expect(controller.project([], false)).toEqual([]))
+  await vi.waitFor(() => expect(store.list(indexed())).toEqual([]))
 })
 
 it('continues through twenty real editor instances while the first save is blocked', async () => {
@@ -118,32 +134,32 @@ it('continues through twenty real editor instances while the first save is block
     await gate.promise
     await save(...args)
   })
-  const initial = controller.begin({ ...target, breadcrumbs: [] })
+  const initial = store.create({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
   for (let index = 0; index < 20; index++) {
     await userEvent.type(page.locate('.ProseMirror'), `task ${index}`)
     await userEvent.keyboard('{Enter}')
   }
-  expect(controller.project([], false)).toHaveLength(21)
+  expect(store.list(indexed())).toHaveLength(21)
   gate.resolve()
-  await controller.flush()
+  await store.flush()
   await userEvent.click(page.getByRole('button', { name: 'Close' }))
   expect(source?.match(/\+ \[ \]/g)).toHaveLength(20)
-  await vi.waitFor(() => expect(controller.project([], false)).toHaveLength(20))
+  await vi.waitFor(() => expect(store.list(indexed())).toHaveLength(20))
   expect(failure).not.toHaveBeenCalled()
 })
 
 it('does not submit the task when Enter confirms an IME composition', async () => {
-  const initial = controller.begin({ ...target, breadcrumbs: [] })
+  const initial = store.create({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
   const editor = page.locate('.ProseMirror')
   await userEvent.type(editor, '中文任务')
-  const version = controller.snapshot()
+  const version = store.snapshot()
   editor
     .element()
     .dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }))
   await userEvent.keyboard('{Enter}')
-  expect(controller.snapshot()).toBe(version)
+  expect(store.snapshot()).toBe(version)
   expect(write).not.toHaveBeenCalled()
   editor
     .element()
@@ -155,9 +171,9 @@ it('does not submit the task when Enter confirms an IME composition', async () =
 
 it('discards the draft on Escape and deletes an emptied task', async () => {
   source = '+ [ ] keep\n'
-  const row: TaskListItem = {
+  const row: Task = {
     ...target,
-    revision: 'r1',
+    key: 'notes/a.md#[0]',
     astPath: [0],
     text: 'keep',
     displayText: 'keep',
@@ -169,6 +185,6 @@ it('discards the draft on Escape and deletes an emptied task', async () => {
   await render(<Harness initial={row} />)
   await userEvent.type(page.locate('.ProseMirror'), ' more')
   await userEvent.keyboard('{Escape}')
-  await controller.flush()
+  await store.flush()
   expect(write).not.toHaveBeenCalled()
 })

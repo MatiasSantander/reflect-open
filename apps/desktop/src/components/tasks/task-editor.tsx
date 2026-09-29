@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { Priority, getIsComposing, type EditorExtension } from '@meowdown/core'
 import { useEditor, useKeymap } from '@meowdown/react'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor } from '@/editor/note-editor.tsx'
 import { registerEditFinalizer } from '@/editor/open-documents.ts'
@@ -41,7 +41,7 @@ export interface TaskEditHandlers {
 }
 
 interface TaskEditorProps extends TaskEditHandlers {
-  task: TaskListItem
+  task: Task
 }
 
 /**

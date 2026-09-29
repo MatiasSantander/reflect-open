@@ -83,3 +83,4 @@ export {
 } from './task-path.ts'
 export { inlineMarkdownToDisplayText } from './plain-text.ts'
 export { editTaskDocument, type NewTask, type TaskEdit } from './task-mutation.ts'
+export { projectTasks } from './task-projection.ts'

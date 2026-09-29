@@ -5,17 +5,17 @@ import {
   taskDateBucket,
   visibleTaskBreadcrumbs,
 } from './group-tasks.ts'
-import type { OpenTask } from './queries.ts'
+import type { Task } from '../tasks/task-store.ts'
 
 const TODAY = '2026-06-14'
 const PAST = '2026-06-10'
 const FUTURE = '2026-06-20'
 
 /** An open-task row with sensible defaults; override only what a case needs. */
-function task(overrides: Partial<OpenTask> = {}): OpenTask {
+function task(overrides: Partial<Task> = {}): Task {
   return {
+    key: `notes/n.md#${JSON.stringify(overrides.astPath ?? [0])}`,
     text: 'do it',
-    revision: 'test-revision',
     notePath: 'notes/n.md',
     astPath: [0],
     checked: false,

@@ -1,43 +1,9 @@
-import {
-  compareTaskPaths,
-  decodeTaskPath,
-  inlineMarkdownToDisplayText,
-  type TaskAddress,
-} from '../markdown/index.ts'
+import { compareTaskPaths, decodeTaskPath, inlineMarkdownToDisplayText } from '../markdown/index.ts'
+import { indexedTaskKey, type Task } from '../tasks/task-store.ts'
 import { db } from './db.ts'
 import { decodeTaskBreadcrumbs } from './indexed-note.ts'
 
-/** A projected task with its note context and derived display text. */
-export interface TaskListItem {
-  /** False for checklist/quoted rows edited from backlinks but excluded from Tasks. */
-  inTasksView?: boolean | undefined
-  taskId?: string | undefined
-  revision?: string | undefined
-  astPath?: readonly number[] | undefined
-  sortPath?: readonly number[] | undefined
-  notePath: string
-  /** Raw first-paragraph Markdown from the note, without the `[ ]` or `[x]` marker. */
-  text: string
-  checked: boolean
-  /** Plain display/search text derived from `text`, never stored in SQLite. */
-  displayText: string
-  /** Ancestor list-item labels, outermost first, for task grouping and context. */
-  breadcrumbs: readonly string[]
-  noteTitle: string
-  dueDate: string | null
-  dailyDate: string | null
-  isPinned: boolean
-  pinnedOrder: number | null
-  updatedAt: number
-}
-
-/** A task read from a confirmed note revision. */
-export interface OpenTask extends TaskListItem, TaskAddress {
-  revision: string
-  astPath: readonly number[]
-}
-
-async function getTasks(checked: boolean): Promise<OpenTask[]> {
+async function getTasks(checked: boolean): Promise<Task[]> {
   const rows = await db
     .selectFrom('tasks')
     .innerJoin('notes', 'notes.path', 'tasks.notePath')
@@ -49,7 +15,6 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
       'tasks.notePath',
       'tasks.breadcrumbs',
       'tasks.dueDate',
-      'notes.fileHash as revision',
       'notes.title as noteTitle',
       'notes.dailyDate',
       'notes.isPinned',
@@ -58,14 +23,18 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
     ])
     .execute()
   return rows
-    .map((row) => ({
-      ...row,
-      checked,
-      astPath: decodeTaskPath(row.astPath),
-      isPinned: row.isPinned !== 0,
-      breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
-      displayText: inlineMarkdownToDisplayText(row.text),
-    }))
+    .map((row) => {
+      const astPath = decodeTaskPath(row.astPath)
+      return {
+        ...row,
+        key: indexedTaskKey(row.notePath, astPath),
+        astPath,
+        checked,
+        isPinned: row.isPinned !== 0,
+        breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
+        displayText: inlineMarkdownToDisplayText(row.text),
+      }
+    })
     .sort(
       (left, right) =>
         (checked ? right.updatedAt - left.updatedAt : 0) ||
@@ -75,11 +44,11 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
 }
 
 /** Open tasks across non-template notes. */
-export function getOpenTasks(): Promise<OpenTask[]> {
+export function getOpenTasks(): Promise<Task[]> {
   return getTasks(false)
 }
 
 /** Completed tasks, newest note first, then note path and document order. */
-export function getCompletedTasks(): Promise<OpenTask[]> {
+export function getCompletedTasks(): Promise<Task[]> {
   return getTasks(true)
 }

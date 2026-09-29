@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { makeOpenTask } from './open-task-fixture.ts'
 import { insertTargetForTask, previousTaskKey } from './task-navigation.ts'
-import { taskKey } from './task-identity.ts'
 
-function task(over: Partial<TaskListItem> = {}): TaskListItem {
+function task(over: Partial<Task> = {}): Task {
   return makeOpenTask({ displayText: 'x', ...over })
 }
 
@@ -15,11 +14,11 @@ describe('previousTaskKey', () => {
   const ordered = [a, b, c]
 
   it('selects the row above a middle row', () => {
-    expect(previousTaskKey(ordered, b)).toBe(taskKey(a))
+    expect(previousTaskKey(ordered, b)).toBe(a.key)
   })
 
   it('selects the next row when deleting the first (it becomes the new first)', () => {
-    expect(previousTaskKey(ordered, a)).toBe(taskKey(b))
+    expect(previousTaskKey(ordered, a)).toBe(b.key)
   })
 
   it('returns null for the only row', () => {

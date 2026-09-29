@@ -3,7 +3,7 @@ import { parseBody } from '../markdown/grammar.ts'
 import { splitFrontmatter } from '../markdown/frontmatter.ts'
 import type { TaskAddress } from '../markdown/task-path.ts'
 
-/** A rendered checkbox and, when available, its exact source revision address. */
+/** A rendered checkbox and, when available, its address in the source note. */
 export interface SnippetTask {
   checked: boolean
   round: boolean
@@ -13,7 +13,6 @@ export interface SnippetTask {
 export interface SnippetTaskSource {
   content: string
   notePath: string
-  revision: string
   /** Whole-file offsets of the dedented snippet line starts. */
   lineOrigins: readonly number[]
 }
@@ -38,7 +37,6 @@ export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource)
         if (entry)
           addresses.set(from + bodyOffset, {
             notePath: source.notePath,
-            revision: source.revision,
             astPath: entry.path,
           })
       },

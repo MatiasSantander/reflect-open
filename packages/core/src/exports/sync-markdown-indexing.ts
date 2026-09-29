@@ -119,6 +119,7 @@ export {
   watchStart,
   watchStop,
   subscribeIndexChanges,
+  emitIndexApplied,
   subscribeIndexApplied,
   type IndexAppliedListener,
   subscribeIndexWritten,
@@ -202,8 +203,6 @@ export {
   type DailyNotesRange,
   type DuplicateIdGroup,
   type NoteRow,
-  type OpenTask,
-  type TaskListItem,
   type TaskContext,
   type TaskGroup,
   type TaskGroupKind,
@@ -238,6 +237,7 @@ export {
   encodeTaskPath,
   compareTaskPaths,
   inlineMarkdownToDisplayText,
+  projectTasks,
   type TaskAddress,
 } from '../markdown/index.ts'
 

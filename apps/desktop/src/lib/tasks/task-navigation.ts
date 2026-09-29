@@ -1,6 +1,4 @@
-import { dailyPath, taskDateBucket, type TaskListItem } from '@reflect/core'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
-import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
+import { dailyPath, taskDateBucket, type Task, type TaskTarget } from '@reflect/core'
 
 /**
  * Shared Tasks-view navigation helpers (Plan 18, V1 parity). The keyboard
@@ -11,7 +9,7 @@ import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
  */
 
 /** The note context a new task inherits when added next to `task` (V1: same note/group). */
-export function insertTargetForTask(task: TaskListItem): InsertTaskTarget {
+export function insertTargetForTask(task: Task): TaskTarget {
   return {
     notePath: task.notePath,
     noteTitle: task.noteTitle,
@@ -22,7 +20,7 @@ export function insertTargetForTask(task: TaskListItem): InsertTaskTarget {
 }
 
 /** Today's daily note as an insert target — V1's "add to Today" / Current bucket. */
-export function todaysDailyTarget(today: string): InsertTaskTarget {
+export function todaysDailyTarget(today: string): TaskTarget {
   return {
     notePath: dailyPath(today),
     noteTitle: today,
@@ -38,7 +36,7 @@ export function todaysDailyTarget(today: string): InsertTaskTarget {
  * task adds to its own note, and Overdue/Upcoming refuse — those buckets
  * aggregate tasks across many notes, so "add here" has no single home (`null`).
  */
-export function insertTargetForBucket(task: TaskListItem, today: string): InsertTaskTarget | null {
+export function insertTargetForBucket(task: Task, today: string): TaskTarget | null {
   switch (taskDateBucket(task, today)) {
     case 'current':
       return todaysDailyTarget(today)
@@ -54,16 +52,13 @@ export function insertTargetForBucket(task: TaskListItem, today: string): Insert
  * just above it, or — when it was the first — the row just below (which becomes
  * the new first). `null` when it was the only row, so the caller clears.
  */
-export function previousTaskKey(
-  ordered: readonly TaskListItem[],
-  task: TaskListItem,
-): string | null {
-  const index = ordered.findIndex((row) => sameTask(row, task))
+export function previousTaskKey(ordered: readonly Task[], task: Task): string | null {
+  const index = ordered.findIndex((row) => row.key === task.key)
   if (index === -1) {
     return null
   }
   const previous = ordered[index === 0 ? 1 : index - 1]
-  return previous ? taskKey(previous) : null
+  return previous ? previous.key : null
 }
 
 /**

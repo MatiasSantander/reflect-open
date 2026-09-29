@@ -1,10 +1,10 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
 import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
 import { useCallback, type ReactElement } from 'react'
-import { taskController } from '@/lib/tasks/task-controller.ts'
+import { taskStore } from '@/lib/tasks/task-store.ts'
 import { MarkdownView } from '@meowdown/react'
 import type { WikilinkClickHandler } from '@meowdown/core'
-import type { SnippetTask } from '@reflect/core'
+import { indexedTaskKey, type SnippetTask } from '@reflect/core'
 import { useOpenExternalLink } from '@/editor/open-external-link.ts'
 import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 import { useNoteAttachments } from '@/editor/use-note-attachments.ts'
@@ -47,9 +47,10 @@ export function BacklinkSnippet({
     ({ index }: { index: number }) => {
       const task = tasks[index]
       if (!task?.address || !task.round || !graph) return
-      const controller = taskController(graph.root, graph.generation)
-      const row = controller.current({
+      const store = taskStore(graph.root, graph.generation)
+      const row = store.current({
         ...task.address,
+        key: indexedTaskKey(task.address.notePath, task.address.astPath),
         text: task.text,
         displayText: task.text,
         checked: task.checked,
@@ -61,7 +62,7 @@ export function BacklinkSnippet({
         pinnedOrder: null,
         updatedAt: 0,
       })
-      controller.submit(row, { checked: !row.checked })
+      store.update(row, { checked: !row.checked })
     },
     [tasks, graph, notePath],
   )

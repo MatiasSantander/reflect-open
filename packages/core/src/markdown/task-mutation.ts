@@ -45,42 +45,27 @@ function createItem(task: NewTask): MarkdownListItem {
 }
 
 /**
- * Edit a note's task nodes and serialize its entire body. `append` adds a new
- * item at the end of the document. Returns the new source, a map from each
- * surviving task's old AST path to its new one, the created item's path, and
- * the projected tasks (round tasks outside quotes, then every checkbox).
+ * Apply one edit to a note's task nodes and serialize its entire body.
+ * `append` adds a new item at the end of the document. Returns the new
+ * source, a map from each surviving task's old AST path to its new one, the
+ * created item's path, and the projected tasks (round tasks outside quotes,
+ * then every checkbox).
  */
-export function editTaskDocument(source: string, edits: readonly TaskEdit[], append?: NewTask) {
+export function editTaskDocument(source: string, edit: TaskEdit | null, append?: NewTask) {
   const { body, bodyOffset } = splitFrontmatter(source)
   const document = parseMarkdownAst(body)
   const originals = new Map<MarkdownListItem, readonly number[]>()
   for (const { node, path } of walkMarkdownAst(document)) {
     if (node.type === 'listItem' && getTaskParagraph(node)) originals.set(node, path)
   }
-  const merged = new Map<string, TaskEdit>()
-  for (const edit of edits) {
-    const key = encodeTaskPath(edit.astPath)
-    const previous = merged.get(key)
-    if (
-      previous &&
-      (previous.remove ||
-        edit.remove ||
-        (previous.checked !== undefined &&
-          edit.checked !== undefined &&
-          previous.checked !== edit.checked) ||
-        (previous.text !== undefined && edit.text !== undefined && previous.text !== edit.text))
-    ) {
-      throw new Error('Conflicting edits address the same task.')
-    }
-    merged.set(key, { ...previous, ...edit })
-  }
-  const targets = [...merged.values()].map((edit) => {
+  const targets = [edit].flatMap((edit) => {
+    if (!edit) return []
     const entry = resolveMarkdownAstPath(document, edit.astPath)
     const paragraph = entry && getTaskParagraph(entry.node)
     if (!entry || entry.node.type !== 'listItem' || !paragraph) {
       throw new Error('The task no longer exists. Refresh the task list.')
     }
-    return { edit, item: entry.node, paragraph }
+    return [{ edit, item: entry.node, paragraph }]
   })
   let changed = append !== undefined
   let created: MarkdownListItem | undefined
@@ -104,9 +89,6 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
       protectTaskParagraph(item)
     }
     if (edit.remove || edit.insertAfter) {
-      // Splices made for earlier edits in this batch shift sibling indexes, so
-      // the parent and index are looked up again rather than taken from the
-      // initial path resolution.
       const entry = [...walkMarkdownAst(document)].find((entry) => entry.node === item)
       const parent = entry?.parent
       if (
@@ -116,7 +98,7 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
         !parent.children ||
         entry.index === undefined
       ) {
-        throw new Error('Conflicting task edits. Refresh the task list.')
+        throw new Error('The task cannot be moved here. Refresh the task list.')
       }
       const replacements: MarkdownBlock[] = edit.remove ? item.children.slice(1) : [item]
       if (edit.insertAfter) {

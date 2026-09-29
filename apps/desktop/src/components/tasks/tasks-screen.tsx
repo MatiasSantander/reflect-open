@@ -1,4 +1,3 @@
-import { useTasksView } from '@/lib/tasks/use-tasks-view.ts'
 import {
   useCallback,
   useEffect,
@@ -10,14 +9,12 @@ import {
 } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
-import type { TaskListItem, TaskGroup } from '@reflect/core'
+import type { Task, TaskGroup, TaskTarget } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
-import { useRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
-import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
+import { useTaskStore, useTaskStoreVersion } from '@/lib/tasks/task-store.ts'
 import { scrollTaskIntoView } from '@/lib/tasks/task-navigation.ts'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useTaskRowHandlers } from '@/lib/tasks/use-task-row-handlers.ts'
@@ -68,7 +65,7 @@ function focusedSelectedKey(
  * selection opens the inline editor.
  *
  * Completing a task keeps it showing (struck) in place — V1's middle state — via
- * the session-scoped {@link useRecentlyCompleted} set, until "Archive" (⌘⇧↵)
+ * the task store's recent set, until "Archive" (⌘⇧↵)
  * hides this run's completed tasks. They stay `[x]` on disk and remain under the
  * "show archived" filter, which reveals the whole completed history.
  */
@@ -94,36 +91,39 @@ export function TasksScreen(): ReactElement {
     enabled: enabled && filters.archived,
   })
 
-  const { open, completed, projectRecent } = useTasksView(indexedOpen, indexedCompleted)
-
-  // Either read failing surfaces the alert — a failed completed read must not
-  // leave `ready` stuck (and the list blank) just because its data never arrived.
-  // The completed error only counts while archived is on: TanStack keeps the last
-  // error on the disabled query, so turning archived off must clear it.
+  const store = useTaskStore()
+  const version = useTaskStoreVersion(store)
+  // Either read failing surfaces the alert. The completed error only counts
+  // while archived is on: TanStack keeps the last error on the disabled query.
   const isError = openFailed || (filters.archived && completedFailed)
-  // When archived is on, the list merges open + completed, so the empty state
-  // must wait for both — else a graph with only completed tasks flashes "No
-  // tasks to show." while the completed query is still loading.
-  const ready = open !== undefined && (!filters.archived || completed !== undefined)
+  // With archived on, the list merges open + completed, so the empty state
+  // must wait for both.
+  const ready = indexedOpen !== undefined && (!filters.archived || indexedCompleted !== undefined)
   const { onScroll } = useScrollRestoration(scrollElement, ready)
-
-  // This session's completed tasks, still showing struck until archived —
-  // reconciled against the open read so a task reopened at its source note
-  // sheds its struck shadow instead of masking the live row.
-  const recent = useRecentlyCompleted(graph?.root ?? null, open)
-  const recentlyCompleted = useMemo(() => projectRecent(recent), [projectRecent, recent])
+  const tasks = useMemo(
+    () =>
+      store && indexedOpen
+        ? store.list(indexedOpen, filters.archived ? indexedCompleted : undefined)
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `version` tracks the store's changes
+    [store, version, indexedOpen, indexedCompleted, filters.archived],
+  )
+  const recentCount = useMemo(
+    () => (store ? tasks.filter((task) => store.isRecent(task)).length : 0),
+    [store, tasks],
+  )
 
   const needle = query.trim().toLowerCase()
   const groups = useMemo(
-    () => composeVisibleTaskGroups({ open, completed, recentlyCompleted, filters, needle, today }),
-    [open, completed, recentlyCompleted, filters, needle, today],
+    () => composeVisibleTaskGroups({ tasks, filters, needle, today }),
+    [tasks, filters, needle, today],
   )
 
   // The flat, render-order list of tasks the selection and its shortcuts act on.
   const orderedTasks = useMemo(() => groups.flatMap((group) => group.tasks), [groups])
-  const orderedKeys = useMemo(() => orderedTasks.map(taskKey), [orderedTasks])
+  const orderedKeys = useMemo(() => orderedTasks.map((task) => task.key), [orderedTasks])
   const tasksByKey = useMemo(
-    () => new Map(orderedTasks.map((task) => [taskKey(task), task])),
+    () => new Map(orderedTasks.map((task) => [task.key, task])),
     [orderedTasks],
   )
   const selection = useTaskSelection(orderedKeys)
@@ -151,11 +151,11 @@ export function TasksScreen(): ReactElement {
   // The group headers' "+ Add" (V1): drop any search filter so the new row is
   // visible, add it, then select it so its editor opens focused.
   const onAdd = useCallback(
-    (target: InsertTaskTarget) => {
+    (target: TaskTarget) => {
       setQuery('')
       const created = actions.insert(target)
       if (created !== null) {
-        const key = taskKey(created)
+        const key = created.key
         selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
         scrollToKey(key)
       }
@@ -166,16 +166,16 @@ export function TasksScreen(): ReactElement {
   // toolbar actions (schedule, convert) act on. A row whose key no longer
   // resolves (pruned by a reindex) is dropped rather than acted on.
   const selectedTasks = useCallback(
-    (): TaskListItem[] =>
+    (): Task[] =>
       [...selection.selected]
         .map((key) => tasksByKey.get(key))
-        .filter((task): task is TaskListItem => task !== undefined),
+        .filter((task): task is Task => task !== undefined),
     [selection, tasksByKey],
   )
   const onSelectionCheckboxToggle = useCallback(
-    (task: TaskListItem) => {
+    (task: Task) => {
       const tasks = selectedTasks()
-      if (tasks.length <= 1 || !tasks.some((selectedTask) => sameTask(selectedTask, task))) {
+      if (tasks.length <= 1 || !tasks.some((selectedTask) => selectedTask.key === task.key)) {
         actions.checkboxToggle(task)
         return
       }
@@ -285,17 +285,17 @@ export function TasksScreen(): ReactElement {
             <TaskToolbarCountBadge count={selection.selectedCount} />
           </Button>
         ) : null}
-        {recentlyCompleted.length > 0 ? (
+        {recentCount > 0 ? (
           <Button
             type="button"
             variant="ghost"
-            aria-label={`Archive ${recentlyCompleted.length}`}
+            aria-label={`Archive ${recentCount}`}
             onClick={actions.archive}
             className="window-drag-control text-xs text-text-muted"
           >
             <Archive aria-hidden className="size-3.5" />
             Archive
-            <TaskToolbarCountBadge count={recentlyCompleted.length} />
+            <TaskToolbarCountBadge count={recentCount} />
           </Button>
         ) : null}
         <TaskFiltersMenu

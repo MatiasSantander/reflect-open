@@ -1,10 +1,9 @@
 import type { ReactElement } from 'react'
 import { ArrowRight, Circle, CircleCheck, Trash2 } from 'lucide-react'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { TaskText } from '@/components/tasks/task-text.tsx'
 import { formatShortDate } from '@/lib/dates.ts'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
@@ -16,11 +15,11 @@ import { useSettings } from '@/providers/settings-provider.tsx'
 const ACTION_WIDTH = SWIPE_ACTION_WIDTH * 2
 
 interface MobileTaskRowProps {
-  task: TaskListItem
+  task: Task
   /** Show the source-note date — date buckets aggregate tasks from many notes. */
   showSource: boolean
   /** Open the quick-edit sheet for this task (V1 mobile: tap edits in place). */
-  onEdit: (task: TaskListItem) => void
+  onEdit: (task: Task) => void
   revealed: boolean
   onReveal: () => void
   onClose: () => void
@@ -65,7 +64,7 @@ export function MobileTaskRow({
   })
 
   return (
-    <li data-task-key={taskKey(task)} className="relative overflow-hidden border-b border-border">
+    <li data-task-key={task.key} className="relative overflow-hidden border-b border-border">
       <div
         className="absolute inset-y-0 right-0 flex"
         style={{ width: ACTION_WIDTH }}

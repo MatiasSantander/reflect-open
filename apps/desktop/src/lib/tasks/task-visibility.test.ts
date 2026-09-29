@@ -15,28 +15,14 @@ const ALL_ON: TaskFilters = {
 }
 
 describe('composeVisibleTaskGroups', () => {
-  it('returns nothing while the open list is still loading', () => {
-    const groups = composeVisibleTaskGroups({
-      open: undefined,
-      completed: undefined,
-      recentlyCompleted: [task()],
-      filters: ALL_ON,
-      needle: '',
-      today: TODAY,
-    })
-    expect(groups).toEqual([])
-  })
-
   it('groups open tasks into desktop’s buckets', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
+      tasks: [
         task({ displayText: 'today', dueDate: TODAY, astPath: [0] }),
         task({ displayText: 'late', dueDate: '2026-06-01', astPath: [10] }),
         task({ displayText: 'later', dueDate: '2026-07-01', astPath: [20] }),
         task({ displayText: 'undated', astPath: [30] }),
       ],
-      completed: undefined,
-      recentlyCompleted: [],
       filters: ALL_ON,
       needle: '',
       today: TODAY,
@@ -46,7 +32,7 @@ describe('composeVisibleTaskGroups', () => {
 
   it('drops the buckets the filters turn off, honoring pinned vs other notes', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
+      tasks: [
         task({ displayText: 'late', dueDate: '2026-06-01' }),
         task({
           displayText: 'pinned note',
@@ -56,8 +42,6 @@ describe('composeVisibleTaskGroups', () => {
         }),
         task({ displayText: 'plain note', notePath: 'notes/q.md', noteTitle: 'Q' }),
       ],
-      completed: undefined,
-      recentlyCompleted: [],
       filters: { ...ALL_ON, overdue: false, other: false },
       needle: '',
       today: TODAY,
@@ -66,47 +50,12 @@ describe('composeVisibleTaskGroups', () => {
     expect(groups[0]).toMatchObject({ kind: 'note', label: 'P' })
   })
 
-  it('keeps this session’s completed tasks struck, replacing their open rows', () => {
-    const done = task({ displayText: 'done', astPath: [0] })
-    const groups = composeVisibleTaskGroups({
-      // A refetch can briefly restore the completed row to the open cache; the
-      // struck copy must win or React keys collide.
-      open: [done, task({ displayText: 'still open', astPath: [10] })],
-      completed: undefined,
-      recentlyCompleted: [{ ...done, checked: true, text: 'done' }],
-      filters: ALL_ON,
-      needle: '',
-      today: TODAY,
-    })
-    const rows = groups.flatMap((group) => group.tasks)
-    expect(rows).toHaveLength(2)
-    expect(rows.find((row) => row.displayText === 'done')?.checked).toBe(true)
-  })
-
-  it('unions the completed history and the session set when archived is on', () => {
-    const sessionDone = task({ displayText: 'just now', astPath: [0], checked: true })
-    const historical = task({ displayText: 'long ago', astPath: [10], checked: true })
-    const groups = composeVisibleTaskGroups({
-      open: [],
-      // The session row is also in the history — it must not list twice.
-      completed: [historical, sessionDone],
-      recentlyCompleted: [sessionDone],
-      filters: { ...ALL_ON, archived: true },
-      needle: '',
-      today: TODAY,
-    })
-    const rows = groups.flatMap((group) => group.tasks)
-    expect(rows.map((row) => row.displayText).sort()).toEqual(['just now', 'long ago'])
-  })
-
   it('filters by the search needle across open and struck rows', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
+      tasks: [
         task({ displayText: 'buy milk', astPath: [0] }),
         task({ displayText: 'call mum', astPath: [10] }),
       ],
-      completed: undefined,
-      recentlyCompleted: [],
       filters: ALL_ON,
       needle: 'milk',
       today: TODAY,
@@ -117,12 +66,10 @@ describe('composeVisibleTaskGroups', () => {
 
   it('filters by breadcrumb context', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
+      tasks: [
         task({ displayText: 'ship', astPath: [0], breadcrumbs: ['StartupToolbox', 'Reflections'] }),
         task({ displayText: 'buy milk', astPath: [10], breadcrumbs: ['Personal'] }),
       ],
-      completed: undefined,
-      recentlyCompleted: [],
       filters: ALL_ON,
       needle: 'startup',
       today: TODAY,
@@ -133,12 +80,10 @@ describe('composeVisibleTaskGroups', () => {
 
   it('filters by source-note title', () => {
     const groups = composeVisibleTaskGroups({
-      open: [
+      tasks: [
         task({ displayText: 'ship it', astPath: [0], noteTitle: 'Desktop launch' }),
         task({ displayText: 'buy milk', astPath: [10], noteTitle: 'Home' }),
       ],
-      completed: undefined,
-      recentlyCompleted: [],
       filters: ALL_ON,
       needle: 'desktop',
       today: TODAY,
@@ -151,9 +96,7 @@ describe('composeVisibleTaskGroups', () => {
 describe('visibleGroups', () => {
   it('keeps every group with every filter on', () => {
     const groups = composeVisibleTaskGroups({
-      open: [task({ displayText: 'a', dueDate: TODAY })],
-      completed: undefined,
-      recentlyCompleted: [],
+      tasks: [task({ displayText: 'a', dueDate: TODAY })],
       filters: ALL_ON,
       needle: '',
       today: TODAY,

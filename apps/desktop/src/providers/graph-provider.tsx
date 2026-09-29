@@ -25,7 +25,7 @@ import {
   type GraphInfo,
   type RecentGraph,
 } from '@reflect/core'
-import { retireTaskControllers } from '@/lib/tasks/task-controller.ts'
+import { retireTaskStores } from '@/lib/tasks/task-store.ts'
 import { followHealedMove } from '@/editor/move-note.ts'
 import { flushOpenDocuments, reloadOpenDocuments } from '@/editor/open-documents.ts'
 import { resetNoteRowOverlays } from '@/hooks/note-row-overlay.ts'
@@ -270,7 +270,7 @@ export function GraphProvider({
         let opened = false
         try {
           await flushOpenDocuments()
-          await retireTaskControllers()
+          await retireTaskStores()
           await closeSecondaryWindows(platform) // before openGraph bumps the session
           const info = await openGraph(root)
           if (seq !== openSeq.current) {

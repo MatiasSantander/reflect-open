@@ -1,9 +1,8 @@
 import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
 import { Circle, CircleCheck } from 'lucide-react'
-import { displayNoteTitle, type TaskListItem } from '@reflect/core'
+import { displayNoteTitle, type Task } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { formatDayLabel } from '@/lib/dates.ts'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
@@ -12,7 +11,7 @@ import { TaskEditor, type TaskEditHandlers } from './task-editor.tsx'
 import { TaskText } from './task-text.tsx'
 
 interface TaskRowProps {
-  task: TaskListItem
+  task: Task
   /** Show the source-note date — date buckets aggregate tasks from many notes. */
   showSource: boolean
   /** Whether this row is part of the current multi-selection (Plan 18). */
@@ -79,7 +78,7 @@ export function TaskRow({
 
   return (
     <li
-      data-task-key={taskKey(task)}
+      data-task-key={task.key}
       onClick={selectFromRow}
       className={cn(
         'group/task flex min-h-10 items-start gap-3 border-b border-border bg-surface px-4 py-2 lg:px-12',

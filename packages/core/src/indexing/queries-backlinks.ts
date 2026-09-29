@@ -1,6 +1,5 @@
 import type { Database } from '@reflect/db'
 import { sql, type Selectable } from 'kysely'
-import { hashContent } from './hash.ts'
 import { readNote } from '../graph/commands.ts'
 import {
   blockContextLinesAt,
@@ -206,13 +205,13 @@ export async function getBacklinksWithContext(
   // One read *and one parse* per distinct source: a well-linked source
   // contributes many rows, and context extraction walks the parsed body.
   const sources = new Map<string, BlockContextSource | null>()
-  const taskSources = new Map<string, { content: string; revision: string }>()
+  const taskSources = new Map<string, { content: string }>()
   await Promise.all(
     pageSources.map(async ({ sourcePath }) => {
       try {
         const content = await readNote(sourcePath)
         sources.set(sourcePath, prepareBlockContext(content))
-        taskSources.set(sourcePath, { content, revision: await hashContent(content) })
+        taskSources.set(sourcePath, { content })
       } catch {
         sources.set(sourcePath, null)
       }

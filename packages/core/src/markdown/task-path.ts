@@ -5,10 +5,9 @@ export const taskPathSchema = z
   .min(1)
   .readonly()
 
-/** Child indexes from the note body's AST root, valid only at one revision. */
+/** A task's note and its child indexes from the note body's AST root. */
 export interface TaskAddress {
   notePath: string
-  revision: string
   astPath: readonly number[]
 }
 

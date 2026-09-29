@@ -19,8 +19,7 @@ it('maps a dedented nested checkbox back to the complete note AST', () => {
   const tasks = extractSnippetTasks('+ [ ] child', {
     content,
     notePath: 'notes/a.md',
-    revision: 'hash',
     lineOrigins: [content.indexOf('+ [ ] child')],
   })
-  expect(tasks[0]?.address).toEqual({ notePath: 'notes/a.md', revision: 'hash', astPath: [1, 1] })
+  expect(tasks[0]?.address).toEqual({ notePath: 'notes/a.md', astPath: [1, 1] })
 })

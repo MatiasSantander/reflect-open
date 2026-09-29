@@ -1,12 +1,11 @@
 import { useCallback } from 'react'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import type { TaskEditHandlers } from '@/components/tasks/task-editor.tsx'
 import {
   insertTargetForBucket,
   insertTargetForTask,
   previousTaskKey,
 } from '@/lib/tasks/task-navigation.ts'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
 import type { TaskActions } from '@/lib/tasks/use-task-actions.ts'
 import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
 
@@ -14,7 +13,7 @@ export interface TaskRowHandlerDeps {
   selection: TaskSelection
   actions: TaskActions
   /** The flat, render-order tasks, used to pick the row to select after a delete. */
-  orderedTasks: readonly TaskListItem[]
+  orderedTasks: readonly Task[]
   /** Today's ISO date: Enter adds the next task into the row's group (V1). */
   today: string
   /** Bring a row into view after a keyboard move (V1 scrolls the selection). */
@@ -34,7 +33,7 @@ export function useTaskRowHandlers({
   orderedTasks,
   today,
   scrollToKey,
-}: TaskRowHandlerDeps): (task: TaskListItem) => TaskEditHandlers {
+}: TaskRowHandlerDeps): (task: Task) => TaskEditHandlers {
   const selectExclusively = useCallback(
     (key: string) => {
       selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
@@ -44,7 +43,7 @@ export function useTaskRowHandlers({
   )
 
   return useCallback(
-    (task: TaskListItem): TaskEditHandlers => ({
+    (task: Task): TaskEditHandlers => ({
       onContinue: () => {
         // Add the next task into the row's breadcrumb context when it has one,
         // otherwise into V1's Current/note bucket target. An aggregate Overdue
@@ -60,7 +59,7 @@ export function useTaskRowHandlers({
         }
         const created = actions.insertAfter(task, target)
         if (created !== null) {
-          selectExclusively(taskKey(created))
+          selectExclusively(created.key)
         } else {
           selection.clear()
         }

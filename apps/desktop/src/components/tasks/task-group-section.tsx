@@ -1,9 +1,7 @@
 import { Fragment, type ReactElement } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type TaskListItem, type TaskGroup } from '@reflect/core'
+import { groupTaskContexts, type Task, type TaskGroup, type TaskTarget } from '@reflect/core'
 import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
 import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
 import type { TaskEditHandlers } from './task-editor.tsx'
 import { cn } from '@/lib/utils.ts'
@@ -15,13 +13,13 @@ interface TaskGroupSectionProps {
   group: TaskGroup
   selection: TaskSelection
   /** The inline-editor callbacks for a row, built once by the screen. */
-  editHandlers: (task: TaskListItem) => TaskEditHandlers
+  editHandlers: (task: Task) => TaskEditHandlers
   /** Complete/reopen the selected rows using the clicked task's next checkbox state. */
-  onSelectionCheckboxToggle: (task: TaskListItem) => void
+  onSelectionCheckboxToggle: (task: Task) => void
   /** Today's ISO date — the Current group's "+ Add" targets today's daily. */
   today: string
   /** Add a task to this group and open its editor (the header's "+ Add", V1). */
-  onAdd: (target: InsertTaskTarget) => void
+  onAdd: (target: TaskTarget) => void
   onOpen: (notePath: string, event?: ModClickEvent) => void
 }
 
@@ -82,13 +80,13 @@ export function TaskGroupSection({
           contexts.map((context) => {
             const firstTask = context.tasks[0]!
             return (
-              <Fragment key={taskKey(firstTask)}>
+              <Fragment key={firstTask.key}>
                 <TaskBreadcrumbs
                   breadcrumbs={context.visibleBreadcrumbs}
-                  onSelect={() => selection.select(context.tasks.map(taskKey))}
+                  onSelect={() => selection.select(context.tasks.map((task) => task.key))}
                 />
                 {context.tasks.map((task) => {
-                  const key = taskKey(task)
+                  const key = task.key
                   const selected = selection.isSelected(key)
                   return (
                     <TaskRow

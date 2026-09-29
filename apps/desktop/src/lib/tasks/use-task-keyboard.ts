@@ -1,7 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { getIsComposing, isModEvent } from '@meowdown/core'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
 import {
   insertTargetForBucket,
   insertTargetForTask,
@@ -15,9 +14,9 @@ export interface TaskKeyboardOptions {
   selection: TaskSelection
   actions: TaskActions
   /** The flat, render-order tasks the selection's keys resolve against. */
-  tasksByKey: ReadonlyMap<string, TaskListItem>
+  tasksByKey: ReadonlyMap<string, Task>
   /** The flat, render-order tasks — used to pick the row to select after a delete. */
-  orderedTasks: readonly TaskListItem[]
+  orderedTasks: readonly Task[]
   /** The search box's text, and its setter — Escape clears it. */
   query: string
   setQuery: (value: string) => void
@@ -132,7 +131,7 @@ export function useTaskKeyboard({
       // decides whether insertion is available (Current/note yes, aggregate
       // Overdue/Upcoming no). The pivot must still be selected: `activeKey()` keeps
       // pointing at the last touched row after deselection, which falls back to today.
-      const activeTask = (): TaskListItem | undefined => {
+      const activeTask = (): Task | undefined => {
         const activeKey = selection.activeKey()
         return activeKey !== null && selection.selected.has(activeKey)
           ? tasksByKey.get(activeKey)
@@ -143,10 +142,10 @@ export function useTaskKeyboard({
         scrollToKey(key)
       }
       const mod = isModEvent(event)
-      const selectedTasks = (): TaskListItem[] =>
+      const selectedTasks = (): Task[] =>
         [...selection.selected]
           .map((key) => tasksByKey.get(key))
-          .filter((task): task is TaskListItem => task !== undefined)
+          .filter((task): task is Task => task !== undefined)
 
       if (inSearch) {
         if (event.key === 'Escape') {
@@ -182,7 +181,7 @@ export function useTaskKeyboard({
               ? actions.insertAfter(active, taskTarget)
               : actions.insert(taskTarget)
           if (created !== null) {
-            selectExclusively(taskKey(created))
+            selectExclusively(created.key)
           }
         }
       } else if (mod && event.key === 'Backspace') {

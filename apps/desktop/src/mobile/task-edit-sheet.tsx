@@ -10,7 +10,7 @@ import {
 import { ArrowRight, CalendarDays, Check, CircleCheck, List, Trash2, Undo2, X } from 'lucide-react'
 import { Priority, getIsComposing } from '@meowdown/core'
 import { useKeymap } from '@meowdown/react'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
@@ -29,7 +29,7 @@ import { useSettings } from '@/providers/settings-provider.tsx'
 
 interface MobileTaskEditSheetProps {
   /** The task being edited, as the task controller currently shows it. */
-  task: TaskListItem
+  task: Task
   open: boolean
   /** Close the sheet. A user dismissal saves the draft first (V1 mobile). */
   onOpenChange: (open: boolean) => void

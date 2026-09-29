@@ -6,19 +6,11 @@ import type { SnippetTask } from '@reflect/core'
 import { BacklinkSnippet } from './backlink-snippet.tsx'
 
 const toggleTask = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/tasks/task-controller.ts', () => ({
-  taskController: () => ({
-    current: (row: import('@reflect/core').TaskListItem) => row,
-    submit: (row: import('@reflect/core').TaskListItem) => {
-      toggleTask(
-        {
-          notePath: row.notePath,
-          revision: row.revision,
-          astPath: row.astPath,
-          checked: row.checked,
-        },
-        7,
-      )
+vi.mock('@/lib/tasks/task-store.ts', () => ({
+  taskStore: () => ({
+    current: (row: import('@reflect/core').Task) => row,
+    update: (row: import('@reflect/core').Task) => {
+      toggleTask({ notePath: row.notePath, astPath: row.astPath, checked: row.checked }, 7)
     },
   }),
 }))
@@ -85,7 +77,7 @@ describe('BacklinkSnippet task checkboxes', () => {
 
   it('toggles only the addressed round checkbox at the rendered index', async () => {
     const tasks = anchors()
-    tasks[2]!.address = { notePath: 'notes/meeting.md', revision: 'hash', astPath: [0, 3] }
+    tasks[2]!.address = { notePath: 'notes/meeting.md', astPath: [0, 3] }
     const view = await renderSnippet(tasks)
     const boxes = view.container.querySelectorAll('input[type="checkbox"]')
     await userEvent.click(boxes[2]!, { force: true })

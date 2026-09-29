@@ -1,10 +1,9 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskListItem } from '@reflect/core'
+import type { Task } from '@reflect/core'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import { makeOpenTask as task } from './open-task-fixture.ts'
-import { taskKey } from './task-identity.ts'
 import type { TaskActions } from './use-task-actions.ts'
 import type { TaskSelection } from './use-task-selection.ts'
 import { useTaskKeyboard } from './use-task-keyboard.ts'
@@ -59,8 +58,8 @@ afterEach(() => {
 async function mount(options: {
   selection?: TaskSelection
   actions?: TaskActions
-  tasksByKey?: ReadonlyMap<string, TaskListItem>
-  orderedTasks?: TaskListItem[]
+  tasksByKey?: ReadonlyMap<string, Task>
+  orderedTasks?: Task[]
   query?: string
   today?: string
 }) {
@@ -241,7 +240,7 @@ describe('useTaskKeyboard', () => {
     press(root, 'Backspace')
     expect(actions.remove).toHaveBeenCalledWith([empty])
     // Lands on the previous row so the keyboard flow continues.
-    expect(selection.clickSelect).toHaveBeenCalledWith(taskKey(a), {
+    expect(selection.clickSelect).toHaveBeenCalledWith(a.key, {
       metaKey: false,
       ctrlKey: false,
       shiftKey: false,
@@ -352,7 +351,7 @@ describe('useTaskKeyboard', () => {
       pinnedOrder: null,
     })
     await flush()
-    expect(selection.clickSelect).toHaveBeenCalledWith(taskKey(created), {
+    expect(selection.clickSelect).toHaveBeenCalledWith(created.key, {
       metaKey: false,
       ctrlKey: false,
       shiftKey: false,

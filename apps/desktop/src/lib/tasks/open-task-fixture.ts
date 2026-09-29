@@ -1,14 +1,16 @@
-import { inlineMarkdownToDisplayText, type TaskListItem } from '@reflect/core'
+import { indexedTaskKey, inlineMarkdownToDisplayText, type Task } from '@reflect/core'
 
 /** An indexed task with defaults for UI tests. */
-export function makeOpenTask(overrides: Partial<TaskListItem> = {}): TaskListItem {
+export function makeOpenTask(overrides: Partial<Task> = {}): Task {
   const text = overrides.text ?? overrides.displayText ?? 'do it'
   const checked = overrides.checked ?? false
+  const notePath = overrides.notePath ?? 'notes/n.md'
+  const astPath = overrides.astPath ?? [0]
   return {
+    key: indexedTaskKey(notePath, astPath),
     text,
-    revision: 'test-revision',
-    notePath: 'notes/n.md',
-    astPath: [0],
+    notePath,
+    astPath,
     checked,
     displayText: inlineMarkdownToDisplayText(text),
     breadcrumbs: [],

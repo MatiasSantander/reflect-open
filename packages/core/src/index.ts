@@ -14,9 +14,10 @@ export * from './exports/ai-actions.ts'
 export * from './exports/link-preview.ts'
 export * from './exports/sync-markdown-indexing.ts'
 export {
-  TaskController,
-  taskListKey,
-  type TaskControllerIO,
-  type TaskCommand,
-  type TaskChange,
-} from './tasks/task-controller.ts'
+  TaskStore,
+  indexedTaskKey,
+  type Task,
+  type TaskPatch,
+  type TaskStoreIO,
+  type TaskTarget,
+} from './tasks/task-store.ts'
