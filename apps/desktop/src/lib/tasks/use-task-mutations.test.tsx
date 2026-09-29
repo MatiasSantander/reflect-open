@@ -8,7 +8,7 @@ import { resetRecentlyCompleted, useRecentlyCompleted } from './recently-complet
 const context = vi.hoisted(() => ({ generation: 1 }))
 const io = vi.hoisted(() => ({
   read: vi.fn(),
-  write: vi.fn(),
+  write: vi.fn<(path: string, before: string | null, next: string) => Promise<void>>(),
   checkpoint: vi.fn(),
   failure: vi.fn(),
   saved: vi.fn(),

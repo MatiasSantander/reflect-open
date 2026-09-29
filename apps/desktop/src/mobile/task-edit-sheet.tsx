@@ -69,6 +69,7 @@ export function MobileTaskEditSheet({
   const navigateTag = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
   const [showCalendar, setShowCalendar] = useState(false)
+  const [placeholderDate, setPlaceholderDate] = useState<string | null | undefined>(undefined)
   // The editor is uncontrolled; a reopen reseeds the draft (the row may have
   // been rewritten by an action), so remount it via this seed to re-read it.
   const [editorSeed, setEditorSeed] = useState(0)
@@ -97,10 +98,11 @@ export function MobileTaskEditSheet({
       readDraft: readLiveDraft,
       onReseed: () => {
         setShowCalendar(false)
+        setPlaceholderDate(undefined)
         setEditorSeed((seed) => seed + 1)
       },
     })
-  const dueDate = draftDueDate(draft)
+  const dueDate = placeholderDate === undefined ? draftDueDate(draft) : placeholderDate
 
   const handleChange = (markdown: string): void => {
     liveDraftRef.current = { seed: editorSeed, markdown }
@@ -185,6 +187,12 @@ export function MobileTaskEditSheet({
     // Base the rewrite on the freshest draft, then keep every mirror in step
     // by hand: setMarkdown is silent (no onChange echo), so neither the live
     // mirror nor the state (chip highlights) updates on its own.
+    if (!initialTask.revision && !(readLiveDraft() ?? draft).trim()) {
+      actions.schedule([initialTask], isoDate)
+      setPlaceholderDate(isoDate)
+      setShowCalendar(false)
+      return
+    }
     const next = withDraftDueDate(readLiveDraft() ?? draft, isoDate)
     liveDraftRef.current = { seed: editorSeed, markdown: next }
     setDraft(next)
@@ -215,7 +223,7 @@ export function MobileTaskEditSheet({
         <div className="flex flex-col gap-3 p-4">
           <div
             onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget))
+              if (!event.currentTarget.contains(event.relatedTarget) && !getIsComposing())
                 setDraft(readLiveDraft() ?? draft)
             }}
             data-base-ui-swipe-ignore

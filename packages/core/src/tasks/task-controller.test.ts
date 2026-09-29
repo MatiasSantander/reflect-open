@@ -148,3 +148,107 @@ describe('task controller', () => {
     expect(h.io.failure).not.toHaveBeenCalled()
   })
 })
+
+it('recovers a submitted create after restart without duplicating an acknowledged file', async () => {
+  const h = harness()
+  const gate = Promise.withResolvers<void>()
+  h.io.write.mockImplementationOnce(async () => {
+    await gate.promise
+    throw new Error('closed')
+  })
+  h.controller.submit(h.controller.begin(target), { text: 'recovered' })
+  await vi.waitFor(() => expect(h.io.write).toHaveBeenCalledOnce())
+  const pending = h.journal()!
+  const recovered = harness(pending.attempt!.source)
+  recovered.controller.restore(target.notePath, pending.commands, pending.attempt)
+  await recovered.controller.flush()
+  expect(recovered.source()?.match(/recovered/g)).toHaveLength(1)
+  expect(recovered.io.write).not.toHaveBeenCalled()
+  expect(recovered.io.failure).not.toHaveBeenCalled()
+  gate.resolve()
+  await h.controller.flush()
+})
+
+it('holds checkbox and date changes locally until a placeholder has content', async () => {
+  const h = harness()
+  const row = h.controller.begin(target)
+  h.controller.submit(row, { checked: true })
+  h.controller.submit(row, { dueDate: '2026-10-01' })
+  expect(h.io.checkpoint).not.toHaveBeenCalled()
+  expect(h.io.read).not.toHaveBeenCalled()
+  h.controller.submit(h.controller.current(row), { text: 'scheduled' })
+  await h.controller.flush()
+  expect(h.source()).toContain('[x] scheduled [[2026-10-01]]')
+})
+
+it('converts a filled local placeholder into a bullet without losing its text', async () => {
+  const h = harness()
+  h.controller.submit(h.controller.begin(target), { text: 'keep this', toBullet: true })
+  await h.controller.flush()
+  expect(h.source()).toContain('+ keep this')
+  expect(h.controller.project([], false)).toEqual([])
+  expect(h.io.failure).not.toHaveBeenCalled()
+})
+
+it('does not redirect an edit to an ambiguous duplicate after an external change', async () => {
+  const h = harness('+ [ ] same\n+ [ ] same\n')
+  const row: TaskListItem = {
+    ...target,
+    revision: 'stale',
+    astPath: [0],
+    text: 'same',
+    displayText: 'same',
+    checked: false,
+    dueDate: null,
+    updatedAt: 1,
+  }
+  h.controller.submit(row, { text: 'my draft' })
+  await h.controller.flush()
+  expect(h.io.write).not.toHaveBeenCalled()
+  expect(h.controller.project([], false).some((task) => task.text === 'my draft')).toBe(true)
+  expect(h.io.failure).toHaveBeenCalledOnce()
+})
+
+it('keeps quoted backlink task identities through consecutive edits without exposing them in Tasks', async () => {
+  const source = '> + [ ] quoted\n\n+ [ ] visible\n'
+  const h = harness(source)
+  const row: TaskListItem = {
+    ...target,
+    revision: await hashContent(source),
+    astPath: [0, 0],
+    text: 'quoted',
+    displayText: 'quoted',
+    checked: false,
+    dueDate: null,
+    updatedAt: 0,
+  }
+  h.controller.submit(row, { checked: true })
+  h.controller.submit(row, { text: 'edited quote' })
+  await h.controller.flush()
+  expect(h.source()).toContain('> + [x] edited quote')
+  expect(h.controller.project([], false).map((task) => task.text)).toEqual(['visible'])
+  expect(h.controller.project([], true)).toEqual([])
+  expect(h.io.failure).not.toHaveBeenCalled()
+})
+
+it('reconciles an external reopen and drops the recent-completion shadow', async () => {
+  const source = '+ [ ] original\n'
+  const h = harness(source)
+  const row: TaskListItem = {
+    ...target,
+    revision: await hashContent(source),
+    astPath: [0],
+    text: 'original',
+    displayText: 'original',
+    checked: false,
+    dueDate: null,
+    updatedAt: 0,
+  }
+  h.controller.submit(row, { checked: true })
+  await h.controller.flush()
+  const recent = h.controller.project([], true)
+  h.io.read.mockResolvedValue(source)
+  await h.controller.reconcile()
+  expect(h.controller.projectRecent(recent)).toEqual([])
+  expect(h.controller.project([], false)).toHaveLength(1)
+})

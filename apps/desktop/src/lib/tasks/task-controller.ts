@@ -25,14 +25,18 @@ export function taskController(root: string, generation: number) {
     const previous = journals.get(path) ?? Promise.resolve()
     const next = previous
       .catch(() => {})
-      .then(() => writeTaskJournal(root, path, snapshot.commands, snapshot.attempt))
+      .then(async () => {
+        await ready
+        await writeTaskJournal(root, path, snapshot.commands, snapshot.attempt)
+      })
     journals.set(path, next)
     return next
   }
   const controller = createTaskController({
+    ready: () => ready,
     async read(path) {
       await ready
-      const session = openSession(path)
+      const session = openSession(path, generation)
       if (session) {
         const source = session.liveContent()
         if (source === null) throw new Error('This note is still loading.')
@@ -46,7 +50,7 @@ export function taskController(root: string, generation: number) {
       }
     },
     async write(path, before, source) {
-      const session = openSession(path)
+      const session = openSession(path, generation)
       if (session) {
         let savedSource = source
         const applied = await session.commitSourceEdit(

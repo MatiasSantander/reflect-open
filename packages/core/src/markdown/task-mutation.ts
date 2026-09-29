@@ -62,14 +62,18 @@ export function editTaskDocument(
   })
   let changed = append !== false
   let created: MarkdownListItem | undefined
-  const create = (text: string): MarkdownListItem => ({
-    type: 'listItem',
-    kind: 'task',
-    checked: false,
-    collapsed: false,
-    marker: '+',
-    children: [{ type: 'paragraph', value: text }],
-  })
+  const create = (text: string): MarkdownListItem => {
+    const item: MarkdownListItem = {
+      type: 'listItem',
+      kind: 'task',
+      checked: false,
+      collapsed: false,
+      marker: '+',
+      children: [{ type: 'paragraph', value: text }],
+    }
+    protectTaskParagraph(item)
+    return item
+  }
   for (const { edit, item, paragraph } of targets) {
     if (edit.text !== undefined && paragraph.value !== edit.text) {
       paragraph.value = edit.text
@@ -138,9 +142,10 @@ export function editTaskDocument(
     }
   }
   const finalTasks = projectTaskDocument(reparsedDocument).tasks
-  const mutatedTasks = projectTaskDocument(document).tasks
-  const sameTaskProjection = JSON.stringify(mutatedTasks) === JSON.stringify(finalTasks)
-  const finalTaskPaths = new Set(finalTasks.map((task) => encodeTaskPath(task.astPath)))
+  const allTasks = projectTaskDocument(reparsedDocument, true).tasks
+  const mutatedTasks = projectTaskDocument(document, true).tasks
+  const sameTaskProjection = JSON.stringify(mutatedTasks) === JSON.stringify(allTasks)
+  const finalTaskPaths = new Set(allTasks.map((task) => encodeTaskPath(task.astPath)))
   const paths = new Map<string, readonly number[]>()
   let createdPath: readonly number[] | undefined
   if (sameTaskProjection) {
@@ -152,5 +157,5 @@ export function editTaskDocument(
     createdPath = created && mutatedPaths.get(created)
   }
   if (created && !createdPath) throw new Error('The new task could not be preserved.')
-  return { source: nextSource, paths, createdPath, tasks: finalTasks }
+  return { source: nextSource, paths, createdPath, tasks: finalTasks, allTasks }
 }

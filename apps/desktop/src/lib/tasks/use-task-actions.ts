@@ -22,12 +22,12 @@ export interface TaskActions {
   remove: (tasks: OpenTask[]) => void
   /** Replace one task's content from the inline editor (Plan 18). */
   edit: (task: OpenTask, content: string) => void
-  /** Toggle one row checkbox with exact rollback semantics for inline-editor checkbox clicks. */
+  /** Submit an optimistic checkbox intent for the current row. */
   checkboxToggle: (task: OpenTask) => void
   /**
-   * Add a new empty task to `target`'s note (Return-to-add, V1) and return the
-   * optimistic row to select — its inline editor opens focused. Resolves to
-   * `null` when there's no graph or the write failed (the toast already fired).
+   * Create an in-memory placeholder and return the row to focus. No note read,
+   * journal entry, or file write occurs until nonempty content is submitted.
+   * Returns null only when there is no open graph.
    */
   insert: (target: InsertTaskTarget) => Promise<OpenTask | null>
   /**
@@ -85,12 +85,14 @@ export function useTaskActions(): TaskActions {
   }
   const toggle = (rows: OpenTask[]) => {
     const checked = !rows.every((row) => controller?.current(row).checked ?? row.checked)
-    for (const row of rows) change(row, { checked })
+    for (const row of rows)
+      if ((controller?.current(row).checked ?? row.checked) !== checked) change(row, { checked })
   }
   return {
     isPending: false,
     complete: (rows) => {
-      for (const row of rows) change(row, { checked: true })
+      for (const row of rows)
+        if (!(controller?.current(row).checked ?? row.checked)) change(row, { checked: true })
     },
     toggle,
     remove: (rows) => {
@@ -114,7 +116,12 @@ export function useTaskActions(): TaskActions {
       change(row, { text, checked: !(controller?.current(row).checked ?? row.checked) }),
     schedule: (rows, date) => {
       for (const row of rows)
-        change(row, { text: scheduledContent(controller?.current(row) ?? row, date) })
+        change(
+          row,
+          !row.revision && !(controller?.current(row).text ?? row.text).trim()
+            ? { dueDate: date }
+            : { text: scheduledContent(controller?.current(row) ?? row, date) },
+        )
     },
     convertToBullet: (rows) => {
       for (const row of rows) change(row, { toBullet: true })

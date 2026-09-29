@@ -9,7 +9,7 @@ const toggleTask = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/tasks/task-controller.ts', () => ({
   taskController: () => ({
     current: (row: import('@reflect/core').TaskListItem) => row,
-    submit: (row: import('@reflect/core').TaskListItem) =>
+    submit: (row: import('@reflect/core').TaskListItem) => {
       toggleTask(
         {
           notePath: row.notePath,
@@ -18,7 +18,8 @@ vi.mock('@/lib/tasks/task-controller.ts', () => ({
           checked: row.checked,
         },
         7,
-      ),
+      )
+    },
   }),
 }))
 

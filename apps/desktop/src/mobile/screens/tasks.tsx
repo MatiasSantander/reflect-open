@@ -82,11 +82,12 @@ export function MobileTasks(): ReactElement {
     enabled: enabled && filters.archived,
   })
 
-  const { open, completed } = useTasksView(indexedOpen, indexedCompleted)
+  const { open, completed, projectRecent } = useTasksView(indexedOpen, indexedCompleted)
   const isError = openFailed || (filters.archived && completedFailed)
   const ready = open !== undefined && (!filters.archived || completed !== undefined)
 
-  const recentlyCompleted = useRecentlyCompleted(graph?.root ?? null, open)
+  const recent = useRecentlyCompleted(graph?.root ?? null, open)
+  const recentlyCompleted = useMemo(() => projectRecent(recent), [projectRecent, recent])
   const actions = useTaskActions()
 
   // Defer the needle like the All tab defers its query: fast typing coalesces

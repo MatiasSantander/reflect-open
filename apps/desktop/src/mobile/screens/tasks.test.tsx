@@ -160,7 +160,9 @@ vi.mock('@/lib/tasks/task-controller.ts', async () => {
         remove: deleteTask,
         convert: convertTaskToBullet,
         begin: insertTask,
-        fail: (message) => fail(message),
+        fail: (message) => {
+          fail(message)
+        },
       })),
   }
 })
@@ -261,6 +263,7 @@ async function revealSwipeActions(
 }
 
 beforeEach(async () => {
+  controllerStub.value = null
   await page.viewport(375, 700)
   window.sessionStorage.clear()
   getOpenTasks.mockReset()

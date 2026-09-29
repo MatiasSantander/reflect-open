@@ -4,11 +4,14 @@ import { editTaskDocument, type TaskEdit } from '../markdown/task-mutation.ts'
 import { hashContent } from '../indexing/hash.ts'
 import type { TaskListItem } from '../indexing/queries-tasks.ts'
 import { inlineMarkdownToDisplayText } from '../markdown/plain-text.ts'
-import { projectTaskContext } from '../markdown/task-projection.ts'
+import { projectTaskContext, projectTaskDocument } from '../markdown/task-projection.ts'
+import { setTaskDueDate } from '../markdown/edit.ts'
 import { splitFrontmatter } from '../markdown/frontmatter.ts'
 import { encodeTaskPath } from '../markdown/task-path.ts'
 
-export type TaskChange = Omit<TaskEdit, 'astPath' | 'insertAfter' | 'insertText'>
+export type TaskChange = Omit<TaskEdit, 'astPath' | 'insertAfter' | 'insertText'> & {
+  dueDate?: string | null | undefined
+}
 export interface TaskCommand {
   id: string
   row: TaskListItem
@@ -21,6 +24,7 @@ export interface TaskAttempt {
   commands: readonly TaskCommand[]
 }
 export interface TaskControllerIO {
+  ready?: () => Promise<void>
   read: (path: string) => Promise<string | null>
   write: (path: string, before: string | null, source: string) => Promise<string | void>
   checkpoint: (
@@ -38,7 +42,6 @@ interface NoteState {
   placeholders: Map<string, TaskListItem>
   anchors: Map<string, string>
   aliases: Map<string, string>
-  knownRevisions: Set<string>
   source: string | null | undefined
   running: Promise<void> | null
   failed: boolean
@@ -59,7 +62,12 @@ function changedRow(row: TaskListItem, edit: TaskChange): TaskListItem {
     text,
     displayText: inlineMarkdownToDisplayText(text),
     checked: edit.checked ?? row.checked,
-    dueDate: projected?.dueDate ?? null,
+    dueDate:
+      edit.dueDate !== undefined
+        ? edit.dueDate
+        : edit.text === undefined
+          ? row.dueDate
+          : (projected?.dueDate ?? null),
   }
 }
 
@@ -82,7 +90,6 @@ export function createTaskController(io: TaskControllerIO) {
         placeholders: new Map(),
         anchors: new Map(),
         aliases: new Map(),
-        knownRevisions: new Set(),
         source: undefined,
         running: null,
         failed: false,
@@ -133,7 +140,7 @@ export function createTaskController(io: TaskControllerIO) {
       const anchor = identify(state, after)
       state.anchors.set(taskId, taskListKey(anchor))
       const path = after.sortPath ?? after.astPath
-      if (path?.length) row.sortPath = [...path.slice(0, -1), path.at(-1)! + 0.5]
+      if (path?.length) row.sortPath = [...path, Number.MAX_SAFE_INTEGER]
     }
     state.context = row
     state.placeholders.set(taskId, row)
@@ -151,7 +158,7 @@ export function createTaskController(io: TaskControllerIO) {
       !state.commands.some((command) => command.id === id) &&
       !state.rows?.some((saved) => taskListKey(saved) === id)
     ) {
-      if (edit.remove || edit.toBullet || edit.text?.trim() === '') {
+      if (edit.remove || edit.text?.trim() === '' || (edit.toBullet && !edit.text?.trim())) {
         state.placeholders.delete(id)
         state.anchors.delete(id)
         emit()
@@ -163,15 +170,20 @@ export function createTaskController(io: TaskControllerIO) {
         return
       }
     }
+    if (placeholder?.dueDate && edit.text?.trim())
+      edit = { ...edit, text: setTaskDueDate(edit.text, placeholder.dueDate) }
     state.commands.push({
       id,
-      row: identified,
+      row: placeholder ? { ...identified, checked: placeholder.checked } : identified,
       edit,
       ...(state.anchors.has(id) ? { after: state.anchors.get(id)! } : {}),
     })
     emit()
-    void io
-      .checkpoint(row.notePath, state.commands.slice(), state.attempt)
+    void Promise.resolve()
+      .then(async () => {
+        await io.ready?.()
+        await io.checkpoint(row.notePath, state.commands.slice(), state.attempt)
+      })
       .catch((error: unknown) => {
         state.failed = true
         io.failure(row.notePath, error, () => {
@@ -187,7 +199,11 @@ export function createTaskController(io: TaskControllerIO) {
     revision: string,
     commands: readonly TaskCommand[],
   ): TaskListItem[] {
-    const tasks = projectTaskContext(splitFrontmatter(source).body).tasks
+    const document = parseMarkdownAst(splitFrontmatter(source).body)
+    const aggregate = new Set(
+      projectTaskDocument(document).tasks.map((task) => encodeTaskPath(task.astPath)),
+    )
+    const tasks = projectTaskDocument(document, true).tasks
     const context = commands[0]?.row ?? state.rows?.[0] ?? state.context
     if (!context) return []
     return tasks.map((task) => {
@@ -209,6 +225,7 @@ export function createTaskController(io: TaskControllerIO) {
       const row = {
         ...context,
         ...task,
+        inTasksView: aggregate.has(encodeTaskPath(task.astPath)),
         revision,
         taskId: old
           ? taskListKey(identify(state, old))
@@ -228,7 +245,11 @@ export function createTaskController(io: TaskControllerIO) {
     const beforeAst = parseMarkdownAst(splitFrontmatter(before).body)
     const afterAst = parseMarkdownAst(splitFrontmatter(after).body)
     const signature = (row: TaskListItem, ast: typeof beforeAst) =>
-      row.astPath ? JSON.stringify(resolveMarkdownAstPath(ast, row.astPath)?.node) : undefined
+      row.astPath
+        ? JSON.stringify(resolveMarkdownAstPath(ast, row.astPath)?.node, (key, value: unknown) =>
+            key === 'checked' ? undefined : value,
+          )
+        : undefined
     for (const old of previous) {
       const fingerprint = signature(old, beforeAst)
       if (!fingerprint) continue
@@ -242,7 +263,8 @@ export function createTaskController(io: TaskControllerIO) {
     }
   }
   async function drain(path: string, state: NoteState): Promise<void> {
-    while (state.commands.length && !state.failed) {
+    await io.ready?.()
+    while (state.commands.length > 0 && !state.failed) {
       const commands = state.commands.slice()
       try {
         const actual = await io.read(path)
@@ -262,7 +284,7 @@ export function createTaskController(io: TaskControllerIO) {
             (command.row.revision === revision ? command.row : undefined)
           const isNew = state.placeholders.has(command.id) && command.row.revision === undefined
           if (!row && !isNew) throw new Error('This task changed elsewhere. Your text is kept.')
-          if (!row && (command.edit.remove || command.edit.toBullet)) continue
+          if (!row && command.edit.remove) continue
           const anchor = command.after
             ? rows.find((candidate) => taskListKey(candidate) === command.after)
             : undefined
@@ -280,7 +302,7 @@ export function createTaskController(io: TaskControllerIO) {
                 ])
               : editTaskDocument(source, [], command.edit.text ?? command.row.text)
           const previousRows = rows
-          rows = result.tasks.map((task) => {
+          rows = result.allTasks.map((task) => {
             const previous = previousRows.find(
               (candidate) =>
                 candidate.astPath &&
@@ -291,21 +313,35 @@ export function createTaskController(io: TaskControllerIO) {
             return {
               ...command.row,
               ...task,
+              inTasksView: result.tasks.some(
+                (projected) => encodeTaskPath(projected.astPath) === encodeTaskPath(task.astPath),
+              ),
               taskId: id,
               revision,
               displayText: inlineMarkdownToDisplayText(task.text),
             }
           })
-          if (!row && command.edit.checked !== undefined) {
+          if (
+            !row &&
+            (command.edit.checked !== undefined || command.row.checked || command.edit.toBullet)
+          ) {
             row = rows.find((candidate) => taskListKey(candidate) === command.id)
             if (row?.astPath) {
               const checked = editTaskDocument(result.source, [
-                { astPath: row.astPath, checked: command.edit.checked },
+                {
+                  astPath: row.astPath,
+                  checked: command.edit.checked ?? command.row.checked,
+                  ...(command.edit.toBullet ? { toBullet: true } : {}),
+                },
               ])
               source = checked.source
-              rows = rows.map((candidate) =>
-                candidate === row ? { ...candidate, checked: command.edit.checked! } : candidate,
-              )
+              rows = command.edit.toBullet
+                ? rows.filter((candidate) => candidate !== row)
+                : rows.map((candidate) =>
+                    candidate === row
+                      ? { ...candidate, checked: command.edit.checked ?? command.row.checked }
+                      : candidate,
+                  )
             } else source = result.source
           } else source = result.source
         }
@@ -313,7 +349,7 @@ export function createTaskController(io: TaskControllerIO) {
         state.attempt = attempt
         await io.checkpoint(path, state.commands, attempt)
         try {
-          const written = await io.write(path, actual, source)
+          const written = source === actual ? undefined : await io.write(path, actual, source)
           if (written !== undefined && written !== source) {
             const normalized = resolveRows(state, written, revision, commands)
             relocate(source, written, rows, normalized)
@@ -325,10 +361,6 @@ export function createTaskController(io: TaskControllerIO) {
           if (actual !== source) throw error
         }
         const nextRevision = await hashContent(source)
-        state.knownRevisions.add(revision)
-        for (const previous of state.rows ?? commands.map((command) => command.row)) {
-          if (previous.revision) state.knownRevisions.add(previous.revision)
-        }
         state.source = source
         state.rows = rows.map((row) => {
           const next = { ...row, revision: nextRevision }
@@ -338,7 +370,7 @@ export function createTaskController(io: TaskControllerIO) {
           return next
         })
         for (const command of commands)
-          if (command.edit.remove) state.placeholders.delete(command.id)
+          if (command.edit.remove || command.edit.toBullet) state.placeholders.delete(command.id)
         state.commands.splice(0, commands.length)
         state.attempt = null
         state.retries = 0
@@ -366,7 +398,7 @@ export function createTaskController(io: TaskControllerIO) {
       .then(() => drain(path, state))
       .finally(() => {
         state.running = null
-        if (state.commands.length && !state.failed) start(path, state)
+        if (state.commands.length > 0 && !state.failed) start(path, state)
       })
   }
   return {
@@ -396,12 +428,12 @@ export function createTaskController(io: TaskControllerIO) {
         const noteRows = indexed.filter((row) => row.notePath === path)
         result.push(...visible(state, noteRows))
       }
-      return result.filter((row) => row.checked === checked)
+      return result.filter((row) => row.inTasksView !== false && row.checked === checked)
     },
     /** Verify tracked notes after an index notification, including empty projections. */
     async reconcile(): Promise<void> {
       for (const [path, state] of notes) {
-        if (state.source === undefined || state.running || state.commands.length) continue
+        if (state.source === undefined || state.running || state.commands.length > 0) continue
         const before = state.source
         try {
           const source = await io.read(path)
@@ -409,11 +441,11 @@ export function createTaskController(io: TaskControllerIO) {
             source === before ||
             state.source !== before ||
             state.running ||
-            state.commands.length
+            state.commands.length > 0
           )
             continue
           const revision = await hashContent(source ?? '')
-          if (state.source !== before || state.running || state.commands.length) continue
+          if (state.source !== before || state.running || state.commands.length > 0) continue
           const rows = resolveRows(state, source ?? '', revision, [])
           if (before !== null && state.rows) relocate(before, source ?? '', state.rows, rows)
           state.rows = rows
@@ -429,6 +461,16 @@ export function createTaskController(io: TaskControllerIO) {
         }
       }
     },
+    projectRecent(recent: readonly TaskListItem[]): TaskListItem[] {
+      return recent.flatMap((row) => {
+        const state = notes.get(row.notePath)
+        if (!state) return [row]
+        return visible(state, [row]).filter(
+          (candidate) =>
+            candidate.checked && taskListKey(candidate) === taskListKey(identify(state, row)),
+        )
+      })
+    },
     current(row: TaskListItem): TaskListItem {
       const state = notes.get(row.notePath)
       return state
@@ -438,7 +480,10 @@ export function createTaskController(io: TaskControllerIO) {
         : row
     },
     async flush(): Promise<void> {
-      await Promise.all([...notes.values()].map((state) => state.running))
+      await io.ready?.()
+      await Promise.all(
+        [...notes.values()].flatMap((state) => (state.running ? [state.running] : [])),
+      )
     },
   }
 }

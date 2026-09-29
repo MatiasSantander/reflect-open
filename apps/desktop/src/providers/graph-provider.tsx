@@ -26,7 +26,7 @@ import {
   type RecentGraph,
 } from '@reflect/core'
 import { followHealedMove } from '@/editor/move-note.ts'
-import { reloadOpenDocuments } from '@/editor/open-documents.ts'
+import { flushOpenDocuments, reloadOpenDocuments } from '@/editor/open-documents.ts'
 import { resetNoteRowOverlays } from '@/hooks/note-row-overlay.ts'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { setIndexProgress } from '@/lib/index-progress.ts'
@@ -268,6 +268,7 @@ export function GraphProvider({
       const run = async (): Promise<boolean> => {
         let opened = false
         try {
+          await flushOpenDocuments()
           await closeSecondaryWindows(platform) // before openGraph bumps the session
           const info = await openGraph(root)
           if (seq !== openSeq.current) {

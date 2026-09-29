@@ -9,6 +9,8 @@ import { decodeTaskBreadcrumbs } from './indexed-note.ts'
 
 /** A projected task with its note context and derived display text. */
 export interface TaskListItem {
+  /** False for checklist/quoted rows edited from backlinks but excluded from Tasks. */
+  inTasksView?: boolean | undefined
   taskId?: string | undefined
   revision?: string | undefined
   astPath?: readonly number[] | undefined

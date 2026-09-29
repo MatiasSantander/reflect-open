@@ -76,7 +76,9 @@ vi.mock('@/lib/tasks/task-controller.ts', async () => {
         remove: deleteTask,
         convert: convertTaskToBullet,
         begin: insertTask,
-        fail: (message) => fail(message),
+        fail: (message) => {
+          fail(message)
+        },
       })),
   }
 })
@@ -1048,9 +1050,8 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('preserves a grouped task draft when contextual insertion is refused', async () => {
-    continueTaskInContext.mockRejectedValue(new Error('This note is open.'))
-    editTask.mockResolvedValue([])
+  it('keeps the edited grouped row and opens the next placeholder when saving fails', async () => {
+    editTask.mockRejectedValue(new Error('This note is open.'))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
@@ -1067,13 +1068,9 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByRole('button', { name: 'continue-edit' }))
 
     await waitFor(() => expect(fail).toHaveBeenCalledWith('This note is open.'))
-    expect(editTask).not.toHaveBeenCalled()
-    expect(insertTask).not.toHaveBeenCalled()
-    expect(
-      view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Unsaved task draft"]')
-        ?.value,
-    ).toBe('edited content')
-    expect(fail).toHaveBeenCalledWith('This note is open.')
+    await view.findByText('edited content')
+    await view.findByTestId('task-editor')
+    expect(view.container.querySelector('textarea[aria-label="Unsaved task draft"]')).toBeNull()
     await view.unmount()
   })
 
@@ -1094,13 +1091,12 @@ describe('TasksScreen', () => {
     await userEvent.click(await view.findByRole('button', { name: 'scheduled' }))
     await userEvent.click(view.getByRole('button', { name: 'continue-unchanged' }))
 
-    await waitFor(() =>
-      expect(continueTaskInContext).toHaveBeenCalledWith(
-        expect.objectContaining({ notePath: 'notes/a.md', breadcrumbs: ['Project'] }),
-        null,
-        1,
-      ),
-    )
+    await view.findByTestId('task-editor')
+    expect(
+      controllerStub.value
+        ?.project([], false)
+        .some((row) => row.revision === undefined && row.breadcrumbs.includes('Project')),
+    ).toBe(true)
     await view.unmount()
   })
 
@@ -1474,6 +1470,19 @@ describe('TasksScreen', () => {
         updatedAt: 200,
       }),
     ])
+    act(() =>
+      controllerStub.value?.submit(
+        task({
+          notePath: 'notes/p.md',
+          astPath: [5],
+          text: 'project task',
+          displayText: 'project task',
+          noteTitle: 'Project',
+          updatedAt: 200,
+        }),
+        { checked: false },
+      ),
+    )
     await client.invalidateQueries({ queryKey: queryKeys.index.all })
 
     await view.findByRole('button', { name: 'Complete: project task' })
@@ -1670,7 +1679,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('disables row checkboxes while an edit-and-toggle write is pending', async () => {
+  it('accepts another checkbox intent while an edit-and-toggle write is pending', async () => {
     let resolveEdit = (): void => {
       throw new Error('edit promise was not created')
     }
@@ -1698,12 +1707,12 @@ describe('TasksScreen', () => {
 
     await waitFor(() => expect(editTask).toHaveBeenCalledTimes(1))
     const reopen = await view.findByRole('button', { name: 'Reopen: edited content' })
-    await waitFor(() => expect((reopen as HTMLButtonElement).disabled).toBe(true))
+    await waitFor(() => expect((reopen as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(reopen)
-    expect(toggleTask).not.toHaveBeenCalled()
+    await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
 
     resolveEdit()
-    await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
     await view.unmount()
   })
 
@@ -1795,7 +1804,7 @@ describe('TasksScreen', () => {
 
     await userEvent.click(await view.findByRole('button', { name: 'Reopen: project task' }))
     const complete = await view.findByRole('button', { name: 'Complete: project task' })
-    await waitFor(() => expect((complete as HTMLButtonElement).disabled).toBe(true))
+    await waitFor(() => expect((complete as HTMLButtonElement).disabled).toBe(false))
     expect(complete.querySelector('.lucide-circle-check')).toBeNull()
     expect(complete.querySelector('.lucide-circle')).not.toBeNull()
 
@@ -1804,7 +1813,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('restores a struck task when an unchanged editor checkbox reopen fails', async () => {
+  it('keeps the reopen intent when saving fails', async () => {
     toggleTask.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('stale index'))
     getOpenTasks.mockResolvedValue([
       task({
@@ -1826,8 +1835,7 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByRole('button', { name: 'Reopen: project task' }))
 
     await waitFor(() => expect(fail).toHaveBeenCalledWith('stale index'))
-    expect(startOperation).toHaveBeenCalledWith('Reopening task')
-    await view.findByRole('button', { name: 'Reopen: project task' })
+    await view.findByRole('button', { name: 'Complete: project task' })
     await view.unmount()
   })
 
@@ -1908,7 +1916,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('restores persisted text when an edited struck task fails before reopening', async () => {
+  it('keeps edited text in the ordinary task row when reopening fails', async () => {
     toggleTask.mockResolvedValue([])
     editTask.mockRejectedValue(new Error('disk full'))
     getOpenTasks.mockResolvedValue([
@@ -1931,13 +1939,8 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByRole('button', { name: 'Reopen: project task' }))
 
     await waitFor(() => expect(fail).toHaveBeenCalledWith('disk full'))
-    expect(startOperation).toHaveBeenCalledWith('Reopening task')
-    await view.findByRole('button', { name: 'Reopen: project task' })
-    expect(view.queryByRole('button', { name: 'edited content', exact: true })).toBeNull()
-    expect(
-      view.container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Unsaved task draft"]')
-        ?.value,
-    ).toBe('edited content')
+    await view.findByRole('button', { name: 'Complete: edited content' })
+    expect(view.container.querySelector('textarea[aria-label="Unsaved task draft"]')).toBeNull()
     await view.unmount()
   })
 
@@ -2010,7 +2013,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('a failed delete restores a struck task instead of dropping it (V1 middle state)', async () => {
+  it('retains a failed delete intent and reports the error without restoring a row', async () => {
     toggleTask.mockResolvedValue([])
     deleteTask.mockRejectedValue(new Error('disk full'))
     getOpenTasks.mockResolvedValue([
@@ -2032,12 +2035,12 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByRole('button', { name: 'delete-edit' }))
 
     await waitFor(() => expect(deleteTask).toHaveBeenCalled())
-    // The write failed, so the struck row is restored, not lost.
-    await view.findByRole('button', { name: 'Reopen: one' })
+    await waitFor(() => expect(fail).toHaveBeenCalledWith('disk full'))
+    expect(view.queryByRole('button', { name: 'Reopen: one' })).toBeNull()
     await view.unmount()
   })
 
-  it('rolls the row back and surfaces a failed completion via the operations toast', async () => {
+  it('keeps an optimistic completion and surfaces a failed save', async () => {
     toggleTask.mockRejectedValue(new Error('stale index'))
     getOpenTasks.mockResolvedValue([
       task({ notePath: 'notes/p.md', displayText: 'project task', noteTitle: 'Project' }),
@@ -2046,13 +2049,12 @@ describe('TasksScreen', () => {
 
     await userEvent.click(await view.findByRole('button', { name: 'Complete: project task' }))
     await waitFor(() => expect(fail).toHaveBeenCalledWith('stale index'))
-    expect(startOperation).toHaveBeenCalledWith('Completing task')
-    // Rolled back: the row returns after the failed write.
+    // The optimistic intent remains available for retry.
     await view.findByText('project task')
     await view.unmount()
   })
 
-  it('refetches (does not restore a stale snapshot) when a bulk complete fails', async () => {
+  it('keeps both optimistic rows when a bulk completion fails', async () => {
     toggleTask.mockRejectedValue(new Error('stale index'))
     getOpenTasks.mockResolvedValue([
       task({
@@ -2076,9 +2078,8 @@ describe('TasksScreen', () => {
     await userEvent.keyboard('{ControlOrMeta>}a{/ControlOrMeta}')
     await userEvent.keyboard('{ControlOrMeta>}{Enter}{/ControlOrMeta}')
     await waitFor(() => expect(fail).toHaveBeenCalledWith('stale index'))
-    // A batch failure reconciles by refetching the index, not by restoring the
-    // pre-batch snapshot (which would un-do any write that already landed).
-    await waitFor(() => expect(getOpenTasks.mock.calls.length).toBeGreaterThan(1))
+    await view.findByRole('button', { name: 'Reopen: first' })
+    await view.findByRole('button', { name: 'Reopen: second' })
     await view.unmount()
   })
 })

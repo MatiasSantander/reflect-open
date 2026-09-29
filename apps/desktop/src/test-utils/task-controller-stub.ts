@@ -41,7 +41,7 @@ export function createTaskControllerStub(
         if (edit.remove) await io.remove(row, 1)
         if (edit.toBullet) await io.convert(row, 1)
       } catch (error) {
-        rows.set(key, edit.text === undefined ? before : next)
+        // Failed intents remain visible until retried.
         io.fail(error instanceof Error ? error.message : String(error))
         emit()
       }
@@ -66,6 +66,11 @@ export function createTaskControllerStub(
     },
     submit,
     current,
+    projectRecent: (recent) =>
+      recent.flatMap((row) => {
+        const latest = rows.has(taskListKey(row)) ? rows.get(taskListKey(row)) : row
+        return latest?.checked ? [latest] : []
+      }),
     project(indexed, checked) {
       const result = new Map(indexed.map((row) => [taskListKey(row), row]))
       for (const [key, row] of rows) {

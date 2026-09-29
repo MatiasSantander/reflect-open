@@ -98,6 +98,7 @@ it('maps duplicate text by structural address and excludes quoted tasks', () => 
     { astPath: [1], checked: true },
   ])
   expect([...result.paths]).toEqual([
+    ['[0,0]', [0, 0]],
     ['[1]', [1]],
     ['[2]', [2]],
   ])

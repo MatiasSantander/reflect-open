@@ -25,7 +25,10 @@ export function projectTaskContext(body: string): {
 }
 
 /** Extract round task rows from a parsed document. */
-export function projectTaskDocument(document: MarkdownDocument): {
+export function projectTaskDocument(
+  document: MarkdownDocument,
+  includeAll = false,
+): {
   tasks: ParsedTask[]
 } {
   const contexts = new Map<MarkdownNode, { quoted: boolean; breadcrumbs: readonly string[] }>()
@@ -36,7 +39,7 @@ export function projectTaskDocument(document: MarkdownDocument): {
     const breadcrumbs = context?.breadcrumbs ?? []
     if (node.type === 'listItem') {
       const paragraph = getTaskParagraph(node)
-      if (!quoted && node.kind === 'task' && node.marker === '+' && paragraph) {
+      if (node.kind === 'task' && paragraph && (includeAll || (!quoted && node.marker === '+'))) {
         const text = paragraph.value
         const dueDate =
           collectInlineElements(

@@ -25,6 +25,7 @@ export function useTasksView(
   }, [controller, open, completed])
   return useMemo(
     () => ({
+      projectRecent: (rows: readonly TaskListItem[]) => controller?.projectRecent(rows) ?? rows,
       open: open === undefined ? undefined : (controller?.project(open, false) ?? open),
       completed:
         completed === undefined ? undefined : (controller?.project(completed, true) ?? completed),

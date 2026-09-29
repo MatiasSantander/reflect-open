@@ -94,7 +94,7 @@ export function TasksScreen(): ReactElement {
     enabled: enabled && filters.archived,
   })
 
-  const { open, completed } = useTasksView(indexedOpen, indexedCompleted)
+  const { open, completed, projectRecent } = useTasksView(indexedOpen, indexedCompleted)
 
   // Either read failing surfaces the alert — a failed completed read must not
   // leave `ready` stuck (and the list blank) just because its data never arrived.
@@ -110,7 +110,8 @@ export function TasksScreen(): ReactElement {
   // This session's completed tasks, still showing struck until archived —
   // reconciled against the open read so a task reopened at its source note
   // sheds its struck shadow instead of masking the live row.
-  const recentlyCompleted = useRecentlyCompleted(graph?.root ?? null, open)
+  const recent = useRecentlyCompleted(graph?.root ?? null, open)
+  const recentlyCompleted = useMemo(() => projectRecent(recent), [projectRecent, recent])
 
   const needle = query.trim().toLowerCase()
   const groups = useMemo(

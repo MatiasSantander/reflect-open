@@ -161,7 +161,7 @@ export function useTaskEditorFinalizer({
         const result = resolveTaskEdit(initial, currentRef.current)
         if (result.type === 'commit') {
           onCommit(result.content)
-        } else if (result.type === 'delete') {
+        } else if (result.type === 'delete' || currentRef.current.trim() === '') {
           onDelete()
         } else {
           onCancel()

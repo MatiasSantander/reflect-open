@@ -1,7 +1,10 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { isNativeShell } from '@/lib/platform.ts'
 import { z } from 'zod'
 import type { TaskAttempt, TaskCommand } from '@reflect/core'
 
 const rowSchema = z.object({
+  inTasksView: z.boolean().optional(),
   taskId: z.string().optional(),
   notePath: z.string(),
   revision: z.string().optional(),
@@ -25,12 +28,14 @@ const commandSchema = z.object({
   edit: z.object({
     text: z.string().optional(),
     checked: z.boolean().optional(),
+    dueDate: z.string().nullable().optional(),
     remove: z.boolean().optional(),
     toBullet: z.boolean().optional(),
   }),
 })
 const entrySchema = z.object({
   root: z.string(),
+  owner: z.string(),
   path: z.string(),
   commands: z.array(commandSchema),
   attempt: z
@@ -42,10 +47,21 @@ function openJournal(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('reflect-task-drafts', 1)
     request.onupgradeneeded = () =>
-      request.result.createObjectStore('notes', { keyPath: ['root', 'path'] })
+      request.result.createObjectStore('notes', { keyPath: ['root', 'owner', 'path'] })
     request.onerror = () => reject(request.error)
     request.onsuccess = () => resolve(request.result)
   })
+}
+
+function journalOwner(): string {
+  // Tauri window labels survive a webview reload and isolate simultaneous writers.
+  if (isNativeShell()) return getCurrentWindow().label
+  let owner = sessionStorage.getItem('reflect.task-journal-owner')
+  if (!owner) {
+    owner = crypto.randomUUID()
+    sessionStorage.setItem('reflect.task-journal-owner', owner)
+  }
+  return owner
 }
 
 /** Read only committed drafts; empty placeholders never enter this database. */
@@ -57,7 +73,9 @@ export async function readTaskJournal(root: string) {
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
-    return values.map((value) => entrySchema.parse(value)).filter((entry) => entry.root === root)
+    return values
+      .map((value) => entrySchema.parse(value))
+      .filter((entry) => entry.root === root && entry.owner === journalOwner())
   } finally {
     database.close()
   }
@@ -75,8 +93,8 @@ export async function writeTaskJournal(
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction('notes', 'readwrite')
       const store = transaction.objectStore('notes')
-      if (commands.length) store.put({ root, path, commands, attempt })
-      else store.delete([root, path])
+      if (commands.length > 0) store.put({ root, owner: journalOwner(), path, commands, attempt })
+      else store.delete([root, journalOwner(), path])
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
       transaction.onabort = () => reject(transaction.error)

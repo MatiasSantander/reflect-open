@@ -24,8 +24,8 @@ import { useSettings } from '@/providers/settings-provider.tsx'
 
 /**
  * Edits the complete first paragraph without exposing its checkbox marker.
- * The source revision and callbacks are frozen with the uncontrolled editor's
- * initial content, so a refreshed row cannot retarget an existing draft.
+ * The uncontrolled editor keeps its initial content; callbacks resolve the stable
+ * task identity against the controller when editing finishes.
  */
 /** A keyboard move between task rows: −1 up, +1 down; `span` extends the range (Shift). */
 export type TaskNavigate = (direction: -1 | 1, options: { span: boolean }) => void
