@@ -172,6 +172,7 @@ export interface ParsedTask {
   astPath: readonly number[]
     // FIXME: let's rename "firstParagraphMarkdown" to "text", both in the database and in the codebase. And both in the database and in the codebase, use comments to indicate that this is the first first paragraph markdown fomr the original note (also indicate that whether this field contains "[ ]" or "[x]" or not.)
   firstParagraphMarkdown: string
+  // FIXME: use comments to indicate what this "breadcrumbs" field is for
   breadcrumbs: readonly string[]
   checked: boolean
   dueDate: string | null
