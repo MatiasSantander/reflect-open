@@ -1786,8 +1786,8 @@ describe('TasksScreen', () => {
     }
     toggleTask.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
-          resolveToggle = resolve
+        new Promise<[]>((resolve) => {
+          resolveToggle = () => resolve([])
         }),
     )
     getOpenTasks.mockResolvedValue([])
@@ -1815,7 +1815,7 @@ describe('TasksScreen', () => {
   })
 
   it('restores a struck task when an unchanged editor checkbox reopen fails', async () => {
-    toggleTask.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('stale index'))
+    toggleTask.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('stale index'))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',

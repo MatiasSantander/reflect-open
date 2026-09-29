@@ -131,9 +131,8 @@ export interface Tasks {
   breadcrumbs: Generated<string>;
   checked: number;
   dueDate: string | null;
-  /** Raw first-paragraph Markdown, excluding the `[ ]` or `[x]` marker. */
-  text: string;
   notePath: string;
+  text: string;
 }
 
 export interface DB {
