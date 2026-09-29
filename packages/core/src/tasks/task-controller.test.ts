@@ -266,3 +266,14 @@ it('does not recreate an uncertain create after another writer changes its outpu
   expect(h.io.write).not.toHaveBeenCalled()
   expect(h.io.failure).toHaveBeenCalledOnce()
 })
+
+it('keeps the worker usable when an early checkpoint fails but the save checkpoint succeeds', async () => {
+  const h = harness()
+  h.io.checkpoint.mockRejectedValueOnce(new Error('temporary journal failure'))
+  h.controller.submit(h.controller.begin(target), { text: 'first' })
+  await h.controller.flush()
+  expect(h.source()).toContain('first')
+  h.controller.submit(h.controller.begin(target), { text: 'second' })
+  await h.controller.flush()
+  expect(h.source()).toContain('second')
+})

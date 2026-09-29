@@ -382,6 +382,7 @@ export function createTaskController(io: TaskControllerIO) {
         state.commands.splice(0, commands.length)
         state.attempt = null
         state.retries = 0
+        state.failed = false
         await io.checkpoint(path, state.commands, null)
         io.saved(path)
         emit()
