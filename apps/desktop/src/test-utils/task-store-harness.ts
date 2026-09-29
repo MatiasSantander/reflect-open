@@ -34,7 +34,7 @@ export interface TaskStoreHarness {
   /** Make the next write reject with this error (once). */
   failNextWrite(error: Error): void
   /** Called after each successful write; the test setup passes a function that refetches the mocked queries. */
-  onWritten?: () => Promise<void>
+  onWritten?: (() => Promise<void>) | undefined
   /** The store's IO, for tests that spy on `failure` or gate `write`. */
   io: TaskStoreIO
 }
