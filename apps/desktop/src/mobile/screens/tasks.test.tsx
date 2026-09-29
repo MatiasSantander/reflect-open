@@ -143,7 +143,6 @@ const toggleTask = vi.hoisted(() => vi.fn())
 const deleteTask = vi.hoisted(() => vi.fn())
 const editTask = vi.hoisted(() => vi.fn())
 const insertTask = vi.hoisted(() => vi.fn())
-const continueTaskInContext = vi.hoisted(() => vi.fn())
 const convertTaskToBullet = vi.hoisted(() => vi.fn())
 const controllerStub = vi.hoisted(() => ({
   value: null as ReturnType<
@@ -279,15 +278,6 @@ beforeEach(async () => {
     revision: 'inserted-revision',
     astPath: [0],
   }))
-  continueTaskInContext.mockReset()
-  continueTaskInContext.mockResolvedValue({
-    notePath: 'notes/n.md',
-    revision: 'created',
-    astPath: [0],
-    receipts: [],
-    created: { astPath: [0], text: '' },
-    offsetChanges: [],
-  })
   convertTaskToBullet.mockReset().mockResolvedValue([])
   convertTaskToBullet.mockResolvedValue([])
   startOperation.mockClear()
@@ -446,32 +436,44 @@ describe('MobileTasks', () => {
     await view.unmount()
   })
 
-  it('schedules by editing the draft’s date link, committing one write', async () => {
+  it('schedules a typed draft: saves the text, then the date link, then shows it', async () => {
     getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
     await user.click(await view.findByRole('button', { name: 'Edit: buy milk' }))
+    const input = view.getByRole('textbox', { name: 'Task text' })
+    await user.clear(input)
+    await user.type(input, 'buy oat milk')
     await user.click(view.getByRole('button', { name: 'Tomorrow' }))
-    expect(asTextArea(view.getByRole('textbox', { name: 'Task text' }).element()).value).toBe(
-      'buy milk [[2026-06-15]]',
-    )
 
+    // The pending draft lands first, then the date link is added to the saved
+    // text, and the editor remounts with the rescheduled text.
+    await waitFor(() => expect(editTask).toHaveBeenCalledTimes(2))
+    expect(editTask.mock.calls[0]?.[1]).toBe('buy oat milk')
+    expect(editTask.mock.calls[1]?.[1]).toBe('buy oat milk [[2026-06-15]]')
+    await expect
+      .poll(() => asTextArea(view.getByRole('textbox', { name: 'Task text' }).element()).value)
+      .toBe('buy oat milk [[2026-06-15]]')
+
+    // Dismissal finds nothing left to save.
     await user.click(view.getByRole('button', { name: 'dismiss-drawer' }))
-    expect(editTask).toHaveBeenCalledTimes(1)
-    expect(editTask.mock.calls[0]?.[1]).toBe('buy milk [[2026-06-15]]')
+    expect(editTask).toHaveBeenCalledTimes(2)
+    expect(deleteTask).not.toHaveBeenCalled()
     await view.unmount()
   })
 
   it('fires light haptics for task sheet scheduling and actions', async () => {
-    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
+    // A dated task, so the Clear chip is on the sheet from the start (the
+    // controller stub does not re-derive `dueDate` after a schedule).
+    getOpenTasks.mockResolvedValue([task({ text: 'late [[2026-06-01]]', dueDate: '2026-06-01' })])
     const user = userEvent
     const view = await renderScreen()
 
-    await user.click(await view.findByRole('button', { name: 'Edit: buy milk' }))
+    await user.click(await view.findByRole('button', { name: /^Edit: late/ }))
     hapticImpactLight.mockClear()
 
-    await user.click(view.getByRole('button', { name: 'Pick date' }))
+    await user.click(view.getByRole('button', { name: 'Mon, June 1st, 2026' }))
     expect(hapticImpactLight).toHaveBeenCalledTimes(1)
 
     await user.click(view.getByRole('button', { name: 'Tomorrow' }))
@@ -487,21 +489,23 @@ describe('MobileTasks', () => {
   })
 
   it('clears the due date from the schedule row', async () => {
-    getOpenTasks.mockResolvedValue([
-      task({
-        displayText: 'late [[2026-06-01]]',
-        text: 'late [[2026-06-01]]',
-        dueDate: '2026-06-01',
-      }),
-    ])
+    getOpenTasks.mockResolvedValue([task({ text: 'late [[2026-06-01]]', dueDate: '2026-06-01' })])
     const user = userEvent
     const view = await renderScreen()
 
     await user.click(await view.findByRole('button', { name: /^Edit: late/ }))
+    const submit = vi.spyOn(controllerStub.value!, 'submit')
     await user.click(view.getByRole('button', { name: 'Clear' }))
-    expect(asTextArea(view.getByRole('textbox', { name: 'Task text' }).element()).value).toBe(
-      'late',
-    )
+
+    // The chip asks the controller to drop the due date; rewriting the text
+    // without its `[[date]]` link is the core controller's job (tested there),
+    // and this stub keeps the text as is.
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ text: 'late [[2026-06-01]]' }), {
+      dueDate: null,
+    })
+    await waitFor(() => expect(editTask).toHaveBeenCalledTimes(1))
+    expect(deleteTask).not.toHaveBeenCalled()
     await view.unmount()
   })
 
@@ -611,7 +615,7 @@ describe('MobileTasks', () => {
     await view.unmount()
   })
 
-  it('opens the source note of an untouched empty task without deleting it', async () => {
+  it('deletes an untouched empty task when Open note ends its edit', async () => {
     getOpenTasks.mockResolvedValue([task({ displayText: '', text: '' })])
     const user = userEvent
     const view = await renderScreen()
@@ -619,10 +623,11 @@ describe('MobileTasks', () => {
     await user.click(await view.findByRole('button', { name: 'Edit: Empty task' }))
     await user.click(view.getByRole('button', { name: 'Open note' }))
 
-    // Navigates to the line's note — deleting it out from under the visit
-    // would be wrong; only dismissal treats an abandoned empty row as delete.
+    // One rule everywhere: ending an edit on an empty task deletes it, and the
+    // note still opens.
     expect(view.getByTestId('route').element().textContent).toContain('notes/n.md')
-    expect(deleteTask).not.toHaveBeenCalled()
+    await waitFor(() => expect(deleteTask).toHaveBeenCalledTimes(1))
+    expect(editTask).not.toHaveBeenCalled()
     await view.unmount()
   })
 

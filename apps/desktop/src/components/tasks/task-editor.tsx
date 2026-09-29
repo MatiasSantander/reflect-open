@@ -6,7 +6,7 @@ import {
   type ReactElement,
   type RefObject,
 } from 'react'
-import { Priority, getIsComposing } from '@meowdown/core'
+import { Priority, getIsComposing, type EditorExtension } from '@meowdown/core'
 import { useEditor, useKeymap } from '@meowdown/react'
 import type { TaskListItem } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
@@ -95,7 +95,7 @@ export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement
   )
 }
 
-type TaskEditorInstance = ReturnType<typeof useEditor>
+type TaskEditorInstance = ReturnType<typeof useEditor<EditorExtension>>
 
 /**
  * The editor's key bindings. Built outside the component so the React
@@ -155,7 +155,7 @@ function createTaskKeymap(
  * paragraph, and Shift+Enter inserts a soft break.
  */
 function TaskKeymap(props: TaskEditorProps & { actions: TaskActions }): null {
-  const editor = useEditor()
+  const editor = useEditor<EditorExtension>()
   useEffect(() => {
     editor.focus()
   }, [editor])
