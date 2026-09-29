@@ -8,7 +8,7 @@ import {
   type ReactElement,
 } from 'react'
 import { ArrowRight, CalendarDays, Check, CircleCheck, List, Trash2, Undo2, X } from 'lucide-react'
-import { Priority } from '@meowdown/core'
+import { Priority, getIsComposing } from '@meowdown/core'
 import { useKeymap } from '@meowdown/react'
 import type { TaskListItem } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
@@ -290,6 +290,7 @@ function TaskSheetKeymap({ onDone }: { onDone: () => void }): null {
   const keymap = useMemo(
     () => ({
       Enter: () => {
+        if (getIsComposing()) return false
         onDone()
         return true
       },

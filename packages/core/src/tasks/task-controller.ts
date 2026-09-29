@@ -400,7 +400,9 @@ export class TaskController {
   private visible(state: NoteState, indexed: readonly TaskListItem[]): TaskListItem[] {
     let rows = (state.rows ?? indexed).map((row) => this.identify(state, row))
     for (const placeholder of state.placeholders.values()) {
-      if (!rows.some((row) => row.taskId === placeholder.taskId)) rows.push(placeholder)
+      const index = rows.findIndex((row) => row.taskId === placeholder.taskId)
+      if (index >= 0) rows[index] = placeholder
+      else rows.push(placeholder)
     }
     for (const command of state.commands) {
       if (command.edit.remove || command.edit.toBullet) {

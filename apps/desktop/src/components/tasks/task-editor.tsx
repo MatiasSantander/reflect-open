@@ -1,5 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react'
-import { Priority } from '@meowdown/core'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactElement,
+  type RefObject,
+} from 'react'
+import { Priority, getIsComposing } from '@meowdown/core'
 import { useEditor, useKeymap } from '@meowdown/react'
 import type { TaskListItem } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
@@ -88,6 +95,60 @@ export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement
   )
 }
 
+type TaskEditorInstance = ReturnType<typeof useEditor>
+
+/**
+ * The editor's key bindings. Built outside the component so the React
+ * Compiler does not read `editor.view` (which throws before mount) while
+ * checking memoized dependencies during render.
+ */
+function createTaskKeymap(
+  editor: TaskEditorInstance,
+  latest: RefObject<TaskEditorProps & { actions: TaskActions }>,
+) {
+  const atEdge = (direction: 'up' | 'down') =>
+    editor.mounted && editor.view.endOfTextblock(direction)
+  const move = (direction: -1 | 1, span: boolean) => () => {
+    if (!atEdge(direction < 0 ? 'up' : 'down')) return false
+    latest.current.onNavigate(direction, { span })
+    return true
+  }
+  return {
+    Enter: () => {
+      if (getIsComposing()) return false
+      latest.current.onContinue()
+      return true
+    },
+    'Mod-Enter': () => {
+      latest.current.onComplete()
+      return true
+    },
+    'Mod-Shift-k': () => {
+      latest.current.onConvertToBullet()
+      return true
+    },
+    Escape: () => {
+      const { actions, task, onCancel } = latest.current
+      actions.discardDraft(task)
+      onCancel()
+      return true
+    },
+    'Mod-Backspace': () => {
+      latest.current.onDelete()
+      return true
+    },
+    Backspace: () => {
+      if (editor.state.doc.textContent.trim() !== '') return false
+      latest.current.onDeleteEmpty()
+      return true
+    },
+    ArrowUp: move(-1, false),
+    ArrowDown: move(1, false),
+    'Shift-ArrowUp': move(-1, true),
+    'Shift-ArrowDown': move(1, true),
+  }
+}
+
 /**
  * The editor's keys, bound inside its ProseKit context. The autocomplete menus
  * take their keys first while open. Enter never inserts a block: a task is one
@@ -102,48 +163,7 @@ function TaskKeymap(props: TaskEditorProps & { actions: TaskActions }): null {
   useLayoutEffect(() => {
     latest.current = props
   })
-  const keymap = useMemo(() => {
-    const atEdge = (direction: 'up' | 'down') =>
-      editor.mounted && editor.view.endOfTextblock(direction)
-    const move = (direction: -1 | 1, span: boolean) => () => {
-      if (!atEdge(direction < 0 ? 'up' : 'down')) return false
-      latest.current.onNavigate(direction, { span })
-      return true
-    }
-    return {
-      Enter: () => {
-        latest.current.onContinue()
-        return true
-      },
-      'Mod-Enter': () => {
-        latest.current.onComplete()
-        return true
-      },
-      'Mod-Shift-k': () => {
-        latest.current.onConvertToBullet()
-        return true
-      },
-      Escape: () => {
-        const { actions, task, onCancel } = latest.current
-        actions.discardDraft(task)
-        onCancel()
-        return true
-      },
-      'Mod-Backspace': () => {
-        latest.current.onDelete()
-        return true
-      },
-      Backspace: () => {
-        if (editor.state.doc.textContent.trim() !== '') return false
-        latest.current.onDeleteEmpty()
-        return true
-      },
-      ArrowUp: move(-1, false),
-      ArrowDown: move(1, false),
-      'Shift-ArrowUp': move(-1, true),
-      'Shift-ArrowDown': move(1, true),
-    }
-  }, [editor])
+  const keymap = useMemo(() => createTaskKeymap(editor, latest), [editor])
   useKeymap(keymap, { priority: Priority.high })
   return null
 }

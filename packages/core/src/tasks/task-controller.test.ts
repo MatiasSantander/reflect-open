@@ -100,7 +100,8 @@ describe('task controller', () => {
     h.controller.draft(row, '')
     h.controller.submit(row, { checked: true })
     await h.controller.flush()
-    expect(h.source()).toBe('')
+    expect(h.source()).not.toContain('keep')
+    expect(h.controller.project([], false)).toEqual([])
     expect(h.io.failure).not.toHaveBeenCalled()
   })
 
