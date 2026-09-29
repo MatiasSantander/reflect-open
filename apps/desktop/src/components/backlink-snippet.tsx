@@ -57,6 +57,7 @@ export function BacklinkSnippet({
         className="reflect-editor"
         markdown={text}
         onTaskClick={async ({ index }) => {
+          // FIXME: hoist this function into a useCallback hook that creates a variable called "handleTaskClick"
           const task = tasks[index]
           if (!task?.address || !task.round || generation === null || pending) return
           setPending(true)

@@ -1,13 +1,13 @@
+import { openSession } from '@/editor/open-documents.ts'
 import {
   editTaskDocument,
   hashContent,
+  isAppError,
   readNote,
   writeNote,
-  isAppError,
   type TaskAddress,
   type TaskEdit,
 } from '@reflect/core'
-import { openSession } from '@/editor/open-documents.ts'
 
 export interface TaskMutationReceipt {
   generation: number
@@ -124,6 +124,7 @@ async function mutateNote(
   }
 }
 
+// FIXME: operations like `mutateTasks`, are frontend(js)-backend(rust) communication, right? for these operations, we should use `react-query` to manage them. Use the react-query native and recommended way to manage these operations. Read docs. Do not create your own utils. This review comments is for the whole pull request. please review all changes in this pull request and make sure to use react-query for all frontend-backend communication
 export function toggleTask(
   task: TaskAddress & { checked: boolean },
   generation: number,
