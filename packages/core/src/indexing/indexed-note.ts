@@ -100,7 +100,7 @@ import { serializeWikiSuggestionAddress } from './suggest.ts'
  * 21 - complete task first paragraphs and note reference context (draft).
  * 22 - AST task addresses and the six-column task projection.
  */
-export const PROJECTION_VERSION = 22
+export const PROJECTION_VERSION = 23
 
 /**
  * Precedence of the spellings a note answers to (`note_claims.tier`): the
@@ -181,7 +181,7 @@ export function decodeTaskBreadcrumbs(column: string): readonly string[] {
 }
 
 export const indexedTaskSchema = z.object({
-  firstParagraphMarkdown: z.string(),
+  text: z.string(),
   astPath: taskPathSchema,
   /** Parent outline/list item text, top-down, displayed in the Tasks view. */
   breadcrumbs: taskBreadcrumbsSchema,
@@ -217,7 +217,6 @@ export const indexedNoteSchema = z.object({
   gistUrl: z.string().nullable(),
   /** The body changed since it was last published to the gist. */
   gistStale: z.boolean(),
-  referenceMarkdown: z.string(),
   fileHash: z.string(),
   mtime: z.number(),
   text: z.string(),
@@ -384,7 +383,6 @@ export function buildIndexedNote(
     // worth a "republish" nudge.
     gistStale:
       parsed.frontmatter.gist !== undefined && gistBodyHash(body) !== parsed.frontmatter.gist.hash,
-    referenceMarkdown: parsed.referenceMarkdown,
     fileHash: meta.fileHash,
     mtime: meta.mtime,
     text: body,
@@ -401,7 +399,7 @@ export function buildIndexedNote(
     assets: [...new Set(parsed.assets.map((asset) => asset.path))],
     tasks: parsed.tasks.map((task) => ({
       astPath: task.astPath,
-      firstParagraphMarkdown: task.firstParagraphMarkdown,
+      text: task.text,
       breadcrumbs: task.breadcrumbs,
       checked: task.checked,
       dueDate: task.dueDate,

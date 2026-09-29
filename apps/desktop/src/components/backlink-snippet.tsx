@@ -1,12 +1,14 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
 import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
-import { useState, type ReactElement } from 'react'
+import { useCallback, type ReactElement } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-client.ts'
 import { toggleTask } from '@/lib/note-task.ts'
 import { startOperation } from '@/lib/operations.ts'
 import { errorMessage } from '@reflect/core'
 import { MarkdownView } from '@meowdown/react'
 import type { WikilinkClickHandler } from '@meowdown/core'
-import type { SnippetTask } from '@reflect/core'
+import type { SnippetTask, TaskAddress } from '@reflect/core'
 import { useOpenExternalLink } from '@/editor/open-external-link.ts'
 import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 import { useNoteAttachments } from '@/editor/use-note-attachments.ts'
@@ -32,7 +34,7 @@ interface BacklinkSnippetProps {
  * renders unclamped: truncating would cut the nested structure the context
  * exists to show. The source's fold state must not hide it either:
  * `expandCollapsed` renders `+` collapsed items expanded at every depth.
- * Checkboxes are read-only. Images and
+ * Addressed round checkboxes are editable. Images and
  * `![[embeds]]` resolve from the source note's folder, as in its editor. The
  * `reflect-editor` class shares the editor's chip styling; the
  * `reflect-backlink-snippet` wrapper keeps it in the panel's compact line box.
@@ -43,8 +45,33 @@ export function BacklinkSnippet({
   onWikilinkClick,
   tasks,
 }: BacklinkSnippetProps): ReactElement {
-  const [pending, setPending] = useState(false)
-  const generation = useGraph({ optional: true })?.graph?.generation ?? null
+  const graph = useGraph({ optional: true })?.graph
+  const generation = graph?.generation ?? null
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    scope: { id: 'tasks' },
+    mutationFn: ({
+      task,
+      generation,
+    }: {
+      task: TaskAddress & { checked: boolean }
+      generation: number
+    }) => toggleTask(task, generation),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.index.openTasks(graph?.root) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.index.completedTasks(graph?.root) })
+    },
+    onError: (cause) => startOperation('Updating task').fail(errorMessage(cause)),
+  })
+  const { mutate, isPending } = mutation
+  const handleTaskClick = useCallback(
+    ({ index }: { index: number }) => {
+      const task = tasks[index]
+      if (!task?.address || !task.round || generation === null || isPending) return
+      mutate({ task: { ...task.address, checked: task.checked }, generation })
+    },
+    [tasks, generation, isPending, mutate],
+  )
   const { resolveImageUrl, resolveWikiEmbed } = useNoteAttachments(generation, notePath)
   const resolveXPost = useXPostResolver()
   const openExternalLink = useOpenExternalLink()
@@ -56,19 +83,7 @@ export function BacklinkSnippet({
         mediaUrlProtocols={X_MEDIA_URL_PROTOCOLS}
         className="reflect-editor"
         markdown={text}
-        onTaskClick={async ({ index }) => {
-          // FIXME: hoist this function into a useCallback hook that creates a variable called "handleTaskClick"
-          const task = tasks[index]
-          if (!task?.address || !task.round || generation === null || pending) return
-          setPending(true)
-          try {
-            await toggleTask({ ...task.address, checked: task.checked }, generation)
-          } catch (cause) {
-            startOperation('Updating task').fail(errorMessage(cause))
-          } finally {
-            setPending(false)
-          }
-        }}
+        onTaskClick={handleTaskClick}
         expandCollapsed
         resolveWikilink={resolveWikilink}
         onWikilinkClick={onWikilinkClick}

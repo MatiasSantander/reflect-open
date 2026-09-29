@@ -648,7 +648,6 @@ describe('getOpenTasks', () => {
       {
         note_path: 'notes/project.md',
         ast_path: '[2,1]',
-        first_paragraph_markdown: 'ship it',
         text: 'ship it',
         breadcrumbs: '["StartupToolbox","Reflections"]',
         checked: 0,
@@ -665,8 +664,8 @@ describe('getOpenTasks', () => {
       {
         notePath: 'notes/project.md',
         astPath: [2, 1],
-        firstParagraphMarkdown: 'ship it',
         text: 'ship it',
+        displayText: 'ship it',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
         checked: false,
         dueDate: null,
@@ -695,11 +694,10 @@ describe('task address ordering', () => {
     return {
       note_path: notePath,
       ast_path: JSON.stringify(astPath),
-      first_paragraph_markdown: '**same**',
+      text: '**same**',
       breadcrumbs: '[]',
       due_date: null,
       revision: 'file-hash',
-      reference_markdown: '[ref]: /target',
       note_title: 'N',
       daily_date: null,
       is_pinned: 0,
@@ -712,9 +710,8 @@ describe('task address ordering', () => {
     const tasks = await getOpenTasks()
     expect(tasks.map((task) => task.astPath)).toEqual([[2], [2, 1], [10]])
     expect(tasks[0]).toMatchObject({
-      text: 'same',
+      displayText: 'same',
       revision: 'file-hash',
-      referenceMarkdown: '[ref]: /target',
     })
     expect(String(mockInvoke.mock.calls[0]?.[1]['sql'])).not.toContain('order by')
   })

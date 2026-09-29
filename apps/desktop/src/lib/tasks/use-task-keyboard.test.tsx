@@ -222,8 +222,8 @@ describe('useTaskKeyboard', () => {
   })
 
   it('plain ⌫ removes a single empty row and selects the previous (V1)', async () => {
-    const a = task({ notePath: 'notes/a.md', astPath: [2], text: 'first' })
-    const empty = task({ notePath: 'notes/b.md', astPath: [2], text: '' })
+    const a = task({ notePath: 'notes/a.md', astPath: [2], displayText: 'first' })
+    const empty = task({ notePath: 'notes/b.md', astPath: [2], displayText: '' })
     const selection = makeSelection({
       selected: new Set(['b']),
       selectedCount: 1,
@@ -250,11 +250,11 @@ describe('useTaskKeyboard', () => {
   })
 
   it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
-    const empty = task({ notePath: 'notes/a.md', astPath: [2], text: '' })
+    const empty = task({ notePath: 'notes/a.md', astPath: [2], displayText: '' })
     const full = task({
       notePath: 'notes/b.md',
       astPath: [2],
-      text: 'keep',
+      displayText: 'keep',
     })
     const selection = makeSelection({
       selected: new Set(['e', 'f']),
@@ -335,7 +335,7 @@ describe('useTaskKeyboard', () => {
     const created = task({
       notePath: 'daily/2026-06-15.md',
       astPath: [0],
-      text: '',
+      displayText: '',
     })
     const insert = vi.fn().mockResolvedValue(created)
     const { selection } = await mount({

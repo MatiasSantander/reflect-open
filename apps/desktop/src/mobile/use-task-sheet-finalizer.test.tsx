@@ -13,7 +13,7 @@ import { useTaskSheetFinalizer, type TaskSheetFinalizerDeps } from './use-task-s
  */
 
 function task(overrides: Partial<OpenTask> = {}): OpenTask {
-  return makeOpenTask({ text: 'alpha', ...overrides })
+  return makeOpenTask({ displayText: 'alpha', ...overrides })
 }
 
 const edit = vi.fn()
@@ -49,7 +49,7 @@ describe('useTaskSheetFinalizer', () => {
     )
 
     // A reindex rewrites the row's content while the sheet stays open.
-    await rerender(deps({ task: task({ text: 'beta', firstParagraphMarkdown: 'beta' }) }))
+    await rerender(deps({ task: task({ displayText: 'beta', text: 'beta' }) }))
 
     act(() => result.current.handleOpenChange(false))
 
@@ -81,7 +81,7 @@ describe('useTaskSheetFinalizer', () => {
   })
 
   it('deletes an abandoned-empty task on dismissal, but not on navigate', async () => {
-    const empty = task({ text: '', firstParagraphMarkdown: '' })
+    const empty = task({ displayText: '', text: '' })
 
     const navigated = await renderHook(() => useTaskSheetFinalizer(deps({ task: empty })))
     act(() => navigated.result.current.closeNavigate())
@@ -139,7 +139,7 @@ describe('useTaskSheetFinalizer', () => {
     await rerender(deps({ open: false }))
 
     // Reopen for a row an action rewrote in the meantime.
-    await rerender(deps({ task: task({ text: 'rewritten', firstParagraphMarkdown: 'rewritten' }) }))
+    await rerender(deps({ task: task({ displayText: 'rewritten', text: 'rewritten' }) }))
 
     expect(result.current.draft).toBe('rewritten')
     expect(onReseed).toHaveBeenCalledTimes(1)
@@ -235,7 +235,7 @@ it('keeps action buttons and changed drafts on the revision captured at open', a
     { initialProps },
   )
   act(() => result.current.setDraft('my draft'))
-  await rerender(deps({ task: task({ revision: 'after', firstParagraphMarkdown: 'external' }) }))
+  await rerender(deps({ task: task({ revision: 'after', text: 'external' }) }))
   expect(result.current.initialTask).toBe(initialTask)
   act(() => result.current.handleOpenChange(false))
   expect(edit).toHaveBeenCalledWith(initialTask, 'my draft')

@@ -13,14 +13,14 @@ describe('AST task projection', () => {
     expect(note.tasks).toEqual([
       {
         astPath: [1, 1],
-        firstParagraphMarkdown: '**first**\n*second* [[2026-10-01]]',
+        text: '**first**\n*second* [[2026-10-01]]',
         checked: false,
         dueDate: '2026-10-01',
         breadcrumbs: ['Project'],
       },
       {
         astPath: [1, 1, 3],
-        firstParagraphMarkdown: 'nested',
+        text: 'nested',
         checked: true,
         dueDate: null,
         breadcrumbs: ['Project', 'first second 2026-10-01'],
@@ -31,33 +31,23 @@ describe('AST task projection', () => {
     expect(
       parse(
         '> + [ ] quote\n\n- [ ] square\n\n1. [ ] ordered\n\n```\n+ [ ] code\n```\n\n+ [ ] real',
-      ).tasks.map((task) => task.firstParagraphMarkdown),
+      ).tasks.map((task) => task.text),
     ).toEqual(['real'])
   })
   it('keeps duplicate tasks at distinct paths and normalizes line endings', () => {
     const note = parse('+ [ ] same\r\n+ [ ] same\r\n')
     expect(note.tasks.map((task) => task.astPath)).toEqual([[0], [1]])
-    expect(note.tasks.map((task) => task.firstParagraphMarkdown)).toEqual(['same', 'same'])
+    expect(note.tasks.map((task) => task.text)).toEqual(['same', 'same'])
   })
   it('does not use dates in code or later blocks', () => {
     expect(
       parse('+ [ ] `[[2026-10-01]]` [[2026-02-31]]\n\n  details [[2026-10-02]]').tasks[0]?.dueDate,
     ).toBeNull()
   })
-  it('collects reference definitions once per note, without container prefixes', () => {
-    expect(parse('+ parent\n\n  [link]: /target\n\n> [other]: /other').referenceMarkdown).toBe(
-      '[link]: /target\n\n[other]: /other',
-    )
-  })
   it('keeps paragraph block-opening characters as inline text', () => {
     expect(inlineMarkdownToDisplayText('# **heading-looking**')).toBe('# heading-looking')
     expect(inlineMarkdownToDisplayText('> *quote-looking*')).toBe('> quote-looking')
     expect(parse('+ [ ] ``` [[2026-10-01]]').tasks[0]?.dueDate).toBe('2026-10-01')
-  })
-  it('does not promote inline reference-looking text into note definitions', () => {
-    expect(
-      parse('+ [ ] [task]: /url\n\n| column |\n| --- |\n| [cell]: /url |').referenceMarkdown,
-    ).toBe('')
   })
   it('orders numeric paths and places ancestors first', () => {
     const paths = [[10], [2, 10], [2, 1], [2], [0]]

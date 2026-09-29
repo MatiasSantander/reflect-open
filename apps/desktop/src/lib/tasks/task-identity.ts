@@ -1,11 +1,12 @@
-import { onTaskMutation } from '@/lib/note-task.ts'
+import type { TaskMutationReceipt } from '@/lib/note-task.ts'
 import { encodeTaskPath, decodeTaskPath, type TaskAddress } from '@reflect/core'
 
 const identities = new Map<string, string>()
 function addressKey(task: TaskAddress): string {
   return JSON.stringify([task.notePath, task.revision, task.astPath])
 }
-onTaskMutation((receipt) => {
+/** Carry UI identity across addresses confirmed by a successful write. */
+export function applyTaskIdentity(receipt: TaskMutationReceipt): void {
   for (const [previous, astPath] of receipt.paths) {
     const oldKey = addressKey({
       notePath: receipt.notePath,
@@ -20,7 +21,7 @@ onTaskMutation((receipt) => {
     if (oldest === undefined) break
     identities.delete(oldest)
   }
-})
+}
 
 /** Revision scopes paths so cached rows never alias a different source revision. */
 export function taskKey(task: TaskAddress): string {

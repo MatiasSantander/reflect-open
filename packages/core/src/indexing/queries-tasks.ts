@@ -9,10 +9,12 @@ import { decodeTaskBreadcrumbs } from './indexed-note.ts'
 
 /** A projected task with its note context and derived display text. */
 export interface OpenTask extends TaskAddress {
-  firstParagraphMarkdown: string
-  referenceMarkdown: string
-  checked: boolean
+  /** Raw first-paragraph Markdown from the note, without the `[ ]` or `[x]` marker. */
   text: string
+  checked: boolean
+  /** Plain display/search text derived from `text`, never stored in SQLite. */
+  displayText: string
+  /** Ancestor list-item labels, outermost first, for task grouping and context. */
   breadcrumbs: readonly string[]
   noteTitle: string
   dueDate: string | null
@@ -30,12 +32,11 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
     .where('tasks.checked', '=', checked ? 1 : 0)
     .select([
       'tasks.astPath',
-      'tasks.firstParagraphMarkdown',
+      'tasks.text',
       'tasks.notePath',
       'tasks.breadcrumbs',
       'tasks.dueDate',
       'notes.fileHash as revision',
-      'notes.referenceMarkdown',
       'notes.title as noteTitle',
       'notes.dailyDate',
       'notes.isPinned',
@@ -50,7 +51,7 @@ async function getTasks(checked: boolean): Promise<OpenTask[]> {
       astPath: decodeTaskPath(row.astPath),
       isPinned: row.isPinned !== 0,
       breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
-      text: inlineMarkdownToDisplayText(row.firstParagraphMarkdown),
+      displayText: inlineMarkdownToDisplayText(row.text),
     }))
     .sort(
       (left, right) =>

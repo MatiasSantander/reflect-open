@@ -8,7 +8,7 @@ describe('AST task mutations', () => {
     const source =
       '---\nid: keep\n---\n\n+ [ ] old\n  second line\n\n  > quote\n\n  ## heading\n\n  + [ ] nested\n'
     const result = editTaskDocument(source, [
-      { astPath: [0], firstParagraphMarkdown: '**new**\nline', checked: true },
+      { astPath: [0], text: '**new**\nline', checked: true },
     ])
     expect(result.source).toContain('---\nid: keep\n---\n\n')
     expect(result.source).toContain('+ [x] **new**\n  line')
@@ -28,10 +28,10 @@ describe('AST task mutations', () => {
     const initial = editTaskDocument('', [], true)
     expect(initial.createdPath).toEqual([0])
     const next = editTaskDocument(initial.source, [
-      { astPath: [0], firstParagraphMarkdown: 'first', insertAfter: true },
+      { astPath: [0], text: 'first', insertAfter: true },
     ])
     expect(next.createdPath).toEqual([1])
-    expect(next.tasks.map((task) => task.firstParagraphMarkdown)).toEqual(['first', ''])
+    expect(next.tasks.map((task) => task.text)).toEqual(['first', ''])
   })
   it('converts a task to a collapsed bullet, preserving descendants', () => {
     const result = editTaskDocument('+ [ ] parent\n  + [ ] child\n', [
@@ -52,7 +52,7 @@ it('rejects deleting and editing the same task in a batch', () => {
   expect(() =>
     editTaskDocument('+ [ ] task\n', [
       { astPath: [0], remove: true },
-      { astPath: [0], firstParagraphMarkdown: 'changed' },
+      { astPath: [0], text: 'changed' },
     ]),
   ).toThrow('Conflicting edits')
 })
@@ -73,26 +73,24 @@ it.each(['[ ] inner', '# heading', '> quote', '1. item', '+ item'])(
 it.each(['+ [ ] b', '# heading', '> quote', '1. item', '---'])(
   'keeps a continuation %s inside the edited paragraph',
   (line) => {
-    const result = editTaskDocument('+ [ ] old\n', [
-      { astPath: [0], firstParagraphMarkdown: 'a\n' + line },
-    ])
+    const result = editTaskDocument('+ [ ] old\n', [{ astPath: [0], text: 'a\n' + line }])
     expect(result.tasks).toHaveLength(1)
     expect(parseMarkdownAst(result.source).children).toHaveLength(1)
-    expect(result.tasks[0]?.firstParagraphMarkdown).toContain('\n')
+    expect(result.tasks[0]?.text).toContain('\n')
   },
 )
 
 it('rejects blank lines that cannot be represented in one paragraph before saving', () => {
-  expect(() =>
-    editTaskDocument('+ [ ] old\n', [{ astPath: [0], firstParagraphMarkdown: 'a\n\nb' }]),
-  ).toThrow('one task paragraph')
+  expect(() => editTaskDocument('+ [ ] old\n', [{ astPath: [0], text: 'a\n\nb' }])).toThrow(
+    'one task paragraph',
+  )
 })
 
 it('does not escape inline syntax when protecting another continuation line', () => {
   const result = editTaskDocument('+ [ ] old\n', [
-    { astPath: [0], firstParagraphMarkdown: '<https://example.com>\n**bold**\n+ item' },
+    { astPath: [0], text: '<https://example.com>\n**bold**\n+ item' },
   ])
-  expect(result.tasks[0]?.firstParagraphMarkdown).toBe('<https://example.com>\n**bold**\n\\+ item')
+  expect(result.tasks[0]?.text).toBe('<https://example.com>\n**bold**\n\\+ item')
 })
 
 it('maps duplicate text by structural address and excludes quoted tasks', () => {
@@ -112,8 +110,8 @@ it('maps duplicate text by structural address and excludes quoted tasks', () => 
 it('checks edited descendants at their final path after promoting them', () => {
   const result = editTaskDocument('+ [ ] parent\n  + [ ] child\n+ [ ] sibling\n', [
     { astPath: [0], remove: true },
-    { astPath: [0, 1], firstParagraphMarkdown: 'changed child' },
-    { astPath: [1], firstParagraphMarkdown: 'changed sibling' },
+    { astPath: [0, 1], text: 'changed child' },
+    { astPath: [1], text: 'changed sibling' },
   ])
   expect(result.source).toBe('+ [ ] changed child\n+ [ ] changed sibling\n')
   expect([...result.paths]).toEqual([

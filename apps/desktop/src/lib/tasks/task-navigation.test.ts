@@ -5,7 +5,7 @@ import { insertTargetForTask, previousTaskKey } from './task-navigation.ts'
 import { taskKey } from './task-identity.ts'
 
 function task(over: Partial<OpenTask> = {}): OpenTask {
-  return makeOpenTask({ text: 'x', ...over })
+  return makeOpenTask({ displayText: 'x', ...over })
 }
 
 describe('previousTaskKey', () => {

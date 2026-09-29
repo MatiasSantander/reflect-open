@@ -95,7 +95,7 @@ export function TaskRow({
   const checkboxToggleControllerRef = useRef<(() => void) | null>(null)
   const checkboxPending = isPending || taskActionPending
   const done = task.checked
-  const label = task.text || 'Empty task'
+  const label = task.displayText || 'Empty task'
   const selectFromKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (getIsComposing()) {
       return

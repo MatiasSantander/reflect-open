@@ -1,17 +1,16 @@
-import type { OpenTask } from '@reflect/core'
+import { inlineMarkdownToDisplayText, type OpenTask } from '@reflect/core'
 
 /** An indexed task with defaults for UI tests. */
 export function makeOpenTask(overrides: Partial<OpenTask> = {}): OpenTask {
-  const text = overrides.text ?? 'do it'
+  const text = overrides.text ?? overrides.displayText ?? 'do it'
   const checked = overrides.checked ?? false
   return {
-    firstParagraphMarkdown: text,
+    text,
     revision: 'test-revision',
-    referenceMarkdown: '',
     notePath: 'notes/n.md',
     astPath: [0],
     checked,
-    text,
+    displayText: inlineMarkdownToDisplayText(text),
     breadcrumbs: [],
     noteTitle: 'N',
     dueDate: null,

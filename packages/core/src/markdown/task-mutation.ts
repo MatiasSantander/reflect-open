@@ -15,7 +15,8 @@ import { protectTaskParagraph } from './task-paragraph.ts'
 export interface TaskEdit {
   astPath: readonly number[]
   checked?: boolean
-  firstParagraphMarkdown?: string
+  /** Raw first-paragraph Markdown, without the checkbox marker. */
+  text?: string
   remove?: boolean
   toBullet?: boolean
   insertAfter?: boolean
@@ -40,9 +41,7 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
         (previous.checked !== undefined &&
           edit.checked !== undefined &&
           previous.checked !== edit.checked) ||
-        (previous.firstParagraphMarkdown !== undefined &&
-          edit.firstParagraphMarkdown !== undefined &&
-          previous.firstParagraphMarkdown !== edit.firstParagraphMarkdown))
+        (previous.text !== undefined && edit.text !== undefined && previous.text !== edit.text))
     ) {
       throw new Error('Conflicting edits address the same task.')
     }
@@ -68,11 +67,8 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   for (const { edit, item } of targets) {
     const paragraph = getTaskParagraph(item)
     if (!paragraph) throw new Error('This task cannot be edited as a paragraph.')
-    if (
-      edit.firstParagraphMarkdown !== undefined &&
-      paragraph.value !== edit.firstParagraphMarkdown
-    ) {
-      paragraph.value = edit.firstParagraphMarkdown
+    if (edit.text !== undefined && paragraph.value !== edit.text) {
+      paragraph.value = edit.text
       changed = true
     }
     if (edit.checked !== undefined && item.checked !== edit.checked) {
@@ -86,7 +82,7 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
       item.marker = '+'
       changed = true
     }
-    if (!edit.remove && (edit.firstParagraphMarkdown !== undefined || edit.toBullet)) {
+    if (!edit.remove && (edit.text !== undefined || edit.toBullet)) {
       protectTaskParagraph(item)
     }
     if (edit.remove || edit.insertAfter) {
@@ -122,7 +118,7 @@ export function editTaskDocument(source: string, edits: readonly TaskEdit[], app
   const finalPaths = new Map(finalEntries.map(({ node, path }) => [node, path]))
   // Check only paragraphs this operation edits, before the caller writes anything.
   for (const { edit, item } of targets) {
-    if (edit.remove || (edit.firstParagraphMarkdown === undefined && !edit.toBullet)) continue
+    if (edit.remove || (edit.text === undefined && !edit.toBullet)) continue
     const path = finalPaths.get(item)
     const saved = path && resolveMarkdownAstPath(finalDocument, path)?.node
     if (

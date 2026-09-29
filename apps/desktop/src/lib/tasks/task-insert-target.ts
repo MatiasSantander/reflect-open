@@ -19,11 +19,10 @@ export function insertedTaskRow(
   breadcrumbs: readonly string[] = [],
 ): OpenTask {
   return {
-    firstParagraphMarkdown: '',
-    referenceMarkdown: '',
+    text: '',
     ...address,
     checked: false,
-    text: '',
+    displayText: '',
     breadcrumbs,
     noteTitle: target.noteTitle,
     dueDate: null,

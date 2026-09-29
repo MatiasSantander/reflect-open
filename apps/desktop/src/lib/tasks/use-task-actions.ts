@@ -88,18 +88,19 @@ export function useTaskActions(): TaskActions {
   const checkboxAction = useTaskCheckboxAction()
 
   const completeMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.complete(graph?.root),
-    mutationFn: async (tasks: OpenTask[]) => {
-      const generation = graph?.generation
+    mutationFn: async ({ tasks, generation }: { tasks: OpenTask[]; generation: number }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
+      return await mutateTasks(
         tasks.map((task) => ({ task, edit: { checked: true } })),
         generation,
       )
     },
-    onMutate: async (tasks: OpenTask[]) => {
+    onMutate: async ({ tasks }: { tasks: OpenTask[]; generation: number }) => {
       const snapshot = await cache.snapshot()
       // Drop the completed rows from the open list, and (when archived is on)
       // prepend them as checked to the completed list so they stay visible struck.
@@ -111,7 +112,7 @@ export function useTaskActions(): TaskActions {
       markRecentlyCompleted(root, tasks)
       return snapshot
     },
-    onError: (cause, tasks) => {
+    onError: (cause, { tasks }) => {
       // A batch can fail after earlier writes landed — refetch truth rather than
       // restore a snapshot that would un-do the ones that persisted.
       cache.reconcile('Completing tasks', cause)
@@ -120,18 +121,19 @@ export function useTaskActions(): TaskActions {
   })
 
   const reopenMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.reopen(graph?.root),
-    mutationFn: async (tasks: OpenTask[]) => {
-      const generation = graph?.generation
+    mutationFn: async ({ tasks, generation }: { tasks: OpenTask[]; generation: number }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
+      return await mutateTasks(
         tasks.map((task) => ({ task, edit: { checked: false } })),
         generation,
       )
     },
-    onMutate: async (tasks: OpenTask[]) => {
+    onMutate: async ({ tasks }: { tasks: OpenTask[]; generation: number }) => {
       const snapshot = await cache.snapshot()
       // Put them back in the open list (unchecked), drop them from the completed
       // list and this session's struck set — the inverse of completing.
@@ -146,18 +148,19 @@ export function useTaskActions(): TaskActions {
   })
 
   const deleteMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.delete(graph?.root),
-    mutationFn: async (tasks: OpenTask[]) => {
-      const generation = graph?.generation
+    mutationFn: async ({ tasks, generation }: { tasks: OpenTask[]; generation: number }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
+      return await mutateTasks(
         tasks.map((task) => ({ task, edit: { remove: true } })),
         generation,
       )
     },
-    onMutate: async (tasks: OpenTask[]) => {
+    onMutate: async ({ tasks }: { tasks: OpenTask[]; generation: number }) => {
       const snapshot = await cache.snapshot()
       // A delete removes the task from both lists outright.
       cache.patch(
@@ -168,7 +171,7 @@ export function useTaskActions(): TaskActions {
       forgetRecentlyCompleted(root, tasks.map(taskKey))
       return snapshot
     },
-    onError: (cause, tasks) => {
+    onError: (cause, { tasks }) => {
       cache.reconcile('Deleting tasks', cause)
       // The delete dropped checked rows from the session's struck set; if it
       // failed they're still `[x]` on disk, so restore them or they'd vanish from
@@ -181,15 +184,31 @@ export function useTaskActions(): TaskActions {
   })
 
   const editMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.edit(graph?.root),
-    mutationFn: ({ task, content }: { task: OpenTask; content: string }) => {
-      const generation = graph?.generation
+    mutationFn: ({
+      task,
+      content,
+      generation,
+    }: {
+      task: OpenTask
+      content: string
+      generation: number
+    }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
       return editTask(task, content, generation)
     },
-    onMutate: async ({ task, content }: { task: OpenTask; content: string }) => {
+    onMutate: async ({
+      task,
+      content,
+    }: {
+      task: OpenTask
+      content: string
+      generation: number
+    }) => {
       const snapshot = await cache.snapshot()
       // Show the new text in both lists before the reindex; the row keeps its
       // place until the index re-derives any due date (see withEditedTask).
@@ -199,28 +218,44 @@ export function useTaskActions(): TaskActions {
       )
       return snapshot
     },
-    onError: (cause, { task, content }, context) => {
-      keepTaskDraft(task, content, graph?.generation ?? -1)
+    onError: (cause, { task, content, generation }, context) => {
+      keepTaskDraft(task, content, generation)
       cache.rollback(context, 'Editing task', cause)
     },
   })
 
   const scheduleMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.schedule(graph?.root),
-    mutationFn: async ({ tasks, isoDate }: { tasks: OpenTask[]; isoDate: string | null }) => {
-      const generation = graph?.generation
+    mutationFn: async ({
+      tasks,
+      isoDate,
+      generation,
+    }: {
+      tasks: OpenTask[]
+      isoDate: string | null
+      generation: number
+    }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
+      return await mutateTasks(
         tasks.map((task) => ({
           task,
-          edit: { firstParagraphMarkdown: scheduledContent(task, isoDate) },
+          edit: { text: scheduledContent(task, isoDate) },
         })),
         generation,
       )
     },
-    onMutate: async ({ tasks, isoDate }: { tasks: OpenTask[]; isoDate: string | null }) => {
+    onMutate: async ({
+      tasks,
+      isoDate,
+    }: {
+      tasks: OpenTask[]
+      isoDate: string | null
+      generation: number
+    }) => {
       const snapshot = await cache.snapshot()
       // Show the new date link in place; the row only changes bucket once the
       // reindex re-derives the due date (V1 likewise defers the move).
@@ -236,18 +271,19 @@ export function useTaskActions(): TaskActions {
   })
 
   const convertMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.convert(graph?.root),
-    mutationFn: async (tasks: OpenTask[]) => {
-      const generation = graph?.generation
+    mutationFn: async ({ tasks, generation }: { tasks: OpenTask[]; generation: number }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
+      return await mutateTasks(
         tasks.map((task) => ({ task, edit: { toBullet: true } })),
         generation,
       )
     },
-    onMutate: async (tasks: OpenTask[]) => {
+    onMutate: async ({ tasks }: { tasks: OpenTask[]; generation: number }) => {
       const snapshot = await cache.snapshot()
       // A converted task is no longer a checkbox, so it leaves both lists outright
       // — same optimistic shape as a delete.
@@ -259,7 +295,7 @@ export function useTaskActions(): TaskActions {
       forgetRecentlyCompleted(root, tasks.map(taskKey))
       return snapshot
     },
-    onError: (cause, tasks) => {
+    onError: (cause, { tasks }) => {
       cache.reconcile('Converting tasks', cause)
       // The convert dropped checked rows from the session's struck set; if it
       // failed they're still `[x]` on disk, so restore them or they'd vanish from
@@ -272,18 +308,24 @@ export function useTaskActions(): TaskActions {
   })
 
   const editAndConvertMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot),
     mutationKey: mutationKeys.tasks.editAndConvert(graph?.root),
-    mutationFn: async ({ task, content }: { task: OpenTask; content: string }) => {
-      const generation = graph?.generation
+    mutationFn: async ({
+      task,
+      content,
+      generation,
+    }: {
+      task: OpenTask
+      content: string
+      generation: number
+    }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
-        [{ task, edit: { firstParagraphMarkdown: content, toBullet: true } }],
-        generation,
-      )
+      return await mutateTasks([{ task, edit: { text: content, toBullet: true } }], generation)
     },
-    onMutate: async ({ task }: { task: OpenTask; content: string }) => {
+    onMutate: async ({ task }: { task: OpenTask; content: string; generation: number }) => {
       const snapshot = await cache.snapshot()
       // The row leaves the view (it's no longer a checkbox) — same optimistic shape
       // as a plain convert.
@@ -294,16 +336,17 @@ export function useTaskActions(): TaskActions {
       forgetRecentlyCompleted(root, [taskKey(task)])
       return snapshot
     },
-    onError: (cause, { task, content }) => {
-      keepTaskDraft(task, content, graph?.generation ?? -1)
+    onError: (cause, { task, content, generation }) => {
+      keepTaskDraft(task, content, generation)
       cache.reconcile('Converting task', cause)
     },
   })
 
   const insertMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (result) => cache.apply(result.receipts),
     mutationKey: mutationKeys.tasks.insert(graph?.root),
-    mutationFn: (target: InsertTaskTarget) => {
-      const generation = graph?.generation
+    mutationFn: ({ target, generation }: { target: InsertTaskTarget; generation: number }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
@@ -313,18 +356,34 @@ export function useTaskActions(): TaskActions {
   })
 
   const editAndToggleMutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, snapshot) => cache.apply(receipts, snapshot?.snapshot),
     mutationKey: mutationKeys.tasks.editAndToggle(graph?.root),
-    mutationFn: async ({ task, content }: { task: OpenTask; content: string }) => {
-      const generation = graph?.generation
+    mutationFn: async ({
+      task,
+      content,
+      generation,
+    }: {
+      task: OpenTask
+      content: string
+      generation: number
+    }) => {
       if (generation === undefined) {
         throw new Error('No graph is open.')
       }
-      await mutateTasks(
-        [{ task, edit: { firstParagraphMarkdown: content, checked: !task.checked } }],
+      return await mutateTasks(
+        [{ task, edit: { text: content, checked: !task.checked } }],
         generation,
       )
     },
-    onMutate: async ({ task, content }: { task: OpenTask; content: string }) => {
+    onMutate: async ({
+      task,
+      content,
+    }: {
+      task: OpenTask
+      content: string
+      generation: number
+    }) => {
       const snapshot = await cache.snapshot()
       const edited = withEditedTask([task], task, content)?.[0] ?? task
       const wasRecentlyCompleted = hasRecentlyCompleted(root, taskKey(task))
@@ -345,8 +404,8 @@ export function useTaskActions(): TaskActions {
       }
       return { snapshot, wasRecentlyCompleted }
     },
-    onError: (cause, { task, content }, context) => {
-      keepTaskDraft(task, content, graph?.generation ?? -1)
+    onError: (cause, { task, content, generation }, context) => {
+      keepTaskDraft(task, content, generation)
       cache.reconcile(task.checked ? 'Reopening task' : 'Completing task', cause)
       if (task.checked && context?.wasRecentlyCompleted) {
         markRecentlyCompleted(root, [task])
@@ -356,12 +415,36 @@ export function useTaskActions(): TaskActions {
     },
   })
 
+  const continueMutation = useMutation({
+    scope: { id: 'tasks' },
+    mutationKey: [...mutationKeys.tasks.insert(graph?.root), 'continue'],
+    mutationFn: ({
+      task,
+      content,
+      generation,
+    }: {
+      task: OpenTask
+      content: string | null
+      generation: number
+    }) => {
+      if (generation === undefined) throw new Error('No graph is open.')
+      return continueTaskInContext(task, content, generation)
+    },
+    onSuccess: (result) => cache.apply(result.receipts),
+    onError: (cause, { task, content, generation }) => {
+      if (content !== null) keepTaskDraft(task, content, generation)
+      cache.reconcile('Adding task', cause)
+    },
+  })
+
   async function persistTaskDraft(task: OpenTask, content: string | null): Promise<boolean> {
+    const generation = graph?.generation
+    if (generation === undefined) return false
     try {
       if (content === '') {
-        await deleteMutation.mutateAsync([task])
+        await deleteMutation.mutateAsync({ tasks: [task], generation })
       } else if (content !== null) {
-        await editMutation.mutateAsync({ task, content })
+        await editMutation.mutateAsync({ task, content, generation })
       }
       return true
     } catch {
@@ -370,6 +453,7 @@ export function useTaskActions(): TaskActions {
   }
   return {
     isPending:
+      continueMutation.isPending ||
       completeMutation.isPending ||
       reopenMutation.isPending ||
       deleteMutation.isPending ||
@@ -385,7 +469,7 @@ export function useTaskActions(): TaskActions {
       // already-checked task would reopen it on disk. Only act on open rows.
       const open = tasks.filter((task) => !task.checked)
       if (open.length > 0 && graph?.generation !== undefined && !completeMutation.isPending) {
-        completeMutation.mutate(open)
+        completeMutation.mutate({ tasks: open, generation: graph.generation })
       }
     },
     toggle: (tasks) => {
@@ -395,23 +479,23 @@ export function useTaskActions(): TaskActions {
       // V1: all checked → reopen them all; otherwise complete the open ones.
       if (tasks.every((task) => task.checked)) {
         if (!reopenMutation.isPending) {
-          reopenMutation.mutate(tasks)
+          reopenMutation.mutate({ tasks: tasks, generation: graph.generation })
         }
       } else {
         const open = tasks.filter((task) => !task.checked)
         if (open.length > 0 && !completeMutation.isPending) {
-          completeMutation.mutate(open)
+          completeMutation.mutate({ tasks: open, generation: graph.generation })
         }
       }
     },
     remove: (tasks) => {
       if (tasks.length > 0 && graph?.generation !== undefined && !deleteMutation.isPending) {
-        deleteMutation.mutate(tasks)
+        deleteMutation.mutate({ tasks: tasks, generation: graph.generation })
       }
     },
     edit: (task, content) => {
       if (graph?.generation !== undefined) {
-        editMutation.mutate({ task, content })
+        editMutation.mutate({ task, content, generation: graph.generation })
       }
     },
     checkboxToggle: (task) => checkboxAction.toggle(task),
@@ -421,7 +505,7 @@ export function useTaskActions(): TaskActions {
       }
       let address: TaskAddress
       try {
-        address = await insertMutation.mutateAsync(target)
+        address = await insertMutation.mutateAsync({ target, generation: graph.generation })
       } catch {
         return null // reconcile already surfaced the failure
       }
@@ -435,13 +519,15 @@ export function useTaskActions(): TaskActions {
       }
       if (task.breadcrumbs.length > 0) {
         try {
-          const address = await continueTaskInContext(task, content, graph.generation)
+          const address = await continueMutation.mutateAsync({
+            task,
+            content,
+            generation: graph.generation,
+          })
           const created = insertedTaskRow(target, address, task.breadcrumbs)
           cache.addOpen(created)
           return created
-        } catch (cause) {
-          if (content !== null) keepTaskDraft(task, content, graph.generation)
-          cache.reconcile('Adding task', cause)
+        } catch {
           return null
         }
       }
@@ -454,7 +540,7 @@ export function useTaskActions(): TaskActions {
       }
       let address: TaskAddress
       try {
-        address = await insertMutation.mutateAsync(target)
+        address = await insertMutation.mutateAsync({ target, generation: graph.generation })
       } catch {
         return null
       }
@@ -464,22 +550,22 @@ export function useTaskActions(): TaskActions {
     },
     editAndToggle: (task, content) => {
       if (graph?.generation !== undefined && !editAndToggleMutation.isPending) {
-        editAndToggleMutation.mutate({ task, content })
+        editAndToggleMutation.mutate({ task, content, generation: graph.generation })
       }
     },
     schedule: (tasks, isoDate) => {
       if (tasks.length > 0 && graph?.generation !== undefined && !scheduleMutation.isPending) {
-        scheduleMutation.mutate({ tasks, isoDate })
+        scheduleMutation.mutate({ tasks, isoDate, generation: graph.generation })
       }
     },
     convertToBullet: (tasks) => {
       if (tasks.length > 0 && graph?.generation !== undefined && !convertMutation.isPending) {
-        convertMutation.mutate(tasks)
+        convertMutation.mutate({ tasks: tasks, generation: graph.generation })
       }
     },
     editAndConvertToBullet: (task, content) => {
       if (graph?.generation !== undefined && !editAndConvertMutation.isPending) {
-        editAndConvertMutation.mutate({ task, content })
+        editAndConvertMutation.mutate({ task, content, generation: graph.generation })
       }
     },
     archive: () => archiveRecentlyCompleted(root),

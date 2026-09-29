@@ -27,7 +27,7 @@ describe('recently-completed', () => {
     act(() => markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [2] })]))
     expect(result.current).toHaveLength(1)
     expect(result.current[0]!.checked).toBe(true)
-    expect(result.current[0]!.firstParagraphMarkdown).toBe('do it')
+    expect(result.current[0]!.text).toBe('do it')
   })
 
   it('dedupes by task key', async () => {

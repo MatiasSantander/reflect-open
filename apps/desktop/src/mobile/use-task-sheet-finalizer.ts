@@ -76,7 +76,7 @@ export function useTaskSheetFinalizer({
   onReseed,
   readDraft,
 }: TaskSheetFinalizerDeps): TaskSheetFinalizer {
-  const liveContent = task.firstParagraphMarkdown
+  const liveContent = task.text
   const [initial, setInitial] = useState(liveContent)
   const [initialTask, setInitialTask] = useState(task)
   const [draft, setDraft] = useState(liveContent)

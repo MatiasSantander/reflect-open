@@ -109,7 +109,6 @@ export interface Notes {
   pathKey: Generated<string>;
   pinnedOrder: number | null;
   preview: Generated<string>;
-  referenceMarkdown: Generated<string>;
   title: string;
   titleKey: string;
   updatedAt: Generated<number>;
@@ -132,7 +131,8 @@ export interface Tasks {
   breadcrumbs: Generated<string>;
   checked: number;
   dueDate: string | null;
-  firstParagraphMarkdown: string;
+  /** Raw first-paragraph Markdown, excluding the `[ ]` or `[x]` marker. */
+  text: string;
   notePath: string;
 }
 

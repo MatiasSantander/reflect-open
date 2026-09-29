@@ -36,7 +36,6 @@ pub struct IndexedNote {
     pub(super) gist_url: Option<String>,
     /// The body changed since it was last published to the gist.
     pub(super) gist_stale: bool,
-    pub(super) reference_markdown: String,
     pub(super) file_hash: String,
     pub(super) mtime: i64,
     pub(super) text: String,
@@ -122,7 +121,9 @@ pub(super) struct IndexedEmail {
 #[serde(rename_all = "camelCase")]
 pub(super) struct IndexedTask {
     pub(super) ast_path: Vec<u64>,
-    pub(super) first_paragraph_markdown: String,
+    /// Raw first-paragraph Markdown from the note, without `[ ]` or `[x]`.
+    pub(super) text: String,
+    /// Ancestor list-item labels, outermost first, for task grouping and context.
     pub(super) breadcrumbs: Vec<String>,
     pub(super) checked: bool,
     pub(super) due_date: Option<String>,
@@ -140,8 +141,8 @@ pub(super) fn apply_note(conn: &Connection, note: &IndexedNote) -> AppResult<()>
     remove_note(conn, &note.path)?;
 
     conn.prepare_cached(
-        "INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, has_conflict, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content, reference_markdown)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, ?16, ?17, ?18)",
+        "INSERT INTO notes(path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned, pinned_order, has_conflict, gist_url, gist_stale, file_hash, mtime, updated_at, preview, has_content)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15, ?16, ?17)",
     )?
     .execute(params![
         note.path,
@@ -161,7 +162,6 @@ pub(super) fn apply_note(conn: &Connection, note: &IndexedNote) -> AppResult<()>
         note.mtime,
         note.preview,
         i64::from(note.has_content),
-        note.reference_markdown,
     ])?;
     {
         let mut stmt = conn.prepare_cached(
@@ -220,7 +220,7 @@ pub(super) fn apply_note(conn: &Connection, note: &IndexedNote) -> AppResult<()>
     }
     {
         let mut stmt = conn.prepare_cached(
-            "INSERT INTO tasks(note_path, ast_path, first_paragraph_markdown, checked, due_date, breadcrumbs) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tasks(note_path, ast_path, text, checked, due_date, breadcrumbs) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
         for task in &note.tasks {
             let breadcrumbs = serde_json::to_string(&task.breadcrumbs).map_err(|err| {
@@ -231,7 +231,7 @@ pub(super) fn apply_note(conn: &Connection, note: &IndexedNote) -> AppResult<()>
                 serde_json::to_string(&task.ast_path).map_err(|err| {
                     crate::error::AppError::io(format!("serialize task path: {err}"))
                 })?,
-                task.first_paragraph_markdown,
+                task.text,
                 i64::from(task.checked),
                 task.due_date,
                 breadcrumbs

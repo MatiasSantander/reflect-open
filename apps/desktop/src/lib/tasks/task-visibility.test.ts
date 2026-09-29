@@ -30,10 +30,10 @@ describe('composeVisibleTaskGroups', () => {
   it('groups open tasks into desktop’s buckets', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'today', dueDate: TODAY, astPath: [0] }),
-        task({ text: 'late', dueDate: '2026-06-01', astPath: [10] }),
-        task({ text: 'later', dueDate: '2026-07-01', astPath: [20] }),
-        task({ text: 'undated', astPath: [30] }),
+        task({ displayText: 'today', dueDate: TODAY, astPath: [0] }),
+        task({ displayText: 'late', dueDate: '2026-06-01', astPath: [10] }),
+        task({ displayText: 'later', dueDate: '2026-07-01', astPath: [20] }),
+        task({ displayText: 'undated', astPath: [30] }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -47,9 +47,14 @@ describe('composeVisibleTaskGroups', () => {
   it('drops the buckets the filters turn off, honoring pinned vs other notes', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'late', dueDate: '2026-06-01' }),
-        task({ text: 'pinned note', notePath: 'notes/p.md', noteTitle: 'P', isPinned: true }),
-        task({ text: 'plain note', notePath: 'notes/q.md', noteTitle: 'Q' }),
+        task({ displayText: 'late', dueDate: '2026-06-01' }),
+        task({
+          displayText: 'pinned note',
+          notePath: 'notes/p.md',
+          noteTitle: 'P',
+          isPinned: true,
+        }),
+        task({ displayText: 'plain note', notePath: 'notes/q.md', noteTitle: 'Q' }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -62,25 +67,25 @@ describe('composeVisibleTaskGroups', () => {
   })
 
   it('keeps this session’s completed tasks struck, replacing their open rows', () => {
-    const done = task({ text: 'done', astPath: [0] })
+    const done = task({ displayText: 'done', astPath: [0] })
     const groups = composeVisibleTaskGroups({
       // A refetch can briefly restore the completed row to the open cache; the
       // struck copy must win or React keys collide.
-      open: [done, task({ text: 'still open', astPath: [10] })],
+      open: [done, task({ displayText: 'still open', astPath: [10] })],
       completed: undefined,
-      recentlyCompleted: [{ ...done, checked: true, firstParagraphMarkdown: 'done' }],
+      recentlyCompleted: [{ ...done, checked: true, text: 'done' }],
       filters: ALL_ON,
       needle: '',
       today: TODAY,
     })
     const rows = groups.flatMap((group) => group.tasks)
     expect(rows).toHaveLength(2)
-    expect(rows.find((row) => row.text === 'done')?.checked).toBe(true)
+    expect(rows.find((row) => row.displayText === 'done')?.checked).toBe(true)
   })
 
   it('unions the completed history and the session set when archived is on', () => {
-    const sessionDone = task({ text: 'just now', astPath: [0], checked: true })
-    const historical = task({ text: 'long ago', astPath: [10], checked: true })
+    const sessionDone = task({ displayText: 'just now', astPath: [0], checked: true })
+    const historical = task({ displayText: 'long ago', astPath: [10], checked: true })
     const groups = composeVisibleTaskGroups({
       open: [],
       // The session row is also in the history — it must not list twice.
@@ -91,12 +96,15 @@ describe('composeVisibleTaskGroups', () => {
       today: TODAY,
     })
     const rows = groups.flatMap((group) => group.tasks)
-    expect(rows.map((row) => row.text).sort()).toEqual(['just now', 'long ago'])
+    expect(rows.map((row) => row.displayText).sort()).toEqual(['just now', 'long ago'])
   })
 
   it('filters by the search needle across open and struck rows', () => {
     const groups = composeVisibleTaskGroups({
-      open: [task({ text: 'buy milk', astPath: [0] }), task({ text: 'call mum', astPath: [10] })],
+      open: [
+        task({ displayText: 'buy milk', astPath: [0] }),
+        task({ displayText: 'call mum', astPath: [10] }),
+      ],
       completed: undefined,
       recentlyCompleted: [],
       filters: ALL_ON,
@@ -104,14 +112,14 @@ describe('composeVisibleTaskGroups', () => {
       today: TODAY,
     })
     const rows = groups.flatMap((group) => group.tasks)
-    expect(rows.map((row) => row.text)).toEqual(['buy milk'])
+    expect(rows.map((row) => row.displayText)).toEqual(['buy milk'])
   })
 
   it('filters by breadcrumb context', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'ship', astPath: [0], breadcrumbs: ['StartupToolbox', 'Reflections'] }),
-        task({ text: 'buy milk', astPath: [10], breadcrumbs: ['Personal'] }),
+        task({ displayText: 'ship', astPath: [0], breadcrumbs: ['StartupToolbox', 'Reflections'] }),
+        task({ displayText: 'buy milk', astPath: [10], breadcrumbs: ['Personal'] }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -120,14 +128,14 @@ describe('composeVisibleTaskGroups', () => {
       today: TODAY,
     })
     const rows = groups.flatMap((group) => group.tasks)
-    expect(rows.map((row) => row.text)).toEqual(['ship'])
+    expect(rows.map((row) => row.displayText)).toEqual(['ship'])
   })
 
   it('filters by source-note title', () => {
     const groups = composeVisibleTaskGroups({
       open: [
-        task({ text: 'ship it', astPath: [0], noteTitle: 'Desktop launch' }),
-        task({ text: 'buy milk', astPath: [10], noteTitle: 'Home' }),
+        task({ displayText: 'ship it', astPath: [0], noteTitle: 'Desktop launch' }),
+        task({ displayText: 'buy milk', astPath: [10], noteTitle: 'Home' }),
       ],
       completed: undefined,
       recentlyCompleted: [],
@@ -136,14 +144,14 @@ describe('composeVisibleTaskGroups', () => {
       today: TODAY,
     })
     const rows = groups.flatMap((group) => group.tasks)
-    expect(rows.map((row) => row.text)).toEqual(['ship it'])
+    expect(rows.map((row) => row.displayText)).toEqual(['ship it'])
   })
 })
 
 describe('visibleGroups', () => {
   it('keeps every group with every filter on', () => {
     const groups = composeVisibleTaskGroups({
-      open: [task({ text: 'a', dueDate: TODAY })],
+      open: [task({ displayText: 'a', dueDate: TODAY })],
       completed: undefined,
       recentlyCompleted: [],
       filters: ALL_ON,

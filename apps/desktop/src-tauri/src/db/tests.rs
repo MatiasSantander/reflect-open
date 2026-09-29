@@ -60,7 +60,6 @@ fn note(path: &str, title: &str, links: Vec<IndexedLink>) -> IndexedNote {
         has_content: true,
         gist_url: None,
         gist_stale: false,
-        reference_markdown: String::new(),
         file_hash: "h".to_string(),
         mtime: 0,
         text: format!("{title} body"),
@@ -139,7 +138,7 @@ fn moved_address(to: &str) -> MovedNoteAddress {
 fn task(child_index: u64, text: &str, checked: bool) -> IndexedTask {
     IndexedTask {
         ast_path: vec![child_index],
-        first_paragraph_markdown: text.to_string(),
+        text: text.to_string(),
         breadcrumbs: vec![],
         checked,
         due_date: None,
@@ -893,13 +892,13 @@ fn apply_note_inserts_tasks_and_replace_clears_them() {
 
     let rows = run_query(
         &conn,
-        "SELECT ast_path, first_paragraph_markdown, breadcrumbs, checked, due_date FROM tasks WHERE note_path = 'notes/a.md' ORDER BY checked",
+        "SELECT ast_path, text, breadcrumbs, checked, due_date FROM tasks WHERE note_path = 'notes/a.md' ORDER BY checked",
         &[],
     )
     .unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["ast_path"], Value::from("[4]"));
-    assert_eq!(rows[0]["first_paragraph_markdown"], Value::from("buy milk"));
+    assert_eq!(rows[0]["text"], Value::from("buy milk"));
     assert_eq!(rows[0]["breadcrumbs"], Value::from("[]"));
     assert_eq!(rows[0]["checked"], Value::from(0));
     assert_eq!(rows[0]["due_date"], Value::from("2026-07-01"));
@@ -952,7 +951,7 @@ fn open_tasks_read_includes_private_notes_and_excludes_completed() {
 
     let rows = run_query(
         &conn,
-        "SELECT tasks.note_path, tasks.first_paragraph_markdown, notes.title AS note_title, notes.daily_date \
+        "SELECT tasks.note_path, tasks.text, notes.title AS note_title, notes.daily_date \
          FROM tasks INNER JOIN notes ON notes.path = tasks.note_path \
          WHERE tasks.checked = 0 ORDER BY tasks.note_path",
         &[],
@@ -961,12 +960,12 @@ fn open_tasks_read_includes_private_notes_and_excludes_completed() {
 
     assert_eq!(rows.len(), 2); // both open tasks; the completed one is gone
     assert_eq!(rows[0]["note_path"], Value::from("daily/2026-06-10.md"));
-    assert_eq!(rows[0]["first_paragraph_markdown"], Value::from("open a"));
+    assert_eq!(rows[0]["text"], Value::from("open a"));
     assert_eq!(rows[0]["note_title"], Value::from("A"));
     assert_eq!(rows[0]["daily_date"], Value::from("2026-06-10"));
     // The private note's open task is present (local-only surface).
     assert_eq!(rows[1]["note_path"], Value::from("notes/b.md"));
-    assert_eq!(rows[1]["first_paragraph_markdown"], Value::from("open b"));
+    assert_eq!(rows[1]["text"], Value::from("open b"));
 }
 
 #[test]

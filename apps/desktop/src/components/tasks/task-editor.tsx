@@ -3,11 +3,12 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type MutableRefObject,
   type ReactElement,
 } from 'react'
 import { Priority } from '@meowdown/core'
-import { useKeymap, useEditor } from '@meowdown/react'
+import { useKeymap } from '@meowdown/react'
 import type { OpenTask } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
@@ -74,11 +75,12 @@ interface TaskEditorProps {
 function TaskCommitKeymap({
   apiRef,
   onNavigate,
+  editorRef,
 }: {
+  editorRef: MutableRefObject<NoteEditorHandle | null>
   apiRef: MutableRefObject<TaskEditorApi>
   onNavigate: TaskNavigate
 }): null {
-  const editor = useEditor()
   const keymap = useMemo(
     () => ({
       // Enter adds the next task (V1 continuous entry), never a new block.
@@ -111,28 +113,27 @@ function TaskCommitKeymap({
       },
       // Leave only at the visual boundary; otherwise move within the paragraph.
       ArrowUp: () => {
-        {/*FIXME: let's create a seperate PR in meowdown, which adds related API in the editorRef.current. If possible, let's do not use prosekit API like "useEditor" in reflect-open */}
-        if (!editor.view.endOfTextblock('up')) return false
+        if (!editorRef.current?.isAtTextblockBoundary('up')) return false
         onNavigate(-1, { span: false })
         return true
       },
       ArrowDown: () => {
-        if (!editor.view.endOfTextblock('down')) return false
+        if (!editorRef.current?.isAtTextblockBoundary('down')) return false
         onNavigate(1, { span: false })
         return true
       },
       'Shift-ArrowUp': () => {
-        if (!editor.view.endOfTextblock('up')) return false
+        if (!editorRef.current?.isAtTextblockBoundary('up')) return false
         onNavigate(-1, { span: true })
         return true
       },
       'Shift-ArrowDown': () => {
-        if (!editor.view.endOfTextblock('down')) return false
+        if (!editorRef.current?.isAtTextblockBoundary('down')) return false
         onNavigate(1, { span: true })
         return true
       },
     }),
-    [apiRef, onNavigate, editor],
+    [apiRef, onNavigate, editorRef],
   )
   useKeymap(keymap, { priority: Priority.high })
   return null
@@ -161,8 +162,8 @@ export function TaskEditor({
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
 
   // Frozen at mount: the editor is seeded once (uncontrolled), so the commit
-  // baseline must stay the seed even if `task.firstParagraphMarkdown` is re-derived mid-edit.
-  const [initial] = useState(() => task.firstParagraphMarkdown)
+  // baseline must stay the seed even if `task.text` is re-derived mid-edit.
+  const [initial] = useState(() => task.text)
   const [writeCallbacks] = useState(() => ({
     onCommit,
     onContinue,
@@ -202,7 +203,9 @@ export function TaskEditor({
     }
   }, [convertControllerRef, apiRef])
 
+  const editorRef = useRef<NoteEditorHandle | null>(null)
   const handleRef = useCallback((handle: NoteEditorHandle | null) => {
+    editorRef.current = handle
     handle?.focus()
   }, [])
 
@@ -211,7 +214,6 @@ export function TaskEditor({
       <NoteEditor
         initialContent={initial}
         singleParagraph
-        referenceMarkdown={task.referenceMarkdown}
         onChange={onChange}
         markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
         spellCheck={settings.editorSpellCheck}
@@ -226,7 +228,7 @@ export function TaskEditor({
         className="reflect-task-editor text-sm"
         handleRef={handleRef}
       >
-        <TaskCommitKeymap apiRef={apiRef} onNavigate={onNavigate} />
+        <TaskCommitKeymap editorRef={editorRef} apiRef={apiRef} onNavigate={onNavigate} />
       </NoteEditor>
     </div>
   )

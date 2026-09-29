@@ -106,6 +106,7 @@ vi.mock('@/editor/note-editor.tsx', async () => {
             editorProbe.focusCalls += 1
           },
           setSelection: () => {},
+          isAtTextblockBoundary: () => true,
           getSelectedText: () => '',
           openSelectionMenu: () => {},
           startPendingReplacement: () => false,
@@ -146,7 +147,6 @@ const insertTask = vi.hoisted(() => vi.fn())
 const continueTaskInContext = vi.hoisted(() => vi.fn())
 const convertTaskToBullet = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/note-task.ts', () => ({
-  onTaskMutation: () => () => {},
   mutateTasks: async (
     edits: {
       task: OpenTask
@@ -154,18 +154,18 @@ vi.mock('@/lib/note-task.ts', () => ({
         checked?: boolean
         remove?: boolean
         toBullet?: boolean
-        firstParagraphMarkdown?: string
+        text?: string
       }
     }[],
     generation: number,
   ) => {
     for (const { task, edit } of edits) {
-      if (edit.firstParagraphMarkdown !== undefined)
-        await editTask(task, edit.firstParagraphMarkdown, generation)
+      if (edit.text !== undefined) await editTask(task, edit.text, generation)
       if (edit.checked !== undefined) await toggleTask(task, generation)
       if (edit.remove) await deleteTask(task, generation)
       if (edit.toBullet) await convertTaskToBullet(task, generation)
     }
+    return []
   },
   toggleTask,
   deleteTask,
@@ -277,22 +277,27 @@ beforeEach(async () => {
   getOpenTasks.mockReset()
   getCompletedTasks.mockReset()
   getCompletedTasks.mockResolvedValue([])
-  toggleTask.mockReset()
-  deleteTask.mockReset()
-  editTask.mockReset()
+  toggleTask.mockReset().mockResolvedValue([])
+  deleteTask.mockReset().mockResolvedValue([])
+  editTask.mockReset().mockResolvedValue([])
   insertTask.mockReset()
   insertTask.mockImplementation(async (notePath: string) => ({
+    receipts: [],
     notePath,
     revision: 'inserted-revision',
     astPath: [0],
   }))
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { astPath: [0], firstParagraphMarkdown: '' },
+    notePath: 'notes/n.md',
+    revision: 'created',
+    astPath: [0],
+    receipts: [],
+    created: { astPath: [0], text: '' },
     offsetChanges: [],
   })
-  convertTaskToBullet.mockReset()
-  convertTaskToBullet.mockResolvedValue(undefined)
+  convertTaskToBullet.mockReset().mockResolvedValue([])
+  convertTaskToBullet.mockResolvedValue([])
   startOperation.mockClear()
   fail.mockReset()
   resolveOrCreateNoteWithTitle.mockReset()
@@ -313,19 +318,19 @@ describe('MobileTasks', () => {
   it('renders desktop’s groups with counts and source dates', async () => {
     getOpenTasks.mockResolvedValue([
       task({
-        text: 'jotted today',
+        displayText: 'jotted today',
         dailyDate: '2026-06-14',
         notePath: 'daily/2026-06-14.md',
         astPath: [0],
       }),
       task({
-        text: 'late',
+        displayText: 'late',
         dueDate: '2026-06-01',
         dailyDate: '2026-06-01',
         notePath: 'daily/2026-06-01.md',
         astPath: [0],
       }),
-      task({ text: 'undated', astPath: [0] }),
+      task({ displayText: 'undated', astPath: [0] }),
     ])
     const view = await renderScreen()
 
@@ -340,10 +345,10 @@ describe('MobileTasks', () => {
 
   it('renders one read-only breadcrumb per consecutive task context', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ astPath: [2], text: 'first', breadcrumbs: ['Project', 'Release'] }),
-      task({ astPath: [20], text: 'second', breadcrumbs: ['Project', 'Release'] }),
-      task({ astPath: [40], text: 'third', breadcrumbs: ['Project', 'Later'] }),
-      task({ astPath: [60], text: 'fourth', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [2], displayText: 'first', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [20], displayText: 'second', breadcrumbs: ['Project', 'Release'] }),
+      task({ astPath: [40], displayText: 'third', breadcrumbs: ['Project', 'Later'] }),
+      task({ astPath: [60], displayText: 'fourth', breadcrumbs: ['Project', 'Release'] }),
     ])
     const view = await renderScreen()
 
@@ -355,7 +360,7 @@ describe('MobileTasks', () => {
 
   it('hides a lone generic task breadcrumb', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ astPath: [2], text: 'project task', breadcrumbs: ['Tasks:'] }),
+      task({ astPath: [2], displayText: 'project task', breadcrumbs: ['Tasks:'] }),
     ])
     const view = await renderScreen()
 
@@ -365,7 +370,7 @@ describe('MobileTasks', () => {
   })
 
   it('toggles a task from its checkbox and keeps it struck until archived', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -384,7 +389,7 @@ describe('MobileTasks', () => {
   })
 
   it('fires light haptics for task list controls', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -405,7 +410,7 @@ describe('MobileTasks', () => {
   })
 
   it('commits an edited draft when the quick-edit sheet is dismissed', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -423,7 +428,7 @@ describe('MobileTasks', () => {
   })
 
   it('does not write when the sheet closes with an untouched draft', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -436,7 +441,7 @@ describe('MobileTasks', () => {
   })
 
   it('deletes the task when the sheet is dismissed with an emptied draft', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -450,7 +455,7 @@ describe('MobileTasks', () => {
   })
 
   it('schedules by editing the draft’s date link, committing one write', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -467,7 +472,7 @@ describe('MobileTasks', () => {
   })
 
   it('fires light haptics for task sheet scheduling and actions', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -492,8 +497,8 @@ describe('MobileTasks', () => {
   it('clears the due date from the schedule row', async () => {
     getOpenTasks.mockResolvedValue([
       task({
+        displayText: 'late [[2026-06-01]]',
         text: 'late [[2026-06-01]]',
-        firstParagraphMarkdown: 'late [[2026-06-01]]',
         dueDate: '2026-06-01',
       }),
     ])
@@ -509,7 +514,7 @@ describe('MobileTasks', () => {
   })
 
   it('completes from the sheet, saving a changed draft first', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -528,7 +533,7 @@ describe('MobileTasks', () => {
   })
 
   it('commits edits from a sheet re-opened after an action closed it', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -551,7 +556,7 @@ describe('MobileTasks', () => {
   })
 
   it('converts to a bullet from the sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -563,7 +568,7 @@ describe('MobileTasks', () => {
   })
 
   it('deletes an emptied draft on Complete instead of resurrecting the text', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -577,7 +582,7 @@ describe('MobileTasks', () => {
   })
 
   it('deletes an emptied draft on Convert instead of resurrecting the text', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -592,7 +597,7 @@ describe('MobileTasks', () => {
 
   it('keeps open tasks visible while the archived history is still loading', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    getOpenTasks.mockResolvedValue([task({ text: 'still open' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'still open' })])
     getCompletedTasks.mockReturnValue(new Promise<OpenTask[]>(() => {}))
     const view = await renderScreen()
 
@@ -603,7 +608,7 @@ describe('MobileTasks', () => {
   })
 
   it('opens the source note from the sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -615,7 +620,7 @@ describe('MobileTasks', () => {
   })
 
   it('opens the source note of an untouched empty task without deleting it', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: '', firstParagraphMarkdown: '' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: '', text: '' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -630,7 +635,7 @@ describe('MobileTasks', () => {
   })
 
   it('deletes from the sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -643,7 +648,11 @@ describe('MobileTasks', () => {
 
   it('adds a task to today’s daily from the Current group and opens its sheet', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'jotted today', dailyDate: '2026-06-14', notePath: 'daily/2026-06-14.md' }),
+      task({
+        displayText: 'jotted today',
+        dailyDate: '2026-06-14',
+        notePath: 'daily/2026-06-14.md',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -663,7 +672,7 @@ describe('MobileTasks', () => {
   })
 
   it('adds a task to today’s daily from the floating plus button', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -678,7 +687,11 @@ describe('MobileTasks', () => {
 
   it('focuses the editor when "+" adds a new task', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'jotted today', dailyDate: '2026-06-14', notePath: 'daily/2026-06-14.md' }),
+      task({
+        displayText: 'jotted today',
+        dailyDate: '2026-06-14',
+        notePath: 'daily/2026-06-14.md',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -692,7 +705,7 @@ describe('MobileTasks', () => {
   })
 
   it('leaves focus alone when a row tap opens the sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -705,7 +718,7 @@ describe('MobileTasks', () => {
   })
 
   it('commits the draft before a wiki link inside it navigates', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -727,7 +740,11 @@ describe('MobileTasks', () => {
 
   it('abandoning a "+"-added task deletes it instead of ghosting an empty row', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'jotted today', dailyDate: '2026-06-14', notePath: 'daily/2026-06-14.md' }),
+      task({
+        displayText: 'jotted today',
+        dailyDate: '2026-06-14',
+        notePath: 'daily/2026-06-14.md',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -742,7 +759,7 @@ describe('MobileTasks', () => {
   })
 
   it('flushes an edited draft when the screen unmounts under an open sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const user = userEvent
     const view = await renderScreen()
 
@@ -760,7 +777,11 @@ describe('MobileTasks', () => {
 
   it('deletes an abandoned "+"-added task when the screen unmounts', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'jotted today', dailyDate: '2026-06-14', notePath: 'daily/2026-06-14.md' }),
+      task({
+        displayText: 'jotted today',
+        dailyDate: '2026-06-14',
+        notePath: 'daily/2026-06-14.md',
+      }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -775,8 +796,12 @@ describe('MobileTasks', () => {
 
   it('hides buckets through the filter sheet', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'jotted today', dailyDate: '2026-06-14', notePath: 'daily/2026-06-14.md' }),
-      task({ text: 'undated' }),
+      task({
+        displayText: 'jotted today',
+        dailyDate: '2026-06-14',
+        notePath: 'daily/2026-06-14.md',
+      }),
+      task({ displayText: 'undated' }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -791,13 +816,13 @@ describe('MobileTasks', () => {
   })
 
   it('reveals the completed history behind “Show archived”', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'still open' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'still open' })])
     getCompletedTasks.mockResolvedValue([
       task({
-        text: 'long done',
+        displayText: 'long done',
         astPath: [40],
         checked: true,
-        firstParagraphMarkdown: 'long done',
+        text: 'long done',
       }),
     ])
     const user = userEvent
@@ -815,8 +840,8 @@ describe('MobileTasks', () => {
 
   it('filters rows by the search text', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'buy milk', astPath: [0] }),
-      task({ text: 'call mum', astPath: [10] }),
+      task({ displayText: 'buy milk', astPath: [0] }),
+      task({ displayText: 'call mum', astPath: [10] }),
     ])
     const user = userEvent
     const view = await renderScreen()
@@ -857,7 +882,7 @@ describe('MobileTasks', () => {
   })
 
   it('reveals note and delete actions with a leftward swipe', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const view = await renderScreen()
 
     const surface = await revealSwipeActions(view, 'buy milk')
@@ -873,7 +898,7 @@ describe('MobileTasks', () => {
   })
 
   it('deletes a task from its swipe action without a dialog', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const view = await renderScreen()
 
     await revealSwipeActions(view, 'buy milk')
@@ -887,7 +912,7 @@ describe('MobileTasks', () => {
   })
 
   it('opens the source note from its swipe action', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const view = await renderScreen()
 
     await revealSwipeActions(view, 'buy milk')
@@ -901,7 +926,7 @@ describe('MobileTasks', () => {
   })
 
   it('closes a revealed row on tap instead of opening the sheet', async () => {
-    getOpenTasks.mockResolvedValue([task({ text: 'buy milk' })])
+    getOpenTasks.mockResolvedValue([task({ displayText: 'buy milk' })])
     const view = await renderScreen()
 
     await revealSwipeActions(view, 'buy milk')
@@ -914,8 +939,8 @@ describe('MobileTasks', () => {
 
   it('reveals one row at a time across groups', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ text: 'buy milk' }),
-      task({ text: 'walk dog', notePath: 'notes/dog.md' }),
+      task({ displayText: 'buy milk' }),
+      task({ displayText: 'walk dog', notePath: 'notes/dog.md' }),
     ])
     const view = await renderScreen()
 

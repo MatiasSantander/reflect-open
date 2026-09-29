@@ -63,7 +63,6 @@ const insertTask = vi.hoisted(() => vi.fn())
 const continueTaskInContext = vi.hoisted(() => vi.fn())
 const convertTaskToBullet = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/note-task.ts', () => ({
-  onTaskMutation: () => () => {},
   mutateTasks: async (
     edits: {
       task: OpenTask
@@ -71,18 +70,18 @@ vi.mock('@/lib/note-task.ts', () => ({
         checked?: boolean
         remove?: boolean
         toBullet?: boolean
-        firstParagraphMarkdown?: string
+        text?: string
       }
     }[],
     generation: number,
   ) => {
     for (const { task, edit } of edits) {
-      if (edit.firstParagraphMarkdown !== undefined)
-        await editTask(task, edit.firstParagraphMarkdown, generation)
+      if (edit.text !== undefined) await editTask(task, edit.text, generation)
       if (edit.checked !== undefined) await toggleTask(task, generation)
       if (edit.remove) await deleteTask(task, generation)
       if (edit.toBullet) await convertTaskToBullet(task, generation)
     }
+    return []
   },
   toggleTask,
   deleteTask,
@@ -111,7 +110,7 @@ vi.mock('./task-editor', () => ({
     checkboxToggleControllerRef,
     convertControllerRef,
   }: {
-    task: { text: string }
+    task: { displayText: string }
     onCommit: (content: string) => void
     onContinue: (content: string | null) => void
     onDelete: () => void
@@ -148,7 +147,7 @@ vi.mock('./task-editor', () => ({
     })
     return (
       <div data-task-editor data-testid="task-editor">
-        <span>editing: {task.text}</span>
+        <span>editing: {task.displayText}</span>
         <button type="button" onClick={() => onCommit('edited content')}>
           commit-edit
         </button>
@@ -263,22 +262,27 @@ beforeEach(() => {
   getCompletedTasks.mockReset()
   getCompletedTasks.mockResolvedValue([])
   openRouteInNewWindow.mockReset().mockResolvedValue(true)
-  toggleTask.mockReset()
-  deleteTask.mockReset()
-  editTask.mockReset()
+  toggleTask.mockReset().mockResolvedValue([])
+  deleteTask.mockReset().mockResolvedValue([])
+  editTask.mockReset().mockResolvedValue([])
   insertTask.mockReset()
   insertTask.mockImplementation(async (notePath: string) => ({
+    receipts: [],
     notePath,
     revision: 'inserted-revision',
     astPath: [0],
   }))
   continueTaskInContext.mockReset()
   continueTaskInContext.mockResolvedValue({
-    created: { astPath: [0], firstParagraphMarkdown: '' },
+    notePath: 'notes/n.md',
+    revision: 'created',
+    astPath: [0],
+    receipts: [],
+    created: { astPath: [0], text: '' },
     offsetChanges: [],
   })
-  convertTaskToBullet.mockReset()
-  convertTaskToBullet.mockResolvedValue(undefined)
+  convertTaskToBullet.mockReset().mockResolvedValue([])
+  convertTaskToBullet.mockResolvedValue([])
   startOperation.mockClear()
   fail.mockReset()
   resetRecentlyCompleted()
@@ -314,7 +318,7 @@ describe('TasksScreen', () => {
 
     // Completed resolves with a task → it appears (was never reported empty).
     resolveCompleted([
-      task({ notePath: 'notes/p.md', text: 'archived task', noteTitle: 'P', checked: true }),
+      task({ notePath: 'notes/p.md', displayText: 'archived task', noteTitle: 'P', checked: true }),
     ])
     await view.findByText('archived task')
     expect(view.queryByText('No tasks to show.')).toBeNull()
@@ -342,7 +346,7 @@ describe('TasksScreen', () => {
   it('clears the archived error when "show archived" is turned off', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', text: 'open task', noteTitle: 'P' }),
+      task({ notePath: 'notes/p.md', displayText: 'open task', noteTitle: 'P' }),
     ])
     getCompletedTasks.mockRejectedValue(new Error('index unavailable'))
     const view = await renderScreen()
@@ -362,13 +366,18 @@ describe('TasksScreen', () => {
       task({
         notePath: 'daily/2026-06-14.md',
         dailyDate: '2026-06-14',
-        text: 'today task',
+        displayText: 'today task',
         noteTitle: '2026-06-14',
       }),
       // Overdue needs an explicit past due date (V1 asymmetry) — a bare past
       // daily-note task would be Current.
-      task({ notePath: 'notes/d.md', dueDate: '2026-06-10', text: 'overdue task', noteTitle: 'D' }),
-      task({ notePath: 'notes/p.md', text: 'project task', noteTitle: 'Project' }),
+      task({
+        notePath: 'notes/d.md',
+        dueDate: '2026-06-10',
+        displayText: 'overdue task',
+        noteTitle: 'D',
+      }),
+      task({ notePath: 'notes/p.md', displayText: 'project task', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -385,21 +394,21 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        text: 'first',
+        displayText: 'first',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
       }),
       task({
         notePath: 'notes/p.md',
         astPath: [20],
-        text: 'second',
+        displayText: 'second',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Reflections'],
       }),
       task({
         notePath: 'notes/p.md',
         astPath: [40],
-        text: 'third',
+        displayText: 'third',
         noteTitle: 'Project',
         breadcrumbs: ['StartupToolbox', 'Later'],
       }),
@@ -422,7 +431,7 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
         breadcrumbs: ['Tasks:'],
       }),
@@ -440,7 +449,7 @@ describe('TasksScreen', () => {
         notePath: 'notes/p.md',
         dailyDate: null,
         dueDate: '2026-06-10',
-        text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -459,7 +468,7 @@ describe('TasksScreen', () => {
         notePath: 'notes/p.md',
         dailyDate: null,
         dueDate: '2026-06-10',
-        text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -483,7 +492,7 @@ describe('TasksScreen', () => {
 
   it('opens a modifier-clicked note-group title in a new window', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', text: 'project task', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', displayText: 'project task', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -507,7 +516,7 @@ describe('TasksScreen', () => {
       task({
         notePath: 'daily/2026-06-09.md',
         dailyDate: '2026-06-09',
-        text: 'daily task',
+        displayText: 'daily task',
         noteTitle: '2026-06-09',
       }),
     ])
@@ -526,8 +535,8 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
-        firstParagraphMarkdown: 'ship **bold** text',
-        text: 'ship bold text',
+        text: 'ship **bold** text',
+        displayText: 'ship bold text',
         noteTitle: 'Project',
       }),
     ])
@@ -541,7 +550,7 @@ describe('TasksScreen', () => {
 
   it('selects a task when clicking the row outside the text control', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', astPath: [2], text: 'full row', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], displayText: 'full row', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -560,8 +569,8 @@ describe('TasksScreen', () => {
 
   it('opens the inline editor on a sole selection, and Escape exits it', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], displayText: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], displayText: 'second', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -586,8 +595,8 @@ describe('TasksScreen', () => {
 
   it('scrolls the focused task row into view after selection renders', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], displayText: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], displayText: 'second', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -607,15 +616,15 @@ describe('TasksScreen', () => {
   })
 
   it('commits, deletes, or cancels an inline edit through the editor', async () => {
-    toggleTask.mockResolvedValue(undefined)
-    editTask.mockResolvedValue(undefined)
-    deleteTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
+    editTask.mockResolvedValue([])
+    deleteTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'P',
       }),
     ])
@@ -646,13 +655,13 @@ describe('TasksScreen', () => {
   })
 
   it('flush persists an edit without exiting edit mode (selection unchanged)', async () => {
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'P',
       }),
     ])
@@ -673,14 +682,14 @@ describe('TasksScreen', () => {
   })
 
   it('completes from the editor: edit+complete sequences the two writes', async () => {
-    editTask.mockResolvedValue(undefined)
-    toggleTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'P',
       }),
     ])
@@ -707,15 +716,15 @@ describe('TasksScreen', () => {
 
   it('editing an already-completed task with ⌘↵ saves the text, never reopens it', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    editTask.mockResolvedValue(undefined)
-    toggleTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([])
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'done task',
         text: 'done task',
+        displayText: 'done task',
         checked: true,
         noteTitle: 'P',
       }),
@@ -731,13 +740,13 @@ describe('TasksScreen', () => {
   })
 
   it('completes from the editor: an unchanged task just toggles, no edit', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'P',
       }),
     ])
@@ -752,9 +761,9 @@ describe('TasksScreen', () => {
 
   it('toggles rows with ⌘-click and selects a range with shift-click', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', astPath: [2], text: 'first', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', astPath: [3], text: 'second', noteTitle: 'Project' }),
-      task({ notePath: 'notes/p.md', astPath: [4], text: 'third', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [2], displayText: 'first', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [3], displayText: 'second', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', astPath: [4], displayText: 'third', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
     const pressed = (name: string) =>
@@ -779,8 +788,8 @@ describe('TasksScreen', () => {
 
   it('selects all with ⌘A and moves a single selection with the arrow keys', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/a.md', astPath: [2], text: 'first', noteTitle: 'A' }),
-      task({ notePath: 'notes/b.md', astPath: [2], text: 'second', noteTitle: 'B' }),
+      task({ notePath: 'notes/a.md', astPath: [2], displayText: 'first', noteTitle: 'A' }),
+      task({ notePath: 'notes/b.md', astPath: [2], displayText: 'second', noteTitle: 'B' }),
     ])
     const view = await renderScreen()
     const pressed = (name: string) =>
@@ -800,20 +809,20 @@ describe('TasksScreen', () => {
   })
 
   it('completes the selection with ⌘↵', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'second',
         text: 'second',
+        displayText: 'second',
         noteTitle: 'B',
       }),
     ])
@@ -830,20 +839,20 @@ describe('TasksScreen', () => {
   })
 
   it('deletes a multi-selection with ⌘⌫', async () => {
-    deleteTask.mockResolvedValue(undefined)
+    deleteTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'second',
         text: 'second',
+        displayText: 'second',
         noteTitle: 'B',
       }),
     ])
@@ -861,6 +870,7 @@ describe('TasksScreen', () => {
 
   it('a note group’s "+ Add" button inserts into that note and opens the editor', async () => {
     insertTask.mockImplementation(async (notePath: string) => ({
+      receipts: [],
       notePath,
       revision: 'inserted-revision',
       astPath: [0],
@@ -869,8 +879,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/proj.md',
         astPath: [2],
-        firstParagraphMarkdown: 'a',
         text: 'a',
+        displayText: 'a',
         noteTitle: 'Project',
       }),
     ])
@@ -889,8 +899,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [2],
-        firstParagraphMarkdown: 'late',
         text: 'late',
+        displayText: 'late',
         noteTitle: 'P',
         dueDate: '2026-06-01',
       }),
@@ -907,8 +917,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
     ])
@@ -924,13 +934,13 @@ describe('TasksScreen', () => {
   })
 
   it('dismissing the inserted row deletes the right note line (V1 empty cleanup)', async () => {
-    deleteTask.mockResolvedValue(undefined)
+    deleteTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
     ])
@@ -954,20 +964,20 @@ describe('TasksScreen', () => {
   })
 
   it('Backspace deletes a row and lands the editor on the previous one (V1)', async () => {
-    deleteTask.mockResolvedValue(undefined)
+    deleteTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'second',
         text: 'second',
+        displayText: 'second',
         noteTitle: 'B',
       }),
     ])
@@ -990,20 +1000,20 @@ describe('TasksScreen', () => {
   })
 
   it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
-    deleteTask.mockResolvedValue(undefined)
+    deleteTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: '',
         text: '',
+        displayText: '',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'keep',
         text: 'keep',
+        displayText: 'keep',
         noteTitle: 'B',
       }),
     ])
@@ -1020,8 +1030,9 @@ describe('TasksScreen', () => {
   })
 
   it('Enter in the editor saves the row and opens the next task (continuous entry)', async () => {
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     insertTask.mockImplementation(async (notePath: string) => ({
+      receipts: [],
       notePath,
       revision: 'inserted-revision',
       astPath: [7],
@@ -1030,8 +1041,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
     ])
@@ -1049,13 +1060,13 @@ describe('TasksScreen', () => {
 
   it('preserves a grouped task draft when contextual insertion is refused', async () => {
     continueTaskInContext.mockRejectedValue(new Error('This note is open.'))
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
         breadcrumbs: ['Project'],
       }),
@@ -1081,8 +1092,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'scheduled',
         text: 'scheduled',
+        displayText: 'scheduled',
         noteTitle: 'A',
         breadcrumbs: ['Project'],
         dueDate: '2026-07-01',
@@ -1104,8 +1115,9 @@ describe('TasksScreen', () => {
   })
 
   it('Enter on a cleared row deletes it instead of leaving a bare task (no ghost)', async () => {
-    deleteTask.mockResolvedValue(undefined)
+    deleteTask.mockResolvedValue([])
     insertTask.mockImplementation(async (notePath: string) => ({
+      receipts: [],
       notePath,
       revision: 'inserted-revision',
       astPath: [0],
@@ -1114,8 +1126,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
     ])
@@ -1140,15 +1152,15 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'second',
         text: 'second',
+        displayText: 'second',
         noteTitle: 'B',
       }),
     ])
@@ -1164,13 +1176,13 @@ describe('TasksScreen', () => {
 
   it('does not reopen an already-completed task when ⌘↵ hits the selection', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'open',
         text: 'open',
+        displayText: 'open',
         noteTitle: 'A',
       }),
     ])
@@ -1178,8 +1190,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'done',
         text: 'done',
+        displayText: 'done',
         checked: true,
         noteTitle: 'B',
       }),
@@ -1196,20 +1208,20 @@ describe('TasksScreen', () => {
   })
 
   it('scheduling the selection writes a due-date link to each task (V1)', async () => {
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'plan',
         text: 'plan',
+        displayText: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'ship',
         text: 'ship',
+        displayText: 'ship',
         noteTitle: 'B',
       }),
     ])
@@ -1235,15 +1247,15 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'plan',
         text: 'plan',
+        displayText: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'ship',
         text: 'ship',
+        displayText: 'ship',
         noteTitle: 'B',
       }),
     ])
@@ -1273,15 +1285,15 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'plan',
         text: 'plan',
+        displayText: 'plan',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'ship',
         text: 'ship',
+        displayText: 'ship',
         noteTitle: 'B',
       }),
     ])
@@ -1299,13 +1311,13 @@ describe('TasksScreen', () => {
     // The toolbar button on the sole (edited) row routes through the editor so the
     // unsaved draft is saved first, then the marker is stripped — the data-loss race
     // Bugbot flagged (convert landing before the editor's commit) can't happen.
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'plan',
         text: 'plan',
+        displayText: 'plan',
         noteTitle: 'A',
       }),
     ])
@@ -1333,13 +1345,13 @@ describe('TasksScreen', () => {
   })
 
   it('converts an edited row from the editor’s own ⌘⇧K (save then convert)', async () => {
-    editTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'plan',
         text: 'plan',
+        displayText: 'plan',
         noteTitle: 'A',
       }),
     ])
@@ -1355,20 +1367,20 @@ describe('TasksScreen', () => {
   })
 
   it('⌘↵ reopens a selection that is already all checked (toggle both ways, V1)', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'one',
         text: 'one',
+        displayText: 'one',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'two',
         text: 'two',
+        displayText: 'two',
         noteTitle: 'B',
       }),
     ])
@@ -1387,8 +1399,8 @@ describe('TasksScreen', () => {
 
   it('ignores task shortcuts coming from a portaled overlay (the filters menu)', async () => {
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/a.md', astPath: [2], text: 'first', noteTitle: 'A' }),
-      task({ notePath: 'notes/b.md', astPath: [2], text: 'second', noteTitle: 'B' }),
+      task({ notePath: 'notes/a.md', astPath: [2], displayText: 'first', noteTitle: 'A' }),
+      task({ notePath: 'notes/b.md', astPath: [2], displayText: 'second', noteTitle: 'B' }),
     ])
     const view = await renderScreen()
     await view.findByRole('button', { name: 'first' })
@@ -1411,13 +1423,13 @@ describe('TasksScreen', () => {
   })
 
   it('completes a task when its checkbox is clicked', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1429,7 +1441,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         1,
       ),
@@ -1441,13 +1453,13 @@ describe('TasksScreen', () => {
   })
 
   it('yields the struck row to the index when the task is reopened at its source note', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
         updatedAt: 100,
       }),
@@ -1466,8 +1478,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
         updatedAt: 200,
       }),
@@ -1480,12 +1492,12 @@ describe('TasksScreen', () => {
   })
 
   it('keeps the struck row when a refetch races the completion’s reindex', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     const staleRow = task({
       notePath: 'notes/p.md',
       astPath: [5],
-      firstParagraphMarkdown: 'project task',
       text: 'project task',
+      displayText: 'project task',
       noteTitle: 'Project',
       updatedAt: 100,
     })
@@ -1507,13 +1519,13 @@ describe('TasksScreen', () => {
   })
 
   it('completes a selected task when its checkbox is clicked', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1528,7 +1540,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         1,
       ),
@@ -1537,20 +1549,20 @@ describe('TasksScreen', () => {
   })
 
   it('completes every selected open task when a selected checkbox is clicked', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [5],
-        firstParagraphMarkdown: 'first task',
         text: 'first task',
+        displayText: 'first task',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [9],
-        firstParagraphMarkdown: 'second task',
         text: 'second task',
+        displayText: 'second task',
         noteTitle: 'B',
       }),
     ])
@@ -1566,7 +1578,7 @@ describe('TasksScreen', () => {
       expect.objectContaining({
         notePath: 'notes/a.md',
         astPath: [5],
-        firstParagraphMarkdown: 'first task',
+        text: 'first task',
       }),
       1,
     )
@@ -1575,7 +1587,7 @@ describe('TasksScreen', () => {
       expect.objectContaining({
         notePath: 'notes/b.md',
         astPath: [9],
-        firstParagraphMarkdown: 'second task',
+        text: 'second task',
       }),
       1,
     )
@@ -1586,13 +1598,13 @@ describe('TasksScreen', () => {
 
   it('reopens selected checked tasks when a checked selected checkbox is clicked', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [5],
-        firstParagraphMarkdown: 'open task',
         text: 'open task',
+        displayText: 'open task',
         noteTitle: 'A',
       }),
     ])
@@ -1600,8 +1612,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/b.md',
         astPath: [9],
-        firstParagraphMarkdown: 'done task',
         text: 'done task',
+        displayText: 'done task',
         checked: true,
         noteTitle: 'B',
       }),
@@ -1618,7 +1630,7 @@ describe('TasksScreen', () => {
       expect.objectContaining({
         notePath: 'notes/b.md',
         astPath: [9],
-        firstParagraphMarkdown: 'done task',
+        text: 'done task',
       }),
       1,
     )
@@ -1628,14 +1640,14 @@ describe('TasksScreen', () => {
   })
 
   it('saves an edited selected task before completing it from the checkbox', async () => {
-    editTask.mockResolvedValue(undefined)
-    toggleTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1650,7 +1662,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         'edited content',
         1,
@@ -1678,13 +1690,13 @@ describe('TasksScreen', () => {
           resolveEdit = resolve
         }),
     )
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1706,13 +1718,13 @@ describe('TasksScreen', () => {
   })
 
   it('reopens a completed task when its checkbox is clicked', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1726,7 +1738,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         1,
       ),
@@ -1737,14 +1749,14 @@ describe('TasksScreen', () => {
 
   it('reopens an archived completed task when its checkbox is clicked', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([])
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         checked: true,
         noteTitle: 'Project',
       }),
@@ -1758,7 +1770,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         1,
       ),
@@ -1783,8 +1795,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         checked: true,
         noteTitle: 'Project',
       }),
@@ -1808,8 +1820,8 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1831,14 +1843,14 @@ describe('TasksScreen', () => {
 
   it('reopens a selected completed task when its checkbox is clicked', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([])
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         checked: true,
         noteTitle: 'Project',
       }),
@@ -1854,7 +1866,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         1,
       ),
@@ -1864,15 +1876,15 @@ describe('TasksScreen', () => {
 
   it('saves an edited selected completed task before reopening it from the checkbox', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    editTask.mockResolvedValue(undefined)
-    toggleTask.mockResolvedValue(undefined)
+    editTask.mockResolvedValue([])
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([])
     getCompletedTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         checked: true,
         noteTitle: 'Project',
       }),
@@ -1888,7 +1900,7 @@ describe('TasksScreen', () => {
         expect.objectContaining({
           notePath: 'notes/p.md',
           astPath: [5],
-          firstParagraphMarkdown: 'project task',
+          text: 'project task',
         }),
         'edited content',
         1,
@@ -1907,14 +1919,14 @@ describe('TasksScreen', () => {
   })
 
   it('restores persisted text when an edited struck task fails before reopening', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     editTask.mockRejectedValue(new Error('disk full'))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1943,14 +1955,14 @@ describe('TasksScreen', () => {
     // With "show archived" on, completing must move the row into the completed
     // list (struck), not drop it until the refetch (Bugbot regression).
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getCompletedTasks.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'Project',
       }),
     ])
@@ -1964,13 +1976,13 @@ describe('TasksScreen', () => {
   })
 
   it('shows the Archive button after completing, and Archive hides the row', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'P',
       }),
     ])
@@ -1989,13 +2001,13 @@ describe('TasksScreen', () => {
   })
 
   it('archives the session’s completed tasks with ⌘⇧↵', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/p.md',
         astPath: [5],
-        firstParagraphMarkdown: 'project task',
         text: 'project task',
+        displayText: 'project task',
         noteTitle: 'P',
       }),
     ])
@@ -2009,14 +2021,14 @@ describe('TasksScreen', () => {
   })
 
   it('a failed delete restores a struck task instead of dropping it (V1 middle state)', async () => {
-    toggleTask.mockResolvedValue(undefined)
+    toggleTask.mockResolvedValue([])
     deleteTask.mockRejectedValue(new Error('disk full'))
     getOpenTasks.mockResolvedValue([
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'one',
         text: 'one',
+        displayText: 'one',
         noteTitle: 'A',
       }),
     ])
@@ -2038,7 +2050,7 @@ describe('TasksScreen', () => {
   it('rolls the row back and surfaces a failed completion via the operations toast', async () => {
     toggleTask.mockRejectedValue(new Error('stale index'))
     getOpenTasks.mockResolvedValue([
-      task({ notePath: 'notes/p.md', text: 'project task', noteTitle: 'Project' }),
+      task({ notePath: 'notes/p.md', displayText: 'project task', noteTitle: 'Project' }),
     ])
     const view = await renderScreen()
 
@@ -2056,15 +2068,15 @@ describe('TasksScreen', () => {
       task({
         notePath: 'notes/a.md',
         astPath: [2],
-        firstParagraphMarkdown: 'first',
         text: 'first',
+        displayText: 'first',
         noteTitle: 'A',
       }),
       task({
         notePath: 'notes/b.md',
         astPath: [2],
-        firstParagraphMarkdown: 'second',
         text: 'second',
+        displayText: 'second',
         noteTitle: 'B',
       }),
     ])

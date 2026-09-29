@@ -33,7 +33,7 @@ export interface TaskListSources {
 }
 
 function taskMatchesNeedle(task: OpenTask, needle: string): boolean {
-  return [task.text, task.noteTitle, ...task.breadcrumbs].some((text) =>
+  return [task.displayText, task.noteTitle, ...task.breadcrumbs].some((text) =>
     text.toLowerCase().includes(needle),
   )
 }

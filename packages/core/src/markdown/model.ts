@@ -170,9 +170,9 @@ export interface AssetRef extends Span {
 /** A round task projected from a note body AST. */
 export interface ParsedTask {
   astPath: readonly number[]
-    // FIXME: let's rename "firstParagraphMarkdown" to "text", both in the database and in the codebase. And both in the database and in the codebase, use comments to indicate that this is the first first paragraph markdown fomr the original note (also indicate that whether this field contains "[ ]" or "[x]" or not.)
-  firstParagraphMarkdown: string
-  // FIXME: use comments to indicate what this "breadcrumbs" field is for
+  /** Raw first-paragraph Markdown from the source note, excluding the `[ ]` or `[x]` marker. */
+  text: string
+  /** Ancestor list-item labels, outermost first, used to group tasks and show their note context. */
   breadcrumbs: readonly string[]
   checked: boolean
   dueDate: string | null
@@ -183,7 +183,7 @@ export interface ParsedTask {
  * 3 — tasks limited to round Meowdown `+ [ ]` / `+ [x]` syntax; square checklist
  * checkboxes are excluded.
  * 4 — task rows carry parent outline/list breadcrumbs. */
-export const PARSED_NOTE_VERSION = 6
+export const PARSED_NOTE_VERSION = 7
 
 /** The full parse of one note — the stable contract downstream plans depend on. */
 export interface ParsedNote {
@@ -204,8 +204,6 @@ export interface ParsedNote {
   assets: AssetRef[]
   /** Reflect task items in document order — the Tasks projection (Plan 18). */
   tasks: ParsedTask[]
-  /** Reference definitions from this same source revision. */
-  referenceMarkdown: string // FIXME: Do we have to support referenceMarkdown? did we support referenceMarkdown in the past? if we didn't support referenceMarkdown in the past, let's remove this logic in this PR to make the codebase simpler and easier to maintain.
   /**
    * One-line plain text of the body, for UI slots that render a plain string
    * rather than Markdown (the All Notes row preview, task rows).

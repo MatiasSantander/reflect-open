@@ -55,7 +55,7 @@ export function withEditedTask(
 ): OpenTask[] | undefined {
   return rows?.map((row) =>
     sameTask(row, task)
-      ? { ...row, firstParagraphMarkdown: content, text: inlineMarkdownToDisplayText(content) }
+      ? { ...row, text: content, displayText: inlineMarkdownToDisplayText(content) }
       : row,
   )
 }

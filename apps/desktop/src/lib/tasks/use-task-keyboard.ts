@@ -200,7 +200,7 @@ export function useTaskKeyboard({
         // lands on the previous row so the keyboard flow continues.
         const selected = selectedTasks()
         const sole = selected.length === 1 ? selected[0] : undefined
-        if (sole !== undefined && sole.text.trim() === '') {
+        if (sole !== undefined && sole.displayText.trim() === '') {
           event.preventDefault()
           const previous = previousTaskKey(orderedTasks, sole)
           actions.remove(selected)

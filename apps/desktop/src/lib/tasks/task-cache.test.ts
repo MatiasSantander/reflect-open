@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import { asCompleted, asOpen, withEditedTask, withoutTasks } from './task-cache.ts'
 
-const a = task({ astPath: [1], text: 'a' })
-const b = task({ astPath: [2], text: 'b' })
-const c = task({ astPath: [3], text: 'c' })
+const a = task({ astPath: [1], displayText: 'a' })
+const b = task({ astPath: [2], displayText: 'b' })
+const c = task({ astPath: [3], displayText: 'c' })
 
 describe('withoutTasks', () => {
   it('drops every matching row and keeps the rest', () => {
@@ -47,16 +47,16 @@ describe('withEditedTask', () => {
   it('rewrites the matching row’s display text and Markdown, leaving others', () => {
     expect(withEditedTask([a, b], b, 'edited')).toEqual([
       a,
-      { ...b, firstParagraphMarkdown: 'edited', text: 'edited' },
+      { ...b, text: 'edited', displayText: 'edited' },
     ])
   })
 
   it('stores plain text (markdown stripped) while Markdown keeps the markup', () => {
     const [edited] = withEditedTask([a], a, 'see [[Foo]] now') ?? []
-    expect(edited?.firstParagraphMarkdown).toBe('see [[Foo]] now')
+    expect(edited?.text).toBe('see [[Foo]] now')
     // `text` drives search + the row label, so it must be the plain rendering.
-    expect(edited?.text).not.toContain('[[')
-    expect(edited?.text).toContain('Foo')
+    expect(edited?.displayText).not.toContain('[[')
+    expect(edited?.displayText).toContain('Foo')
   })
 
   it('leaves an undefined list untouched', () => {

@@ -9,7 +9,7 @@ import {
 
 describe('buildIndexedNote', () => {
   it('carries the projection version that rebuilds task AST paths', () => {
-    expect(PROJECTION_VERSION).toBe(22)
+    expect(PROJECTION_VERSION).toBe(23)
   })
 
   it('flattens a parsed note into the index payload', () => {
@@ -279,14 +279,14 @@ describe('buildIndexedNote', () => {
       {
         astPath: [1],
         breadcrumbs: [],
-        firstParagraphMarkdown: 'buy milk',
+        text: 'buy milk',
         checked: false,
         dueDate: null,
       },
       {
         astPath: [5],
         breadcrumbs: [],
-        firstParagraphMarkdown: 'call mum',
+        text: 'call mum',
         checked: true,
         dueDate: null,
       },

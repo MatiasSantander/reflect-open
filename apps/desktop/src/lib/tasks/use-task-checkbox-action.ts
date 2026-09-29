@@ -40,6 +40,8 @@ export function useTaskCheckboxAction(): TaskCheckboxAction {
   const root = graph?.root ?? null
 
   const mutation = useMutation({
+    scope: { id: 'tasks' },
+    onSuccess: (receipts, _variables, context) => cache.apply(receipts, context?.snapshot),
     mutationKey: mutationKeys.tasks.checkboxToggle(graph?.root),
     mutationFn: ({ task, generation }: ToggleTaskInput) => toggleTask(task, generation),
     onMutate: async ({ task }: ToggleTaskInput): Promise<ToggleTaskContext> => {

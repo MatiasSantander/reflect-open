@@ -54,7 +54,7 @@ export function MobileTaskRow({
 }: MobileTaskRowProps): ReactElement {
   const { settings } = useSettings()
   const { toggle, isPending } = useTaskCheckboxToggle(task)
-  const label = task.text || 'Empty task'
+  const label = task.displayText || 'Empty task'
   const edit = (): void => onEdit(task)
   const swipe = useRowSwipe({
     actionWidth: ACTION_WIDTH,
