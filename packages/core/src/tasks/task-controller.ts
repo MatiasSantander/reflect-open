@@ -268,6 +268,16 @@ export function createTaskController(io: TaskControllerIO) {
       const commands = state.commands.slice()
       try {
         const actual = await io.read(path)
+        if (
+          state.attempt &&
+          actual !== state.attempt.before &&
+          actual !== state.attempt.source &&
+          state.attempt.commands.some((command) => command.row.revision === undefined)
+        ) {
+          throw new Error(
+            'The note changed during an uncertain save. Your draft is kept without adding a duplicate.',
+          )
+        }
         const disk =
           state.attempt && actual === state.attempt.source ? state.attempt.before : actual
         const revision = await hashContent(disk ?? '')
@@ -279,9 +289,7 @@ export function createTaskController(io: TaskControllerIO) {
         state.rows = rows
         let source = disk ?? ''
         for (const command of commands) {
-          let row =
-            rows.find((candidate) => taskListKey(candidate) === command.id) ??
-            (command.row.revision === revision ? command.row : undefined)
+          let row = rows.find((candidate) => taskListKey(candidate) === command.id)
           const isNew = state.placeholders.has(command.id) && command.row.revision === undefined
           if (!row && !isNew) throw new Error('This task changed elsewhere. Your text is kept.')
           if (!row && command.edit.remove) continue

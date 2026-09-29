@@ -12,12 +12,22 @@ import { toast } from '@/components/ui/toast.tsx'
 import { readTaskJournal, writeTaskJournal } from './task-journal.ts'
 
 const controllers = new Map<string, ReturnType<typeof createTaskController>>()
+const retirements = new Map<string, () => Promise<void>>()
+
+/** Release graph-scoped writers after edit finalizers have submitted their drafts. */
+export async function retireTaskControllers(): Promise<void> {
+  await Promise.all([...retirements.values()].map((retire) => retire()))
+}
 
 /** One task writer per graph lifetime, shared by every task surface. */
 export function taskController(root: string, generation: number) {
   const key = JSON.stringify([root, generation])
   const existing = controllers.get(key)
   if (existing) return existing
+  let active = true
+  const assertActive = () => {
+    if (!active) throw new Error('This graph session has closed.')
+  }
   const failures = new Set<string>()
   const journals = new Map<string, Promise<void>>()
   function checkpoint(path: string, commands: readonly TaskCommand[], attempt: TaskAttempt | null) {
@@ -27,6 +37,7 @@ export function taskController(root: string, generation: number) {
       .catch(() => {})
       .then(async () => {
         await ready
+        if (!active) return
         await writeTaskJournal(root, path, snapshot.commands, snapshot.attempt)
       })
     journals.set(path, next)
@@ -36,6 +47,7 @@ export function taskController(root: string, generation: number) {
     ready: () => ready,
     async read(path) {
       await ready
+      assertActive()
       const session = openSession(path, generation)
       if (session) {
         const source = session.liveContent()
@@ -50,6 +62,7 @@ export function taskController(root: string, generation: number) {
       }
     },
     async write(path, before, source) {
+      assertActive()
       const session = openSession(path, generation)
       if (session) {
         let savedSource = source
@@ -68,7 +81,7 @@ export function taskController(root: string, generation: number) {
     },
     checkpoint,
     failure(path, _error, retry) {
-      if (failures.has(path)) return
+      if (!active || failures.has(path)) return
       failures.add(path)
       toast.add({
         id: `task-save:${key}:${path}`,
@@ -89,7 +102,16 @@ export function taskController(root: string, generation: number) {
     },
   })
   controllers.set(key, controller)
-  registerPendingWriter(controller.flush)
+  const unregister = registerPendingWriter(controller.flush)
+  retirements.set(key, async () => {
+    await controller.flush()
+    await Promise.allSettled(journals.values())
+    active = false
+    unregister()
+    controllers.delete(key)
+    retirements.delete(key)
+    for (const path of failures) toast.close(`task-save:${key}:${path}`)
+  })
   const ready = readTaskJournal(root)
     .then((entries) => {
       for (const entry of entries) controller.restore(entry.path, entry.commands, entry.attempt)

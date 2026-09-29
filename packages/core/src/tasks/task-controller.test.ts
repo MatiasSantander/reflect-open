@@ -252,3 +252,17 @@ it('reconciles an external reopen and drops the recent-completion shadow', async
   expect(h.controller.projectRecent(recent)).toEqual([])
   expect(h.controller.project([], false)).toHaveLength(1)
 })
+
+it('does not recreate an uncertain create after another writer changes its output', async () => {
+  const h = harness()
+  const row = h.controller.begin(target)
+  h.controller.restore(target.notePath, [{ id: row.taskId!, row, edit: { text: 'once' } }], {
+    before: null,
+    source: '+ [ ] once\n',
+    commands: [{ id: row.taskId!, row, edit: { text: 'once' } }],
+  })
+  h.io.read.mockResolvedValue('+ [ ] once\n\nexternal prose\n')
+  await h.controller.flush()
+  expect(h.io.write).not.toHaveBeenCalled()
+  expect(h.io.failure).toHaveBeenCalledOnce()
+})
