@@ -53,6 +53,7 @@ export function createTaskControllerStub(io: TaskControllerStubIO): TaskControll
     const key = taskListKey(row)
     const text = (drafts.get(key) ?? current(row).text).trim()
     drafts.delete(key)
+    if (rows.get(key) === null) return null
     if (text === '') {
       enqueue(row, { remove: true })
       return null
@@ -88,6 +89,7 @@ export function createTaskControllerStub(io: TaskControllerStubIO): TaskControll
       const key = taskListKey(row)
       if (edit.remove) drafts.delete(key)
       else if (drafts.has(key) && commitDraft(row) === null) return
+      if (rows.get(key) === null) return
       if (edit.dueDate !== undefined) {
         const text = current(row).text
         edit = {

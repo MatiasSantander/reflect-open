@@ -3,7 +3,7 @@ import { cleanup, render } from 'vitest-browser-react'
 import { userEvent, type Locator } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TaskListItem } from '@reflect/core'
-import { act, useEffect, useState, type MutableRefObject, type ReactNode } from 'react'
+import { act, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { queryKeys } from '@/lib/query-client.ts'
 import { makeOpenTask as task } from '@/lib/tasks/open-task-fixture.ts'
 import { resetRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
@@ -11,6 +11,7 @@ import { RouterProvider, useRouter } from '@/routing/router.tsx'
 import { fireEvent } from '@/test-utils/fire-event.ts'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import '@/test-utils/locator.ts'
+import type { TaskEditHandlers } from './task-editor.tsx'
 import { TasksScreen } from './tasks-screen.tsx'
 
 const getOpenTasks = vi.hoisted(() => vi.fn())
@@ -83,112 +84,116 @@ vi.mock('@/lib/tasks/task-controller.ts', async () => {
   }
 })
 
-// Stub the real inline editor with the callback surface the row
-// wires up, so selection + edit/delete/cancel routing is testable here; the
-// editor's own commit/cancel decision is unit-tested via resolveTaskEdit.
-vi.mock('./task-editor', () => ({
-  TaskEditor: ({
-    task,
-    onCommit,
-    onContinue,
-    onDelete,
-    onDeleteEmpty,
-    onCancel,
-    onComplete,
-    onCheckboxToggle,
-    onConvertToBullet,
-    onFlush,
-    onNavigate,
-    checkboxToggleControllerRef,
-    convertControllerRef,
-  }: {
-    task: { displayText: string }
-    onCommit: (content: string) => void
-    onContinue: (content: string | null) => void
-    onDelete: () => void
-    onDeleteEmpty: () => void
-    onCancel: () => void
-    onComplete: (content: string | null) => void
-    onCheckboxToggle: (content: string | null) => void
-    onConvertToBullet: (content: string | null) => void
-    onFlush: (content: string) => void
-    onNavigate: (direction: -1 | 1, options: { span: boolean }) => void
-    checkboxToggleControllerRef?: MutableRefObject<(() => void) | null>
-    convertControllerRef?: MutableRefObject<(() => void) | null>
-  }) => {
-    const [checkboxDraft, setCheckboxDraft] = useState<string | null>(null)
-    useEffect(() => {
-      if (checkboxToggleControllerRef === undefined) {
-        return
-      }
-      checkboxToggleControllerRef.current = () => onCheckboxToggle(checkboxDraft)
-      return () => {
-        checkboxToggleControllerRef.current = null
-      }
-    }, [checkboxDraft, checkboxToggleControllerRef, onCheckboxToggle])
-    // Mirror the real editor: expose a flush-then-convert trigger (simulating a
-    // changed draft) so the toolbar button routes the sole row through it.
-    useEffect(() => {
-      if (convertControllerRef === undefined) {
-        return
-      }
-      convertControllerRef.current = () => onConvertToBullet('edited content')
-      return () => {
-        convertControllerRef.current = null
-      }
-    })
-    return (
-      <div data-task-editor data-testid="task-editor">
-        <span>editing: {task.displayText}</span>
-        <button type="button" onClick={() => onCommit('edited content')}>
-          commit-edit
-        </button>
-        <button type="button" onClick={() => onContinue('edited content')}>
-          continue-edit
-        </button>
-        <button type="button" onClick={() => onContinue(null)}>
-          continue-unchanged
-        </button>
-        <button type="button" onClick={() => onContinue('')}>
-          continue-empty
-        </button>
-        <button type="button" onClick={() => onDelete()}>
-          delete-edit
-        </button>
-        <button type="button" onClick={() => onDeleteEmpty()}>
-          delete-empty-edit
-        </button>
-        <button type="button" onClick={() => onCancel()}>
-          cancel-edit
-        </button>
-        <button type="button" onClick={() => onComplete('edited content')}>
-          complete-edited
-        </button>
-        <button type="button" onClick={() => onComplete(null)}>
-          complete-unchanged
-        </button>
-        <button type="button" onClick={() => setCheckboxDraft('edited content')}>
-          stage-checkbox-edit
-        </button>
-        <button type="button" onClick={() => onConvertToBullet('edited content')}>
-          convert-edited
-        </button>
-        <button type="button" onClick={() => onConvertToBullet(null)}>
-          convert-unchanged
-        </button>
-        <button type="button" onClick={() => onFlush('edited content')}>
-          flush-edit
-        </button>
-        <button type="button" onClick={() => onNavigate(1, { span: false })}>
-          nav-down
-        </button>
-        <button type="button" onClick={() => onNavigate(-1, { span: false })}>
-          nav-up
-        </button>
-      </div>
-    )
-  },
-}))
+// Stub the real inline editor with the callback surface the row wires up, so
+// selection + edit/delete/cancel routing is testable here. Typing is simulated
+// by drafting into the (stubbed) task controller, exactly as the real editor
+// does, so the controller's draft folding is exercised, not bypassed.
+vi.mock('./task-editor', async () => {
+  const { useTaskActions } = await import('@/lib/tasks/use-task-actions.ts')
+  return {
+    TaskEditor: ({
+      task,
+      onContinue,
+      onCancel,
+      onComplete,
+      onConvertToBullet,
+      onDelete,
+      onDeleteEmpty,
+      onNavigate,
+    }: TaskEditHandlers & { task: TaskListItem }) => {
+      const actions = useTaskActions()
+      const latest = useRef({ task, actions })
+      useLayoutEffect(() => {
+        latest.current = { task, actions }
+      })
+      // Like the real editor, save the draft when the row leaves edit mode.
+      useEffect(
+        () => () => {
+          latest.current.actions.commitDraft(latest.current.task)
+        },
+        [],
+      )
+      const draft = (text: string) => actions.draft(task, text)
+      return (
+        <div data-task-editor data-testid="task-editor">
+          <span>editing: {task.displayText}</span>
+          <button type="button" onClick={() => draft('edited content')}>
+            stage-edit
+          </button>
+          <button type="button" onClick={() => draft('')}>
+            stage-empty
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              draft('edited content')
+              onContinue()
+            }}
+          >
+            continue-edit
+          </button>
+          <button type="button" onClick={() => onContinue()}>
+            continue-unchanged
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              draft('')
+              onContinue()
+            }}
+          >
+            continue-empty
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              actions.discardDraft(task)
+              onCancel()
+            }}
+          >
+            cancel-edit
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              draft('edited content')
+              onComplete()
+            }}
+          >
+            complete-edited
+          </button>
+          <button type="button" onClick={() => onComplete()}>
+            complete-unchanged
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              draft('edited content')
+              onConvertToBullet()
+            }}
+          >
+            convert-edited
+          </button>
+          <button type="button" onClick={() => onConvertToBullet()}>
+            convert-unchanged
+          </button>
+          <button type="button" onClick={() => onDelete()}>
+            delete-edit
+          </button>
+          <button type="button" onClick={() => onDeleteEmpty()}>
+            delete-empty-edit
+          </button>
+          <button type="button" onClick={() => onNavigate(1, { span: false })}>
+            nav-down
+          </button>
+          <button type="button" onClick={() => onNavigate(-1, { span: false })}>
+            nav-up
+          </button>
+        </div>
+      )
+    },
+  }
+})
 
 const fail = vi.hoisted(() => vi.fn())
 const startOperation = vi.hoisted(() => vi.fn(() => ({ fail })))
@@ -607,7 +612,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('commits, deletes, or cancels an inline edit through the editor', async () => {
+  it('saves, discards, or deletes an inline edit through the editor', async () => {
     toggleTask.mockResolvedValue([])
     editTask.mockResolvedValue([])
     deleteTask.mockResolvedValue([])
@@ -619,12 +624,20 @@ describe('TasksScreen', () => {
         displayText: 'first',
         noteTitle: 'P',
       }),
+      task({
+        notePath: 'notes/p.md',
+        astPath: [3],
+        text: 'second',
+        displayText: 'second',
+        noteTitle: 'P',
+      }),
     ])
     const view = await renderScreen()
 
-    // Commit → editTask with the new content, and edit mode exits.
+    // Type, then select another row → the draft is saved as the editor unmounts.
     await userEvent.click(await view.findByRole('button', { name: 'first' }))
-    await userEvent.click(view.getByText('commit-edit'))
+    await userEvent.click(view.getByText('stage-edit'))
+    await userEvent.click(view.getByRole('button', { name: 'second' }))
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
         expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
@@ -632,21 +645,32 @@ describe('TasksScreen', () => {
         1,
       ),
     )
-    await waitFor(() => expect(view.queryByTestId('task-editor')).toBeNull())
+    expect(view.getByTestId('task-editor').element().textContent).toContain('second')
 
-    // Re-select and cancel → no further write, edit mode exits.
+    // Re-select, clear the text, and cancel → the draft is dropped: no write, no
+    // delete, edit mode exits, and the row keeps its saved text.
     await userEvent.click(view.getByRole('button', { name: 'edited content' }))
+    await userEvent.click(view.getByText('stage-empty'))
     await userEvent.click(view.getByText('cancel-edit'))
     expect(view.queryByTestId('task-editor')).toBeNull()
+    expect(editTask).toHaveBeenCalledTimes(1)
+    expect(deleteTask).not.toHaveBeenCalled()
+    expect(view.getByRole('button', { name: 'edited content' })).toBeDefined()
 
     // Re-select and delete → deleteTask, row gone.
     await userEvent.click(view.getByRole('button', { name: 'edited content' }))
     await userEvent.click(view.getByText('delete-edit'))
-    await waitFor(() => expect(deleteTask).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(deleteTask).toHaveBeenCalledWith(
+        expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
+        1,
+      ),
+    )
+    await waitFor(() => expect(view.queryByText('edited content')).toBeNull())
     await view.unmount()
   })
 
-  it('flush persists an edit without exiting edit mode (selection unchanged)', async () => {
+  it('saves the draft when ↓ moves the editor to the next row', async () => {
     editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
@@ -656,11 +680,21 @@ describe('TasksScreen', () => {
         displayText: 'first',
         noteTitle: 'P',
       }),
+      task({
+        notePath: 'notes/p.md',
+        astPath: [3],
+        text: 'second',
+        displayText: 'second',
+        noteTitle: 'P',
+      }),
     ])
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'first' }))
-    await userEvent.click(view.getByText('flush-edit'))
+    await userEvent.click(view.getByText('stage-edit'))
+    // Typing alone writes nothing; the row is saved when its editor unmounts.
+    expect(editTask).not.toHaveBeenCalled()
+    await userEvent.click(view.getByText('nav-down'))
     await waitFor(() =>
       expect(editTask).toHaveBeenCalledWith(
         expect.objectContaining({ notePath: 'notes/p.md', astPath: [2] }),
@@ -668,8 +702,8 @@ describe('TasksScreen', () => {
         1,
       ),
     )
-    // The selection (and so the inline editor) is left intact — flush never clears.
-    expect(view.getByTestId('task-editor')).toBeDefined()
+    await view.findByText('editing: second')
+    expect(view.getByRole('button', { name: 'edited content' })).toBeDefined()
     await view.unmount()
   })
 
@@ -942,9 +976,9 @@ describe('TasksScreen', () => {
     await userEvent.keyboard('{Enter}')
     await view.findByTestId('task-editor')
     // An empty Return-to-add row, left untouched, is removed rather than left as a
-    // blank `+ [ ] ` line — the real editor routes that empty exit to delete (see
-    // the finalizer unit test); here we check the optimistic row's identity flows
-    // through, deleting the freshly written daily-note line, not some other row.
+    // blank `+ [ ] ` line (the controller's `commitDraft` removes an empty task);
+    // here we check the optimistic row's identity flows through, deleting the
+    // freshly written daily-note line, not some other row.
     await userEvent.click(view.getByRole('button', { name: 'delete-edit' }))
     await waitFor(() =>
       expect(deleteTask).toHaveBeenCalledWith(
@@ -1068,9 +1102,9 @@ describe('TasksScreen', () => {
     await userEvent.click(view.getByRole('button', { name: 'continue-edit' }))
 
     await waitFor(() => expect(fail).toHaveBeenCalledWith('This note is open.'))
+    // The failed intent stays visible on the row, and the next placeholder's editor opens.
     await view.findByText('edited content')
     await view.findByTestId('task-editor')
-    expect(view.container.querySelector('textarea[aria-label="Unsaved task draft"]')).toBeNull()
     await view.unmount()
   })
 
@@ -1293,10 +1327,10 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('converts a sole-edited row through its editor — saving the draft before converting', async () => {
-    // The toolbar button on the sole (edited) row routes through the editor so the
-    // unsaved draft is saved first, then the marker is stripped — the data-loss race
-    // Bugbot flagged (convert landing before the editor's commit) can't happen.
+  it('converts a sole-edited row from the toolbar, saving the draft before converting', async () => {
+    // The controller folds the row's open draft into the convert, so the typed
+    // text is saved first, then the marker is stripped: the data-loss race Bugbot
+    // flagged (convert landing before the editor's commit) can't happen.
     editTask.mockResolvedValue([])
     getOpenTasks.mockResolvedValue([
       task({
@@ -1310,6 +1344,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'plan' })) // sole → editor mounts
+    await userEvent.click(view.getByRole('button', { name: 'stage-edit' }))
     await userEvent.click(view.getByRole('button', { name: /Convert to bullet 1/ }))
 
     // Edit first (persist the draft), then convert the rewritten line.
@@ -1653,7 +1688,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'project task' }))
-    await userEvent.click(view.getByRole('button', { name: 'stage-checkbox-edit' }))
+    await userEvent.click(view.getByRole('button', { name: 'stage-edit' }))
     await userEvent.click(view.getByRole('button', { name: 'Complete: project task' }))
 
     await waitFor(() =>
@@ -1676,10 +1711,13 @@ describe('TasksScreen', () => {
         1,
       ),
     )
+    // The checkbox flipped, the row shows the typed text, and the editor stays open.
+    await view.findByRole('button', { name: 'Reopen: edited content' })
+    expect(view.getByTestId('task-editor')).toBeDefined()
     await view.unmount()
   })
 
-  it('accepts another checkbox intent while an edit-and-toggle write is pending', async () => {
+  it('accepts another checkbox intent while an edit write is pending', async () => {
     let resolveEdit = (): void => {
       throw new Error('edit promise was not created')
     }
@@ -1702,17 +1740,19 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'project task' }))
-    await userEvent.click(view.getByRole('button', { name: 'stage-checkbox-edit' }))
+    await userEvent.click(view.getByRole('button', { name: 'stage-edit' }))
     await userEvent.click(view.getByRole('button', { name: 'Complete: project task' }))
 
     await waitFor(() => expect(editTask).toHaveBeenCalledTimes(1))
-    const reopen = await view.findByRole('button', { name: 'Reopen: edited content' })
-    await waitFor(() => expect((reopen as HTMLButtonElement).disabled).toBe(false))
-    fireEvent.click(reopen)
     await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(1))
+    // The edit is still in flight; a second checkbox click is not blocked by it.
+    const reopen = await view.findByRole('button', { name: 'Reopen: edited content' })
+    fireEvent.click(reopen)
+    await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
+    await view.findByRole('button', { name: 'Complete: edited content' })
 
     resolveEdit()
-    await waitFor(() => expect(toggleTask).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(editTask).toHaveBeenCalledTimes(1))
     await view.unmount()
   })
 
@@ -1804,7 +1844,6 @@ describe('TasksScreen', () => {
 
     await userEvent.click(await view.findByRole('button', { name: 'Reopen: project task' }))
     const complete = await view.findByRole('button', { name: 'Complete: project task' })
-    await waitFor(() => expect((complete as HTMLButtonElement).disabled).toBe(false))
     expect(complete.querySelector('.lucide-circle-check')).toBeNull()
     expect(complete.querySelector('.lucide-circle')).not.toBeNull()
 
@@ -1890,7 +1929,7 @@ describe('TasksScreen', () => {
     const view = await renderScreen()
 
     await userEvent.click(await view.findByRole('button', { name: 'project task' }))
-    await userEvent.click(view.getByRole('button', { name: 'stage-checkbox-edit' }))
+    await userEvent.click(view.getByRole('button', { name: 'stage-edit' }))
     await userEvent.click(view.getByRole('button', { name: 'Reopen: project task' }))
 
     await waitFor(() =>
@@ -1935,12 +1974,12 @@ describe('TasksScreen', () => {
     getOpenTasks.mockResolvedValue([])
 
     await userEvent.click(view.getByRole('button', { name: 'project task' }))
-    await userEvent.click(view.getByRole('button', { name: 'stage-checkbox-edit' }))
+    await userEvent.click(view.getByRole('button', { name: 'stage-edit' }))
     await userEvent.click(view.getByRole('button', { name: 'Reopen: project task' }))
 
     await waitFor(() => expect(fail).toHaveBeenCalledWith('disk full'))
+    // The failed edit stays as a pending intent on the row itself.
     await view.findByRole('button', { name: 'Complete: edited content' })
-    expect(view.container.querySelector('textarea[aria-label="Unsaved task draft"]')).toBeNull()
     await view.unmount()
   })
 
