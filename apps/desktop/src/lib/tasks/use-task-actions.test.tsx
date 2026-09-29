@@ -36,7 +36,6 @@ beforeEach(() => {
 it('creates an editable task immediately without a write', async () => {
   const { result } = await renderHook(() => useTaskActions())
   const row = result.current.insert(target)
-  expect(row?.astPath).toBeUndefined()
   expect(io.write).not.toHaveBeenCalled()
   act(() => result.current.remove([row!]))
   await store.flush()
@@ -57,7 +56,6 @@ it('continues typing while the previous task is saving and leaves the last empty
   await vi.waitFor(() => expect(io.write).toHaveBeenCalledOnce())
   result.current.draft(second, 'second')
   const third = result.current.insertAfter(second, target)!
-  expect(third.astPath).toBeUndefined()
   gate.resolve()
   await store.flush()
   expect(io.failure).not.toHaveBeenCalled()

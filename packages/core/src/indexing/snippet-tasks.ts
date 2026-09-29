@@ -1,4 +1,5 @@
 import { parseMarkdownAst, walkMarkdownAst } from '@meowdown/markdown'
+import { getTaskParagraph } from '../markdown/task-projection.ts'
 import { parseBody } from '../markdown/grammar.ts'
 import { splitFrontmatter } from '../markdown/frontmatter.ts'
 import type { TaskAddress } from '../markdown/task-path.ts'
@@ -19,7 +20,7 @@ export interface SnippetTaskSource {
 
 /** Enumerate snippet checkboxes and map their source positions to AST addresses. */
 export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource): SnippetTask[] {
-  const addresses = new Map<number, TaskAddress>()
+  const addresses = new Map<number, TaskAddress & { text: string }>()
   if (source) {
     const { body, bodyOffset } = splitFrontmatter(source.content)
     // Both traversals recognize checkboxes only on bullet list items, and in
@@ -38,6 +39,7 @@ export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource)
           addresses.set(from + bodyOffset, {
             notePath: source.notePath,
             astPath: entry.path,
+            text: getTaskParagraph(entry.node)?.value ?? '',
           })
       },
     })
@@ -55,8 +57,9 @@ export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource)
       tasks.push({
         checked: /^\[x\]/i.test(line),
         round: /^[\t ]*\+[\t ]+$/.test(snippet.slice(lineStart, from)),
-        text: line.slice(line[3] === ' ' ? 4 : 3),
-        ...(address ? { address } : {}),
+        // The whole paragraph when the source is known, so an edit can locate it.
+        text: address?.text ?? line.slice(line[3] === ' ' ? 4 : 3),
+        ...(address ? { address: { notePath: address.notePath, astPath: address.astPath } } : {}),
       })
     },
   })

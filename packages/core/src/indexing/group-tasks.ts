@@ -120,10 +120,7 @@ function compareDated(left: Task, right: Task): number {
   if (left.notePath !== right.notePath) {
     return left.notePath < right.notePath ? -1 : 1
   }
-  return compareTaskPaths(
-    left.sortPath ?? left.astPath ?? [Number.MAX_SAFE_INTEGER],
-    right.sortPath ?? right.astPath ?? [Number.MAX_SAFE_INTEGER],
-  )
+  return compareTaskPaths(left.astPath, right.astPath)
 }
 
 /**
@@ -238,12 +235,7 @@ export function groupTasks(tasks: readonly Task[], today: string): TaskGroup[] {
       // A `byNote` entry only exists once a task has been pushed into it.
       label: displayNoteTitle(noteTasks[0]!.noteTitle),
       notePath: noteTasks[0]!.notePath,
-      tasks: noteTasks.sort((left, right) =>
-        compareTaskPaths(
-          left.sortPath ?? left.astPath ?? [Number.MAX_SAFE_INTEGER],
-          right.sortPath ?? right.astPath ?? [Number.MAX_SAFE_INTEGER],
-        ),
-      ),
+      tasks: noteTasks.sort((left, right) => compareTaskPaths(left.astPath, right.astPath)),
     }))
     .sort(compareNoteGroups)
 

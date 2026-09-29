@@ -241,4 +241,4 @@ export {
   type TaskAddress,
 } from '../markdown/index.ts'
 
-export { editTaskDocument, type TaskEdit } from '../markdown/task-mutation.ts'
+export { editTaskDocument, type TaskOp } from '../markdown/task-mutation.ts'

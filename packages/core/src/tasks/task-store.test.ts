@@ -52,7 +52,6 @@ describe('task store', () => {
   it('never reads or writes a note for an abandoned empty task', async () => {
     const h = harness()
     const row = h.store.create(target)
-    expect(row.astPath).toBeUndefined()
     expect(h.list()).toHaveLength(1)
     h.store.draft(row, '   ')
     expect(h.store.commitDraft(row)).toBeNull()
