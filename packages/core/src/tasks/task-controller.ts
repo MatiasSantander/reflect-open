@@ -52,7 +52,10 @@ export interface TaskControllerIO {
 }
 
 /** A task's location and note metadata, without the fields a placeholder starts empty. */
-export type NewTaskTarget = Omit<TaskListItem, 'text' | 'displayText' | 'checked' | 'dueDate' | 'updatedAt'>
+export type NewTaskTarget = Omit<
+  TaskListItem,
+  'text' | 'displayText' | 'checked' | 'dueDate' | 'updatedAt'
+>
 
 /** Everything the controller tracks for one note. */
 interface NoteState {
@@ -100,7 +103,11 @@ function changedRow(row: TaskListItem, edit: TaskChange): TaskListItem {
     displayText: inlineMarkdownToDisplayText(text),
     checked: edit.checked ?? row.checked,
     dueDate:
-      edit.dueDate !== undefined ? edit.dueDate : edit.text === undefined ? row.dueDate : taskDueDate(text),
+      edit.dueDate !== undefined
+        ? edit.dueDate
+        : edit.text === undefined
+          ? row.dueDate
+          : taskDueDate(text),
   }
 }
 
@@ -273,7 +280,10 @@ export class TaskController {
       const text = this.current(row).text
       if (text.trim() !== '') {
         const { dueDate, ...rest } = edit
-        edit = { ...rest, text: dueDate === null ? clearTaskDueDate(text) : setTaskDueDate(text, dueDate) }
+        edit = {
+          ...rest,
+          text: dueDate === null ? clearTaskDueDate(text) : setTaskDueDate(text, dueDate),
+        }
       }
     }
     this.enqueue(state, row, edit)
@@ -496,7 +506,11 @@ export class TaskController {
   }
 
   /** Write, treating a failure whose result is already on disk as success. */
-  private async write(path: string, before: string | null, source: string): Promise<string | undefined> {
+  private async write(
+    path: string,
+    before: string | null,
+    source: string,
+  ): Promise<string | undefined> {
     try {
       return (await this.io.write(path, before, source)) ?? undefined
     } catch (error) {
@@ -571,7 +585,9 @@ export class TaskController {
     commands: readonly TaskCommand[],
   ): TaskListItem[] {
     const document = parseMarkdownAst(splitFrontmatter(source).body)
-    const inView = new Set(projectTaskDocument(document).map((task) => encodeTaskPath(task.astPath)))
+    const inView = new Set(
+      projectTaskDocument(document).map((task) => encodeTaskPath(task.astPath)),
+    )
     const context = commands[0]?.row ?? state.rows?.[0] ?? state.context
     if (!context) return []
     const base = { ...context }

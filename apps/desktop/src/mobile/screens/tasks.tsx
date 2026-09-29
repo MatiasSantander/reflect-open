@@ -115,7 +115,10 @@ export function MobileTasks(): ReactElement {
     return groups.flatMap((group) => group.tasks).find((row) => taskKey(row) === key) ?? editingTask
   }, [groups, editingTask])
 
-  const editTask = (task: TaskListItem, options?: { autoFocus?: boolean; haptic?: boolean }): void => {
+  const editTask = (
+    task: TaskListItem,
+    options?: { autoFocus?: boolean; haptic?: boolean },
+  ): void => {
     if (options?.haptic !== false) {
       hapticImpactLight()
     }

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type ReactElement } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactElement } from 'react'
 import { Circle, CircleCheck } from 'lucide-react'
 import { displayNoteTitle, type TaskListItem } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
