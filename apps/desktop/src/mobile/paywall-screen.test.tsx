@@ -2,14 +2,32 @@ import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IAP_PRODUCT_IDS, setBridge, type IapProduct, type IpcBridge } from '@reflect/core'
+import {
+  CLASSIC_ACCESS_SECRET,
+  IAP_PRODUCT_IDS,
+  setBridge,
+  type signInWithClassic,
+  type ClassicSignInResult,
+  type IapProduct,
+  type IpcBridge,
+} from '@reflect/core'
 import { mutationKeys, mutationScopeIds } from '@/lib/query-client.ts'
 import { deferred } from '@/test-utils/deferred.ts'
 import { PaywallScreen } from './paywall-screen.tsx'
 
+type SignInOptions = Parameters<typeof signInWithClassic>[0]
+
 const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   refetch: vi.fn(),
+  signInWithClassic: vi.fn<(options: SignInOptions) => Promise<ClassicSignInResult>>(),
+}))
+
+vi.mock('@/providers/graph-provider.tsx', () => ({ useGraph: () => ({ platform: 'ios' }) }))
+
+vi.mock('@reflect/core', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@reflect/core')>()),
+  signInWithClassic: mocks.signInWithClassic,
 }))
 
 vi.mock('@/mobile/use-active-subscription.ts', () => ({
@@ -36,6 +54,8 @@ let getProducts: () => Promise<{ products: IapProduct[] }>
 let purchase: () => Promise<null>
 let sync: () => Promise<null>
 let redeem: () => Promise<null>
+let classicRecord: string | null
+let webAuthCallback: string | null
 let invoke = vi.fn<IpcBridge['invoke']>()
 let queryClient: QueryClient
 
@@ -48,6 +68,8 @@ beforeEach(() => {
   purchase = async () => null
   sync = async () => null
   redeem = async () => null
+  classicRecord = null
+  webAuthCallback = null
   queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
   })
@@ -61,6 +83,10 @@ beforeEach(() => {
         return await sync()
       case 'plugin:app-store|present_offer_code_redeem_sheet':
         return await redeem()
+      case 'secret_get':
+        return classicRecord
+      case 'plugin:web-auth|start':
+        return { url: webAuthCallback }
       default:
         return null
     }
@@ -69,6 +95,8 @@ beforeEach(() => {
   mocks.invalidate.mockReset()
   mocks.refetch.mockReset()
   mocks.refetch.mockResolvedValue(null)
+  mocks.signInWithClassic.mockReset()
+  mocks.signInWithClassic.mockResolvedValue({ kind: 'cancelled' })
 })
 
 afterEach(async () => {
@@ -277,5 +305,153 @@ describe('PaywallScreen restore mutation', () => {
 
     pendingSync.resolve(null)
     await vi.waitFor(() => expect(queryClient.isMutating()).toBe(0))
+  })
+})
+
+describe('PaywallScreen Reflect Classic verification', () => {
+  const CLAIM = /Already a Reflect member/
+  const SIGN_IN = /Sign in here/
+
+  function signedIn(email: string | null): Extract<ClassicSignInResult, { kind: 'signed-in' }> {
+    return {
+      kind: 'signed-in',
+      access: { token: 'token', email, expiresAt: Date.UTC(2027, 8, 29), checkedAt: Date.now() },
+    }
+  }
+
+  /** Mirrors signInWithClassic: the sign-in sheet closes, then the subscription is read. */
+  function afterSheet(result: () => Promise<ClassicSignInResult>) {
+    return async (options: SignInOptions): Promise<ClassicSignInResult> => {
+      const callback = await options.startWebAuth({
+        url: 'https://reflect.app/oauth',
+        callbackScheme: 'reflect',
+        ephemeral: options.ephemeral,
+      })
+      if (callback === null) return { kind: 'cancelled' }
+      return await result()
+    }
+  }
+
+  beforeEach(() => {
+    webAuthCallback = 'reflect://oauth/callback?code=code'
+  })
+
+  function progressScreen(): Element | null {
+    return document.querySelector('[aria-labelledby="classic-sign-in-title"]')
+  }
+
+  async function openSignIn() {
+    const view = await render(<PaywallScreen />, { wrapper })
+    await view.getByRole('button', { name: CLAIM }).click()
+    await view.getByRole('button', { name: SIGN_IN }).click()
+    return view
+  }
+
+  it('offers signing in here or a web offer code from the claim link', async () => {
+    const view = await render(<PaywallScreen />, { wrapper })
+
+    await view.getByRole('button', { name: CLAIM }).click()
+
+    await expect.element(view.getByRole('button', { name: SIGN_IN })).toBeVisible()
+    await expect
+      .element(view.getByRole('button', { name: /Get an offer code on the web/ }))
+      .toBeVisible()
+    await expect.element(view.getByText(/Nothing is synced with Reflect Classic/)).toBeVisible()
+    expect(mocks.signInWithClassic).not.toHaveBeenCalled()
+  })
+
+  it('signs in through the shared browser session and stays quiet when cancelled', async () => {
+    webAuthCallback = null
+    mocks.signInWithClassic.mockImplementation(afterSheet(async () => signedIn(null)))
+    let progressShown = false
+    const observer = new MutationObserver(() => {
+      progressShown ||= progressScreen() !== null
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    await openSignIn()
+
+    await vi.waitFor(() => expect(queryClient.isMutating()).toBe(0))
+    observer.disconnect()
+    expect(progressShown).toBe(false)
+    expect(mocks.signInWithClassic).toHaveBeenCalledWith(
+      expect.objectContaining({ ephemeral: false }),
+    )
+    const signIn = queryClient
+      .getMutationCache()
+      .find({ exact: true, mutationKey: mutationKeys.classic.signIn })
+    expect(signIn?.options.scope?.id).toBe(mutationScopeIds.iapAction)
+    expect(progressScreen()).toBeNull()
+  })
+
+  it('shows each step after the sheet closes, then the unlocked date', async () => {
+    const check = deferred<ClassicSignInResult>()
+    mocks.signInWithClassic.mockImplementation(afterSheet(() => check.promise))
+    const view = await openSignIn()
+
+    await expect.element(view.getByText('Unlocking Reflect')).toBeVisible()
+    await expect.element(view.getByText('Signed in to Reflect Classic')).toBeVisible()
+    await expect.element(view.getByText('Checking your subscription…')).toBeVisible()
+    await expect.element(view.getByText('Working out your access')).toBeVisible()
+
+    classicRecord = JSON.stringify(signedIn('a@example.com').access)
+    check.resolve(signedIn('a@example.com'))
+
+    await expect.element(view.getByText('Reflect Pro is unlocked')).toBeVisible()
+    await expect.element(view.getByText('Signed in as a@example.com')).toBeVisible()
+    await expect.element(view.getByText(/^Free until /)).toBeVisible()
+    await view.getByRole('button', { name: 'Start writing' }).click()
+    await vi.waitFor(() => expect(progressScreen()).toBeNull())
+    expect(invoke).toHaveBeenCalledWith('secret_get', { name: CLASSIC_ACCESS_SECRET })
+  })
+
+  it('offers a different account in a private session when not eligible', async () => {
+    mocks.signInWithClassic.mockImplementation(
+      afterSheet(async () => ({ kind: 'not-eligible', email: 'a@example.com' })),
+    )
+    const view = await openSignIn()
+
+    await expect.element(view.getByText("Couldn't unlock Reflect")).toBeVisible()
+    await expect.element(view.getByText('Signed in as a@example.com')).toBeVisible()
+    await expect
+      .element(view.getByText('No paid Reflect Classic subscription on this account'))
+      .toBeVisible()
+    await view.getByRole('button', { name: 'Use a different account' }).click()
+    await vi.waitFor(() =>
+      expect(mocks.signInWithClassic).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ephemeral: true }),
+      ),
+    )
+  })
+
+  it('shows a retryable failure and logs when the check fails', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.signInWithClassic.mockImplementation(
+      afterSheet(() => Promise.reject(new Error('offline'))),
+    )
+    const view = await openSignIn()
+
+    await expect.element(view.getByText(/Couldn't check your subscription/)).toBeVisible()
+    expect(error).toHaveBeenCalledWith(
+      'Verifying the Reflect Classic subscription failed',
+      expect.any(Error),
+    )
+    await view.getByRole('button', { name: 'Back' }).click()
+    await vi.waitFor(() => expect(progressScreen()).toBeNull())
+    error.mockRestore()
+  })
+
+  it('says when the Reflect Classic access has ended', async () => {
+    classicRecord = JSON.stringify({
+      token: 'token',
+      email: 'a@example.com',
+      expiresAt: Date.now() - 60_000,
+      checkedAt: Date.now(),
+    })
+    const view = await render(<PaywallScreen />, { wrapper })
+
+    await expect
+      .element(view.getByText('Your Reflect Classic access to Reflect Open has ended.'))
+      .toBeVisible()
+    expect(invoke).toHaveBeenCalledWith('secret_get', { name: CLASSIC_ACCESS_SECRET })
   })
 })

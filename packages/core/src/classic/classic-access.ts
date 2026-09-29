@@ -181,7 +181,8 @@ async function saveAccess(access: ClassicAccess): Promise<void> {
   await setSecret(CLASSIC_ACCESS_SECRET, JSON.stringify(access))
 }
 
-async function readAccess(): Promise<ClassicAccess | null> {
+/** This device's stored access as last saved, without contacting Reflect Classic. */
+export async function readClassicAccess(): Promise<ClassicAccess | null> {
   const raw = await getSecret(CLASSIC_ACCESS_SECRET)
   if (raw === null) return null
   try {
@@ -235,7 +236,7 @@ export async function signInWithClassic(options: {
  * answer, so being offline never locks the app early.
  */
 export async function loadClassicAccess(fetchFn: typeof fetch): Promise<ClassicAccess | null> {
-  const stored = await readAccess()
+  const stored = await readClassicAccess()
   if (stored === null || stored.token === null) return stored
   if (Date.now() - stored.checkedAt < RECHECK_INTERVAL_MS) return stored
 

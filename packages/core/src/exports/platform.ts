@@ -326,6 +326,7 @@ export {
   clearClassicAccess,
   isClassicAccessActive,
   loadClassicAccess,
+  readClassicAccess,
   signInWithClassic,
   type ClassicAccess,
   type ClassicInvoice,

@@ -19,6 +19,13 @@ import {
   refetchActiveSubscription,
   useActiveSubscription,
 } from '@/mobile/use-active-subscription.ts'
+import { ClassicMemberDrawer } from '@/mobile/classic-member-drawer.tsx'
+import { ClassicSignInProgress } from '@/mobile/classic-sign-in-progress.tsx'
+import {
+  classicAccessMessage,
+  useClassicAccess,
+  useClassicSignIn,
+} from '@/mobile/use-classic-access.ts'
 
 type PurchasePlan = 'monthly' | 'yearly'
 
@@ -34,6 +41,7 @@ export function PaywallScreen(): ReactElement {
   const subscription = useActiveSubscription()
   const queryClient = useQueryClient()
   const [selectedPlan, setSelectedPlan] = useState<PurchasePlan>('yearly')
+  const [classicDrawerOpen, setClassicDrawerOpen] = useState(false)
 
   const products = useQuery({
     queryKey: queryKeys.iap.products,
@@ -73,8 +81,14 @@ export function PaywallScreen(): ReactElement {
     // refetch here covers a sheet that closed without emitting one.
     onSuccess: subscription.invalidate,
   })
+  const classicAccess = useClassicAccess()
+  const classicSignIn = useClassicSignIn()
+  const classicMessage = classicAccessMessage(classicAccess)
   const actionPending =
-    purchaseMutation.isPending || restoreMutation.isPending || redeemMutation.isPending
+    purchaseMutation.isPending ||
+    restoreMutation.isPending ||
+    redeemMutation.isPending ||
+    classicSignIn.mutation.isPending
   const purchasingPlan = purchaseMutation.isPending
     ? (purchaseMutation.variables?.plan ?? null)
     : null
@@ -92,19 +106,30 @@ export function PaywallScreen(): ReactElement {
     if (product === null) return
     restoreMutation.reset()
     redeemMutation.reset()
+    classicSignIn.mutation.reset()
     purchaseMutation.mutate({ plan: selectedPlan, productId: product.productId })
   }
 
   const restore = () => {
     purchaseMutation.reset()
     redeemMutation.reset()
+    classicSignIn.mutation.reset()
     restoreMutation.mutate()
   }
 
   const redeem = () => {
     purchaseMutation.reset()
     restoreMutation.reset()
+    classicSignIn.mutation.reset()
     redeemMutation.mutate()
+  }
+
+  const verifyClassic = () => {
+    setClassicDrawerOpen(false)
+    purchaseMutation.reset()
+    restoreMutation.reset()
+    redeemMutation.reset()
+    classicSignIn.mutation.mutate(false)
   }
 
   return (
@@ -186,10 +211,15 @@ export function PaywallScreen(): ReactElement {
             type="button"
             className="text-sm text-text-secondary underline disabled:opacity-50"
             disabled={actionPending}
-            onClick={() => openUrlSync(CLAIM_FREE_YEAR_URL)}
+            onClick={() => setClassicDrawerOpen(true)}
           >
-            Already a Reflect member? Get your first year free
+            {classicSignIn.mutation.isPending
+              ? 'Signing in…'
+              : 'Already a Reflect member? Get your first year free'}
           </button>
+          {classicMessage !== null ? (
+            <p className="text-center text-sm text-text-muted">{classicMessage}</p>
+          ) : null}
           <button
             type="button"
             className="text-sm text-text-muted underline disabled:opacity-50"
@@ -227,6 +257,16 @@ export function PaywallScreen(): ReactElement {
           </button>
         </footer>
       </div>
+      <ClassicMemberDrawer
+        open={classicDrawerOpen}
+        onOpenChange={setClassicDrawerOpen}
+        onSignIn={verifyClassic}
+        onWebClaim={() => {
+          setClassicDrawerOpen(false)
+          openUrlSync(CLAIM_FREE_YEAR_URL)
+        }}
+      />
+      <ClassicSignInProgress signIn={classicSignIn} />
     </div>
   )
 }
