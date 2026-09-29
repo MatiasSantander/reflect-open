@@ -24,7 +24,7 @@ export function projectTaskContext(body: string): {
   return projectTaskDocument(parseMarkdownAst(body))
 }
 
-/** Extract task rows and reference context from a parsed document. */
+/** Extract round task rows from a parsed document. */
 export function projectTaskDocument(document: MarkdownDocument): {
   tasks: ParsedTask[]
 } {
