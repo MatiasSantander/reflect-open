@@ -76,13 +76,18 @@ export function taskStore(root: string, generation: number): TaskStore {
       // Index the note now instead of waiting for the file watcher, then let
       // the task queries refetch, so the store forgets a local change only
       // once the read model shows it. The watcher's later event finds the
-      // same hash and skips.
-      await indexNote(path, { generation, content: saved })
-      emitIndexApplied([{ path, kind: 'upsert', modifiedMs: Date.now() }], generation)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.index.openTasks(root) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.index.completedTasks(root) }),
-      ])
+      // same hash and skips. The file is written either way, so a failure
+      // here is not a failed save; the watcher pipeline catches up.
+      try {
+        await indexNote(path, { generation, content: saved })
+        emitIndexApplied([{ path, kind: 'upsert', modifiedMs: Date.now() }], generation)
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.index.openTasks(root) }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.index.completedTasks(root) }),
+        ])
+      } catch (error) {
+        console.error('indexing a task write failed:', error)
+      }
     },
     failure(path, _error, retry) {
       if (!active || failures.has(path)) return
