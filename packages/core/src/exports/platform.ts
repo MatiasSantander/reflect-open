@@ -320,6 +320,19 @@ export {
   type PersonResolution,
 } from '../contacts/person.ts'
 export {
+  CLASSIC_ACCESS_SECRET,
+  classicAccessUntil,
+  classicPaidThrough,
+  clearClassicAccess,
+  isClassicAccessActive,
+  loadClassicAccess,
+  signInWithClassic,
+  type ClassicAccess,
+  type ClassicInvoice,
+  type ClassicSignInResult,
+  type StartWebAuth,
+} from '../classic/classic-access.ts'
+export {
   IAP_PRODUCT_IDS,
   iapGetProducts,
   iapPurchase,
