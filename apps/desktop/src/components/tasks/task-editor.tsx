@@ -205,6 +205,7 @@ export function TaskEditor({
   }, [convertControllerRef, apiRef])
 
   const editorRef = useRef<NoteEditorHandle | null>(null)
+  const composingRef = useRef(false)
   const handleRef = useCallback((handle: NoteEditorHandle | null) => {
     editorRef.current = handle
     handle?.focus()
@@ -214,7 +215,11 @@ export function TaskEditor({
     <div
       data-task-editor
       className="min-w-0 flex-1"
+      onCompositionStart={() => {
+        composingRef.current = true
+      }}
       onCompositionEnd={(event) => {
+        composingRef.current = false
         const root = event.currentTarget
         setTimeout(() => {
           if (!root.contains(document.activeElement)) apiRef.current.commit()
@@ -231,7 +236,8 @@ export function TaskEditor({
         )
           return
         setTimeout(() => {
-          if (!root.contains(document.activeElement) && !getIsComposing()) apiRef.current.commit()
+          if (!root.contains(document.activeElement) && !composingRef.current)
+            apiRef.current.commit()
         }, 0)
       }}
     >

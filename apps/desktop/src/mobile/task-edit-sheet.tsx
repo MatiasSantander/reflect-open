@@ -74,6 +74,7 @@ export function MobileTaskEditSheet({
   // been rewritten by an action), so remount it via this seed to re-read it.
   const [editorSeed, setEditorSeed] = useState(0)
   const editorRef = useRef<NoteEditorHandle | null>(null)
+  const composingRef = useRef(false)
   // The editor's live markdown, mirrored from its own onChange stream (the
   // desktop task editor's currentRef pattern) so an edit the state hasn't
   // re-rendered yet is never dropped or clobbered. Tagged with the editor
@@ -222,8 +223,18 @@ export function MobileTaskEditSheet({
         <DrawerTitle className="sr-only">Edit task</DrawerTitle>
         <div className="flex flex-col gap-3 p-4">
           <div
+            onCompositionStart={() => {
+              composingRef.current = true
+            }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false
+              const root = event.currentTarget
+              setTimeout(() => {
+                if (!root.contains(document.activeElement)) setDraft(readLiveDraft() ?? draft)
+              }, 0)
+            }}
             onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget) && !getIsComposing())
+              if (!event.currentTarget.contains(event.relatedTarget) && !composingRef.current)
                 setDraft(readLiveDraft() ?? draft)
             }}
             data-base-ui-swipe-ignore
