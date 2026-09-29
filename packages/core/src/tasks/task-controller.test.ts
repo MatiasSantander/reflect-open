@@ -277,3 +277,15 @@ it('keeps the worker usable when an early checkpoint fails but the save checkpoi
   await h.controller.flush()
   expect(h.source()).toContain('second')
 })
+
+it('adopts note metadata only from the confirmed index revision', async () => {
+  const h = harness()
+  h.controller.submit(h.controller.begin(target), { text: 'created' })
+  await h.controller.flush()
+  const confirmed = h.controller.project([], false)[0]!
+  const indexed = { ...confirmed, taskId: undefined, noteTitle: 'Renamed note', isPinned: true }
+  expect(h.controller.project([indexed], false)[0]?.noteTitle).toBe('Renamed note')
+  expect(h.controller.project([{ ...indexed, revision: 'stale' }], false)[0]?.noteTitle).toBe(
+    'Tasks',
+  )
+})

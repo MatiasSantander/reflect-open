@@ -435,7 +435,21 @@ export function createTaskController(io: TaskControllerIO) {
       const result = indexed.filter((row) => !notes.has(row.notePath))
       for (const [path, state] of notes) {
         const noteRows = indexed.filter((row) => row.notePath === path)
-        result.push(...visible(state, noteRows))
+        const metadata = noteRows.find((row) => row.revision === state.rows?.[0]?.revision)
+        result.push(
+          ...visible(state, noteRows).map((row) =>
+            metadata
+              ? {
+                  ...row,
+                  noteTitle: metadata.noteTitle,
+                  dailyDate: metadata.dailyDate,
+                  isPinned: metadata.isPinned,
+                  pinnedOrder: metadata.pinnedOrder,
+                  updatedAt: metadata.updatedAt,
+                }
+              : row,
+          ),
+        )
       }
       return result.filter((row) => row.inTasksView !== false && row.checked === checked)
     },
