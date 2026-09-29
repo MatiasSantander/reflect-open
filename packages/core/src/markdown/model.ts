@@ -205,7 +205,7 @@ export interface ParsedNote {
   /** Reflect task items in document order — the Tasks projection (Plan 18). */
   tasks: ParsedTask[]
   /** Reference definitions from this same source revision. */
-  referenceMarkdown: string
+  referenceMarkdown: string // FIXME: Do we have to support referenceMarkdown? did we support referenceMarkdown in the past? if we didn't support referenceMarkdown in the past, let's remove this logic in this PR to make the codebase simpler and easier to maintain.
   /**
    * One-line plain text of the body, for UI slots that render a plain string
    * rather than Markdown (the All Notes row preview, task rows).
