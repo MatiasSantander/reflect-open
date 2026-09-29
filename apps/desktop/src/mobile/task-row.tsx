@@ -1,11 +1,11 @@
 import type { ReactElement } from 'react'
 import { ArrowRight, Circle, CircleCheck, Trash2 } from 'lucide-react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { TaskText } from '@/components/tasks/task-text.tsx'
 import { formatShortDate } from '@/lib/dates.ts'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
-import { useTaskCheckboxToggle } from '@/lib/tasks/use-task-checkbox-toggle.ts'
+import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
 import { SWIPE_ACTION_WIDTH, SwipeActionButton } from '@/mobile/swipe-action-button.tsx'
@@ -16,11 +16,11 @@ import { useSettings } from '@/providers/settings-provider.tsx'
 const ACTION_WIDTH = SWIPE_ACTION_WIDTH * 2
 
 interface MobileTaskRowProps {
-  task: OpenTask
+  task: TaskListItem
   /** Show the source-note date — date buckets aggregate tasks from many notes. */
   showSource: boolean
   /** Open the quick-edit sheet for this task (V1 mobile: tap edits in place). */
-  onEdit: (task: OpenTask) => void
+  onEdit: (task: TaskListItem) => void
   revealed: boolean
   onReveal: () => void
   onClose: () => void
@@ -53,7 +53,7 @@ export function MobileTaskRow({
   onDelete,
 }: MobileTaskRowProps): ReactElement {
   const { settings } = useSettings()
-  const { toggle, isPending } = useTaskCheckboxToggle(task)
+  const actions = useTaskActions()
   const label = task.displayText || 'Empty task'
   const edit = (): void => onEdit(task)
   const swipe = useRowSwipe({
@@ -120,10 +120,9 @@ export function MobileTaskRow({
         <button
           type="button"
           aria-label={task.checked ? `Reopen: ${label}` : `Complete: ${label}`}
-          disabled={isPending}
           onClick={() => {
             hapticImpactLight()
-            toggle()
+            actions.checkboxToggle(task)
           }}
           // A generous touch target around the small glyph; self-stretch keeps
           // the circle vertically centered in the row as task text wraps.

@@ -1,10 +1,10 @@
 import type { ReactElement } from 'react'
 import { MarkdownInlineView } from '@meowdown/react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 
 /** Render the first paragraph as inline Markdown. */
-export function TaskText({ task }: { task: OpenTask }): ReactElement {
+export function TaskText({ task }: { task: TaskListItem }): ReactElement {
   return (
     <MarkdownInlineView
       markdown={task.text}

@@ -1,265 +1,149 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useRef,
-  type MutableRefObject,
-  type ReactElement,
-} from 'react'
-import { Priority, getIsComposing } from '@meowdown/core'
-import { useKeymap } from '@meowdown/react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react'
+import { Priority } from '@meowdown/core'
+import { useEditor, useKeymap } from '@meowdown/react'
+import type { TaskListItem } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
-import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
+import { NoteEditor } from '@/editor/note-editor.tsx'
+import { registerEditFinalizer } from '@/editor/open-documents.ts'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
-import {
-  useTaskEditorFinalizer,
-  type TaskEditorApi,
-} from '@/lib/tasks/use-task-editor-finalizer.ts'
+import { useTaskActions, type TaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
-/**
- * Edits the complete first paragraph without exposing its checkbox marker.
- * The uncontrolled editor keeps its initial content; callbacks resolve the stable
- * task identity against the controller when editing finishes.
- */
 /** A keyboard move between task rows: −1 up, +1 down; `span` extends the range (Shift). */
 export type TaskNavigate = (direction: -1 | 1, options: { span: boolean }) => void
 
-interface TaskEditorProps {
-  task: OpenTask
-  /** Persist the new content (non-empty, changed) and exit edit mode. */
-  onCommit: (content: string) => void
-  /**
-   * Enter (V1 continuous entry): persist the current edit then add the next task.
-   * `content` is the new text, `''` (emptied), or `null` (unchanged → don't rewrite).
-   */
-  onContinue: (content: string | null) => void
-  /** Delete the task (emptied via ⌘↵, or ⌘⌫) and exit edit mode. */
+/** What the editor's keys ask the screen to do. The task controller already holds the draft. */
+export interface TaskEditHandlers {
+  /** Enter: add the next task below this one (V1 continuous entry). */
+  onContinue: () => void
+  /** Escape: leave edit mode. */
+  onCancel: () => void
+  /** ⌘↵: complete the task. */
+  onComplete: () => void
+  /** ⌘⇧K: turn the task into a plain bullet. */
+  onConvertToBullet: () => void
+  /** ⌘⌫: delete the task. */
   onDelete: () => void
   /** Backspace on an empty row: delete it and select the previous task (V1). */
   onDeleteEmpty: () => void
-  /** Exit edit mode without writing (Escape / unchanged). */
-  onCancel: () => void
-  /** ⌘↵: complete the task (saving the edit first when `content` isn't null). */
-  onComplete: (content: string | null) => void
-  /** Checkbox click: save any change, then toggle the checked state. */
-  onCheckboxToggle: (content: string | null) => void
-  /** ⌘⇧K: convert the task to a plain bullet (saving the edit first when changed). */
-  onConvertToBullet: (content: string | null) => void
-  /** Persist a changed edit when the row unmounts (selection moved), without exiting. */
-  onFlush: (content: string) => void
-  /** ↑/↓ (Shift to extend): move the selection between rows while editing (V1). */
+  /** ↑/↓ at the editor's visual edge (Shift to extend): move the selection. */
   onNavigate: TaskNavigate
-  /** Lets the row checkbox toggle through the editor finalizer while editing. */
-  checkboxToggleControllerRef?: MutableRefObject<(() => void) | null>
-  /**
-   * Lets the toolbar's "Convert to bullet" button drive the same flush-then-convert
-   * the ⌘⇧K keymap does. While this row is the sole selection it holds a trigger
-   * that commits the live draft and converts; it clears on unmount so the screen
-   * falls back to a plain (no-edit) convert when no row is being edited.
-   */
-  convertControllerRef?: MutableRefObject<(() => void) | null>
+}
+
+interface TaskEditorProps extends TaskEditHandlers {
+  task: TaskListItem
 }
 
 /**
- * Binds the editor's keys inside its ProseKit context (meowdown renders children
- * there). Autocomplete handles its keys first. Enter creates the next task;
- * Shift+Enter inserts a paragraph newline. Arrows leave the editor only at its
- * visual boundary. Completion, deletion and conversion use the same finalizer.
+ * The inline editor of the sole-selected task row: the task's first paragraph
+ * without its checkbox marker. Keystrokes only update the editor and the task
+ * controller's draft. The draft is saved when the edit ends: on Enter, on any
+ * action taken on the task, when the row leaves edit mode, or on an
+ * application flush.
  */
-function TaskCommitKeymap({
-  apiRef,
-  onNavigate,
-  editorRef,
-}: {
-  editorRef: MutableRefObject<NoteEditorHandle | null>
-  apiRef: MutableRefObject<TaskEditorApi>
-  onNavigate: TaskNavigate
-}): null {
-  const keymap = useMemo(
-    () => ({
-      // Enter adds the next task (V1 continuous entry), never a new block.
-      Enter: () => {
-        if (getIsComposing()) return false
-        apiRef.current.commitAndContinue()
-        return true
-      },
-      'Mod-Enter': () => {
-        apiRef.current.complete()
-        return true
-      },
-      'Mod-Shift-k': () => {
-        apiRef.current.convertToBullet()
-        return true
-      },
-      Escape: () => {
-        apiRef.current.cancel()
-        return true
-      },
-      'Mod-Backspace': () => {
-        apiRef.current.delete()
-        return true
-      },
-      Backspace: () => {
-        if (apiRef.current.isEmpty()) {
-          apiRef.current.deleteEmpty()
-          return true
-        }
-        return false
-      },
-      // Leave only at the visual boundary; otherwise move within the paragraph.
-      ArrowUp: () => {
-        if (!editorRef.current?.isAtTextblockBoundary('up')) return false
-        onNavigate(-1, { span: false })
-        return true
-      },
-      ArrowDown: () => {
-        if (!editorRef.current?.isAtTextblockBoundary('down')) return false
-        onNavigate(1, { span: false })
-        return true
-      },
-      'Shift-ArrowUp': () => {
-        if (!editorRef.current?.isAtTextblockBoundary('up')) return false
-        onNavigate(-1, { span: true })
-        return true
-      },
-      'Shift-ArrowDown': () => {
-        if (!editorRef.current?.isAtTextblockBoundary('down')) return false
-        onNavigate(1, { span: true })
-        return true
-      },
-    }),
-    [apiRef, onNavigate, editorRef],
-  )
-  useKeymap(keymap, { priority: Priority.high })
-  return null
-}
-
-export function TaskEditor({
-  task,
-  onCommit,
-  onContinue,
-  onDelete,
-  onDeleteEmpty,
-  onCancel,
-  onComplete,
-  onCheckboxToggle,
-  onConvertToBullet,
-  onFlush,
-  onNavigate,
-  checkboxToggleControllerRef,
-  convertControllerRef,
-}: TaskEditorProps): ReactElement {
+export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement {
   const { graph } = useGraph()
   const { settings } = useSettings()
-  const generation = graph?.generation ?? null
-  const navigate = useWikiLinkNavigation(generation)
+  const navigate = useWikiLinkNavigation(graph?.generation ?? null)
   const onTagClick = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
+  const actions = useTaskActions()
 
-  // Frozen at mount: the editor is seeded once (uncontrolled), so the commit
-  // baseline must stay the seed even if `task.text` is re-derived mid-edit.
-  const [initial] = useState(() => task.text)
-  const writeCallbacks = {
-    onCommit,
-    onContinue,
-    onDelete,
-    onDeleteEmpty,
-    onComplete,
-    onCheckboxToggle,
-    onConvertToBullet,
-    onFlush,
-  }
-  const { apiRef, onChange } = useTaskEditorFinalizer({
-    ...writeCallbacks,
-    initial,
-    onCancel,
+  const latest = useRef({ task, actions })
+  useLayoutEffect(() => {
+    latest.current = { task, actions }
   })
-
   useEffect(() => {
-    if (checkboxToggleControllerRef === undefined) {
-      return
-    }
-    checkboxToggleControllerRef.current = () => apiRef.current.checkboxToggle()
+    const commit = () => latest.current.actions.commitDraft(latest.current.task)
+    const unregister = registerEditFinalizer(commit)
     return () => {
-      checkboxToggleControllerRef.current = null
+      unregister()
+      commit()
     }
-  }, [checkboxToggleControllerRef, apiRef])
-
-  // Expose the flush-then-convert trigger to the screen while this row is edited,
-  // so the toolbar button converts through the same path the ⌘⇧K keymap uses —
-  // never a stale-content write that drops the unsaved draft. Cleared on unmount.
-  useEffect(() => {
-    if (convertControllerRef === undefined) {
-      return
-    }
-    convertControllerRef.current = () => apiRef.current.convertToBullet()
-    return () => {
-      convertControllerRef.current = null
-    }
-  }, [convertControllerRef, apiRef])
-
-  const editorRef = useRef<NoteEditorHandle | null>(null)
-  const composingRef = useRef(false)
-  const handleRef = useCallback((handle: NoteEditorHandle | null) => {
-    editorRef.current = handle
-    handle?.focus()
   }, [])
 
   return (
-    <div
-      data-task-editor
-      className="min-w-0 flex-1"
-      onCompositionStart={() => {
-        composingRef.current = true
-      }}
-      onCompositionEnd={(event) => {
-        composingRef.current = false
-        const root = event.currentTarget
-        setTimeout(() => {
-          if (!root.contains(document.activeElement)) apiRef.current.commit()
-        }, 0)
-      }}
-      onBlur={(event) => {
-        const root = event.currentTarget
-        const next = event.relatedTarget
-        if (
-          next instanceof Node &&
-          (root.closest('[data-task-key]')?.contains(next) ||
-            (next instanceof Element &&
-              next.closest('[role="dialog"], [role="listbox"], [role="menu"]')))
-        )
-          return
-        setTimeout(() => {
-          if (!root.contains(document.activeElement) && !composingRef.current)
-            apiRef.current.commit()
-        }, 0)
-      }}
-    >
+    <div data-task-editor className="min-w-0 flex-1">
       <NoteEditor
-        initialContent={initial}
+        initialContent={task.text}
         singleParagraph
-        onChange={onChange}
+        onChange={(markdown) => actions.draft(task, markdown)}
         markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
         spellCheck={settings.editorSpellCheck}
         smoothCaretAnimation={settings.editorSmoothCaretAnimation}
         timeFormat={settings.timeFormat}
-        // One paragraph has no sibling blocks to reorder.
         blockHandle={false}
         onWikiLinkClick={navigate}
         onTagClick={onTagClick}
         onWikilinkSearch={onWikilinkSearch}
         onTagSearch={onTagSearch}
         className="reflect-task-editor text-sm"
-        handleRef={handleRef}
       >
-        <TaskCommitKeymap editorRef={editorRef} apiRef={apiRef} onNavigate={onNavigate} />
+        <TaskKeymap task={task} actions={actions} {...handlers} />
       </NoteEditor>
     </div>
   )
+}
+
+/**
+ * The editor's keys, bound inside its ProseKit context. The autocomplete menus
+ * take their keys first while open. Enter never inserts a block: a task is one
+ * paragraph, and Shift+Enter inserts a soft break.
+ */
+function TaskKeymap(props: TaskEditorProps & { actions: TaskActions }): null {
+  const editor = useEditor()
+  useEffect(() => {
+    editor.focus()
+  }, [editor])
+  const latest = useRef(props)
+  useLayoutEffect(() => {
+    latest.current = props
+  })
+  const keymap = useMemo(() => {
+    const atEdge = (direction: 'up' | 'down') =>
+      editor.mounted && editor.view.endOfTextblock(direction)
+    const move = (direction: -1 | 1, span: boolean) => () => {
+      if (!atEdge(direction < 0 ? 'up' : 'down')) return false
+      latest.current.onNavigate(direction, { span })
+      return true
+    }
+    return {
+      Enter: () => {
+        latest.current.onContinue()
+        return true
+      },
+      'Mod-Enter': () => {
+        latest.current.onComplete()
+        return true
+      },
+      'Mod-Shift-k': () => {
+        latest.current.onConvertToBullet()
+        return true
+      },
+      Escape: () => {
+        const { actions, task, onCancel } = latest.current
+        actions.discardDraft(task)
+        onCancel()
+        return true
+      },
+      'Mod-Backspace': () => {
+        latest.current.onDelete()
+        return true
+      },
+      Backspace: () => {
+        if (editor.state.doc.textContent.trim() !== '') return false
+        latest.current.onDeleteEmpty()
+        return true
+      },
+      ArrowUp: move(-1, false),
+      ArrowDown: move(1, false),
+      'Shift-ArrowUp': move(-1, true),
+      'Shift-ArrowDown': move(1, true),
+    }
+  }, [editor])
+  useKeymap(keymap, { priority: Priority.high })
+  return null
 }

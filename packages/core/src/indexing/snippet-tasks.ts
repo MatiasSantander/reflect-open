@@ -23,7 +23,10 @@ export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource)
   const addresses = new Map<number, TaskAddress>()
   if (source) {
     const { body, bodyOffset } = splitFrontmatter(source.content)
-    // Both traversals recognize checkboxes only on bullet list items.
+    // Both traversals recognize checkboxes only on bullet list items, and in
+    // the same document order, so the n-th `Task` node the block parser finds
+    // is the n-th `kind: 'task'` item of the AST. This pairing by index is
+    // what lets a snippet checkbox resolve to an AST address.
     const entries = [...walkMarkdownAst(parseMarkdownAst(body))].filter(
       ({ node }) => node.type === 'listItem' && node.kind === 'task',
     )

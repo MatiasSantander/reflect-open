@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { renderHook } from 'vitest-browser-react'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { createTaskController } from '@reflect/core'
+import { TaskController } from '@reflect/core'
 import { useTaskActions } from './use-task-actions.ts'
 import { resetRecentlyCompleted, useRecentlyCompleted } from './recently-completed.ts'
 
@@ -9,11 +9,10 @@ const context = vi.hoisted(() => ({ generation: 1 }))
 const io = vi.hoisted(() => ({
   read: vi.fn(),
   write: vi.fn<(path: string, before: string | null, next: string) => Promise<void>>(),
-  checkpoint: vi.fn(),
   failure: vi.fn(),
   saved: vi.fn(),
 }))
-let controller: ReturnType<typeof createTaskController>
+let controller: TaskController
 vi.mock('@/providers/graph-provider.tsx', () => ({
   useGraph: () => ({ graph: { root: '/g', generation: context.generation } }),
 }))
@@ -34,16 +33,15 @@ beforeEach(() => {
     .mockImplementation(async (_path: string, _before: string | null, next: string) => {
       source = next
     })
-  io.checkpoint.mockReset().mockResolvedValue(undefined)
   io.failure.mockReset()
   io.saved.mockReset()
-  controller = createTaskController(io)
+  controller = new TaskController(io)
   resetRecentlyCompleted()
 })
 
 it('creates an editable placeholder immediately without a persistence mutation', async () => {
   const { result } = await renderHook(() => useTaskActions())
-  const row = await result.current.insert(target)
+  const row = result.current.insert(target)
   expect(row?.taskId).toBeDefined()
   expect(row?.revision).toBeUndefined()
   expect(io.write).not.toHaveBeenCalled()
@@ -60,10 +58,12 @@ it('continues typing while the previous task is saving and leaves the last empty
     await write(...args)
   })
   const { result } = await renderHook(() => useTaskActions())
-  const first = (await result.current.insert(target))!
-  const second = (await result.current.insertAfter(first, 'first', target))!
+  const first = result.current.insert(target)!
+  result.current.draft(first, 'first')
+  const second = result.current.insertAfter(first, target)!
   await vi.waitFor(() => expect(io.write).toHaveBeenCalledOnce())
-  const third = (await result.current.insertAfter(second, 'second', target))!
+  result.current.draft(second, 'second')
+  const third = result.current.insertAfter(second, target)!
   expect(third.revision).toBeUndefined()
   gate.resolve()
   await controller.flush()
@@ -77,8 +77,11 @@ it('keeps a newly completed task visible without loading the archived query', as
     actions: useTaskActions(),
     recent: useRecentlyCompleted('/g', undefined),
   }))
-  const row = (await result.current.actions.insert(target))!
-  act(() => result.current.actions.editAndToggle(row, 'done'))
+  const row = result.current.actions.insert(target)!
+  act(() => {
+    result.current.actions.draft(row, 'done')
+    result.current.actions.complete([row])
+  })
   expect(result.current.recent[0]?.checked).toBe(true)
   await controller.flush()
   expect(io.write.mock.calls.at(-1)?.[2]).toContain('[x] done')

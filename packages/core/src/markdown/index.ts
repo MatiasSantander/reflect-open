@@ -82,4 +82,4 @@ export {
   type TaskAddress,
 } from './task-path.ts'
 export { inlineMarkdownToDisplayText } from './plain-text.ts'
-export { editTaskDocument, type TaskEdit } from './task-mutation.ts'
+export { editTaskDocument, type NewTask, type TaskEdit } from './task-mutation.ts'

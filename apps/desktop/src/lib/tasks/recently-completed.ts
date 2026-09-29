@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
@@ -24,9 +24,9 @@ import { taskKey } from '@/lib/tasks/task-identity.ts'
  * empty set rather than the previous graph's rows.
  */
 
-const EMPTY: readonly OpenTask[] = []
+const EMPTY: readonly TaskListItem[] = []
 let graphRoot: string | null = null
-let tasks: readonly OpenTask[] = EMPTY
+let tasks: readonly TaskListItem[] = EMPTY
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -49,7 +49,7 @@ function adopt(root: string | null): void {
  * is flipped to `[x]` to match disk — these rows outlive the reindex, so a stale
  * `[ ]` would later fail the reopen/edit/delete write-back .
  */
-export function markRecentlyCompleted(root: string | null, completed: readonly OpenTask[]): void {
+export function markRecentlyCompleted(root: string | null, completed: readonly TaskListItem[]): void {
   if (completed.length === 0) {
     return
   }
@@ -95,9 +95,9 @@ export function hasRecentlyCompleted(root: string | null, key: string): boolean 
  * reference.
  */
 function withoutReopened(
-  struck: readonly OpenTask[],
-  open: readonly OpenTask[],
-): readonly OpenTask[] {
+  struck: readonly TaskListItem[],
+  open: readonly TaskListItem[],
+): readonly TaskListItem[] {
   if (struck.length === 0 || open.length === 0) {
     return struck
   }
@@ -115,7 +115,7 @@ function withoutReopened(
  * withoutReopened}) — so `hasRecentlyCompleted` and the Archive count agree
  * with what the surfaces render.
  */
-export function reconcileRecentlyCompleted(root: string | null, open: readonly OpenTask[]): void {
+export function reconcileRecentlyCompleted(root: string | null, open: readonly TaskListItem[]): void {
   if (root !== graphRoot) {
     return
   }
@@ -154,8 +154,8 @@ function subscribe(listener: () => void): () => void {
  */
 export function useRecentlyCompleted(
   root: string | null,
-  open: readonly OpenTask[] | undefined,
-): readonly OpenTask[] {
+  open: readonly TaskListItem[] | undefined,
+): readonly TaskListItem[] {
   useEffect(() => {
     if (open !== undefined) {
       reconcileRecentlyCompleted(root, open)

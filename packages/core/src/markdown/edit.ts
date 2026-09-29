@@ -1,4 +1,3 @@
-import { collectInlineElements, parseInline, LEZER_NODE_IDS } from '@meowdown/markdown'
 import { appendListItemAtHeading, listItemBlock } from './append-list-item.ts'
 import { appendHeadingSection } from './append-section.ts'
 import { parseNote } from './extract.ts'
@@ -6,21 +5,7 @@ import { topLevelHeadings } from './heading-blocks.ts'
 import { foldKey } from './keys.ts'
 import { offsetBeforeLineEnding } from './line-endings.ts'
 import type { Heading, WikiLink } from './model.ts'
-import { normalizeWikiTarget } from './resolve.ts'
-
-function taskDateLinks(content: string) {
-  return collectInlineElements(
-    parseInline(content),
-    (node) => node.type === LEZER_NODE_IDS.Wikilink || node.type === LEZER_NODE_IDS.WikiEmbed,
-  ).map((node) => ({
-    from: node.from,
-    to: node.to,
-    target:
-      content
-        .slice(node.from + (node.type === LEZER_NODE_IDS.WikiEmbed ? 3 : 2), node.to - 2)
-        .split('|')[0] ?? '',
-  }))
-}
+import { taskDateLinks } from './task-due-date.ts'
 
 export { appendBlock } from './append-section.ts'
 export { appendListItem, type ListItemKind } from './append-list-item.ts'
@@ -40,9 +25,7 @@ export { appendListItem, type ListItemKind } from './append-list-item.ts'
  * appends `[[isoDate]]` to the content. The caller supplies a valid ISO date.
  */
 export function setTaskDueDate(content: string, isoDate: string): string {
-  const existing = taskDateLinks(content).find(
-    (link) => normalizeWikiTarget(link.target).date !== undefined,
-  )
+  const existing = taskDateLinks(content)[0]
   if (existing !== undefined) {
     return content.slice(0, existing.from) + `[[${isoDate}]]` + content.slice(existing.to)
   }
@@ -56,10 +39,7 @@ export function setTaskDueDate(content: string, isoDate: string): string {
  * unchanged when it has no due date. The inverse of {@link setTaskDueDate}.
  */
 export function clearTaskDueDate(content: string): string {
-  const dates = taskDateLinks(content).filter(
-    (link) => normalizeWikiTarget(link.target).date !== undefined,
-  )
-  for (const date of dates.reverse()) content = content.slice(0, date.from) + content.slice(date.to)
+  for (const date of taskDateLinks(content).reverse()) content = content.slice(0, date.from) + content.slice(date.to)
   return content.replaceAll(/[ \t]{2,}/g, ' ').trim()
 }
 

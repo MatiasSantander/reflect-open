@@ -460,6 +460,9 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     header = doc.header
     buffer = doc.body
     applyToEditor(doc.body) // the open editor shows the edited line
+    // `applyToEditor` dispatches synchronously, and the editor's change handler
+    // may normalize `buffer` on the way, so the revert below compares against
+    // what was actually applied rather than `doc.body`.
     const appliedBuffer = buffer
     const appliedSource = header + buffer
     dirty = header + buffer !== disk

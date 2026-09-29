@@ -1,6 +1,6 @@
 import { Fragment, type Dispatch, type ReactElement, type SetStateAction } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type TaskListItem as OpenTask, type TaskGroup } from '@reflect/core'
+import { groupTaskContexts, type TaskListItem, type TaskGroup } from '@reflect/core'
 import { TaskBreadcrumbs } from '@/components/tasks/task-breadcrumbs.tsx'
 import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
@@ -16,11 +16,11 @@ interface MobileTaskGroupProps {
   /** Add a task to this group and open its quick-edit sheet. */
   onAdd: (target: InsertTaskTarget) => void
   /** Open the quick-edit sheet for a tapped row. */
-  onEdit: (task: OpenTask) => void
+  onEdit: (task: TaskListItem) => void
   /** Open a note group's source note from its header, or a row's from its swipe action. */
   onOpen: (notePath: string) => void
   /** Delete a task from its swipe action. */
-  onDelete: (task: OpenTask) => void
+  onDelete: (task: TaskListItem) => void
   /** The `taskKey` of the one row whose swipe actions are showing, across all groups. */
   revealedTaskKey: string | null
   setRevealedTaskKey: Dispatch<SetStateAction<string | null>>

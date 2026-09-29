@@ -6,7 +6,7 @@ import { foldTag } from './keys.ts'
 import { parseInlineLink } from './link-syntax.ts'
 import { headingLevelOf } from './node-types.ts'
 import { buildPlainText, unescapeMarkdownText } from './plain-text.ts'
-import { projectTaskContext } from './task-projection.ts'
+import { projectTasks } from './task-projection.ts'
 import { isWikiNodeName, wikiBracketStart } from './wiki-nodes.ts'
 import type {
   AssetRef,
@@ -441,7 +441,7 @@ export function parseNote(input: { path: string; source: string }): ParsedNote {
     tags: [...tags.values()],
     headings,
     assets,
-    ...projectTaskContext(body),
+    tasks: projectTasks(body),
     displayText: buildPlainText(body, cuts, literalPlainText),
   }
 }

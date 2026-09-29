@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { getIsComposing, isModEvent } from '@meowdown/core'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 import {
@@ -15,9 +15,9 @@ export interface TaskKeyboardOptions {
   selection: TaskSelection
   actions: TaskActions
   /** The flat, render-order tasks the selection's keys resolve against. */
-  tasksByKey: ReadonlyMap<string, OpenTask>
+  tasksByKey: ReadonlyMap<string, TaskListItem>
   /** The flat, render-order tasks — used to pick the row to select after a delete. */
-  orderedTasks: readonly OpenTask[]
+  orderedTasks: readonly TaskListItem[]
   /** The search box's text, and its setter — Escape clears it. */
   query: string
   setQuery: (value: string) => void
@@ -132,7 +132,7 @@ export function useTaskKeyboard({
       // decides whether insertion is available (Current/note yes, aggregate
       // Overdue/Upcoming no). The pivot must still be selected: `activeKey()` keeps
       // pointing at the last touched row after deselection, which falls back to today.
-      const activeTask = (): OpenTask | undefined => {
+      const activeTask = (): TaskListItem | undefined => {
         const activeKey = selection.activeKey()
         return activeKey !== null && selection.selected.has(activeKey)
           ? tasksByKey.get(activeKey)
@@ -143,10 +143,10 @@ export function useTaskKeyboard({
         scrollToKey(key)
       }
       const mod = isModEvent(event)
-      const selectedTasks = (): OpenTask[] =>
+      const selectedTasks = (): TaskListItem[] =>
         [...selection.selected]
           .map((key) => tasksByKey.get(key))
-          .filter((task): task is OpenTask => task !== undefined)
+          .filter((task): task is TaskListItem => task !== undefined)
 
       if (inSearch) {
         if (event.key === 'Escape') {
@@ -168,8 +168,6 @@ export function useTaskKeyboard({
         // above via OWNS_KEYS and continues the entry there), so this fires from the
         // list itself: insert, then select the new row to open its editor focused.
         // A null target means the active row is Overdue/Upcoming — nothing to add to.
-        // Skip while a write is in flight so a held/rapid Return can't append several
-        // empty rows before the first insert's editor takes focus.
         event.preventDefault()
         const active = activeTask()
         const taskTarget =
@@ -178,16 +176,14 @@ export function useTaskKeyboard({
             : active.breadcrumbs.length > 0
               ? insertTargetForTask(active)
               : insertTargetForBucket(active, today)
-        if (taskTarget !== null && !actions.isPending) {
-          const insertion =
+        if (taskTarget !== null) {
+          const created =
             active !== undefined && active.breadcrumbs.length > 0
-              ? actions.insertAfter(active, null, taskTarget)
+              ? actions.insertAfter(active, taskTarget)
               : actions.insert(taskTarget)
-          void insertion.then((created) => {
-            if (created !== null) {
-              selectExclusively(taskKey(created))
-            }
-          })
+          if (created !== null) {
+            selectExclusively(taskKey(created))
+          }
         }
       } else if (mod && event.key === 'Backspace') {
         event.preventDefault()

@@ -2,7 +2,7 @@ import { useTasksView } from '@/lib/tasks/use-tasks-view.ts'
 import { useDeferredValue, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CircleCheck, Plus, SlidersHorizontal } from 'lucide-react'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
@@ -56,7 +56,7 @@ export function MobileTasks(): ReactElement {
   const [revealedTaskKey, setRevealedTaskKey] = useState<string | null>(null)
   // The sheet's task sticks around after close so the exit animation has
   // content; `sheetOpen` alone drives visibility.
-  const [editingTask, setEditingTask] = useState<OpenTask | null>(null)
+  const [editingTask, setEditingTask] = useState<TaskListItem | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   // Whether the current sheet visit should open with the editor focused
   // (keyboard up) — set per visit: true for "+"-added tasks, false for row taps.
@@ -115,7 +115,7 @@ export function MobileTasks(): ReactElement {
     return groups.flatMap((group) => group.tasks).find((row) => taskKey(row) === key) ?? editingTask
   }, [groups, editingTask])
 
-  const editTask = (task: OpenTask, options?: { autoFocus?: boolean; haptic?: boolean }): void => {
+  const editTask = (task: TaskListItem, options?: { autoFocus?: boolean; haptic?: boolean }): void => {
     if (options?.haptic !== false) {
       hapticImpactLight()
     }
@@ -130,11 +130,10 @@ export function MobileTasks(): ReactElement {
   const onAdd = (target: InsertTaskTarget): void => {
     hapticImpactLight()
     setQuery('')
-    void actions.insert(target).then((created) => {
-      if (created !== null) {
-        editTask(created, { autoFocus: true, haptic: false })
-      }
-    })
+    const created = actions.insert(target)
+    if (created !== null) {
+      editTask(created, { autoFocus: true, haptic: false })
+    }
   }
 
   const archiveCompleted = (): void => {

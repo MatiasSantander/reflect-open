@@ -1,6 +1,6 @@
 import { compareTaskPaths } from '../markdown/task-path.ts'
 import { displayNoteTitle } from '../markdown/note-title.ts'
-import type { TaskListItem as OpenTask } from './queries-tasks.ts'
+import type { TaskListItem } from './queries-tasks.ts'
 
 /**
  * Grouping for the Tasks view (Plan 18), faithful to V1's `task-view.ts`: open
@@ -29,7 +29,7 @@ export interface TaskGroup {
   label: string
   /** The note a `note` group's header opens; null for the date buckets. */
   notePath: string | null
-  tasks: OpenTask[]
+  tasks: TaskListItem[]
 }
 
 const PUNCTUATION_RE = /[\p{P}\p{S}]/gu
@@ -52,7 +52,7 @@ export interface TaskContext {
   readonly breadcrumbs: readonly string[]
   /** What the UI labels this context ({@link visibleTaskBreadcrumbs}); empty → unlabeled. */
   readonly visibleBreadcrumbs: readonly string[]
-  readonly tasks: readonly OpenTask[]
+  readonly tasks: readonly TaskListItem[]
 }
 
 function haveSameBreadcrumbs(left: readonly string[], right: readonly string[]): boolean {
@@ -60,11 +60,11 @@ function haveSameBreadcrumbs(left: readonly string[], right: readonly string[]):
 }
 
 /** Group consecutive task rows that share the same parent outline context. */
-export function groupTaskContexts(tasks: readonly OpenTask[]): TaskContext[] {
+export function groupTaskContexts(tasks: readonly TaskListItem[]): TaskContext[] {
   const contexts: {
     breadcrumbs: readonly string[]
     visibleBreadcrumbs: readonly string[]
-    tasks: OpenTask[]
+    tasks: TaskListItem[]
   }[] = []
 
   for (const task of tasks) {
@@ -84,7 +84,7 @@ export function groupTaskContexts(tasks: readonly OpenTask[]): TaskContext[] {
 }
 
 /** The date a task is bucketed by: its explicit due date, else its note's date. */
-function effectiveDate(task: OpenTask): string | null {
+function effectiveDate(task: TaskListItem): string | null {
   return task.dueDate ?? task.dailyDate
 }
 
@@ -94,7 +94,7 @@ function effectiveDate(task: OpenTask): string | null {
  * joins) can place one task without rebuilding every group. `today` is an ISO
  * `YYYY-MM-DD`. `'note'` means undated (grouped under its source note).
  */
-export function taskDateBucket(task: OpenTask, today: string): TaskGroupKind {
+export function taskDateBucket(task: TaskListItem, today: string): TaskGroupKind {
   const date = effectiveDate(task)
   if (date === null) {
     return 'note'
@@ -109,7 +109,7 @@ export function taskDateBucket(task: OpenTask, today: string): TaskGroupKind {
 }
 
 /** Within a date bucket: earliest effective date first, then document order. */
-function compareDated(left: OpenTask, right: OpenTask): number {
+function compareDated(left: TaskListItem, right: TaskListItem): number {
   // Every task in a date bucket has an effective date; ISO `YYYY-MM-DD` sorts
   // chronologically. (The `?? ''` only satisfies the type — it never fires here.)
   const leftDate = effectiveDate(left) ?? ''
@@ -134,8 +134,8 @@ function compareDated(left: OpenTask, right: OpenTask): number {
  * encodes in SQL ({@link getPinnedNotes}), so the two can't drift.
  */
 function comparePinPrecedence(
-  left: Pick<OpenTask, 'isPinned' | 'pinnedOrder'>,
-  right: Pick<OpenTask, 'isPinned' | 'pinnedOrder'>,
+  left: Pick<TaskListItem, 'isPinned' | 'pinnedOrder'>,
+  right: Pick<TaskListItem, 'isPinned' | 'pinnedOrder'>,
 ): number {
   if (left.isPinned !== right.isPinned) {
     return left.isPinned ? -1 : 1 // pinned before unpinned
@@ -179,11 +179,11 @@ function compareNoteGroups(left: TaskGroup, right: TaskGroup): number {
  * Current → Overdue → Upcoming → per-note. Pure and self-sorting, so it does not
  * depend on the order the index read returns.
  */
-export function groupTasks(tasks: readonly OpenTask[], today: string): TaskGroup[] {
-  const current: OpenTask[] = []
-  const overdue: OpenTask[] = []
-  const upcoming: OpenTask[] = []
-  const byNote = new Map<string, OpenTask[]>()
+export function groupTasks(tasks: readonly TaskListItem[], today: string): TaskGroup[] {
+  const current: TaskListItem[] = []
+  const overdue: TaskListItem[] = []
+  const upcoming: TaskListItem[] = []
+  const byNote = new Map<string, TaskListItem[]>()
 
   for (const task of tasks) {
     const date = effectiveDate(task)

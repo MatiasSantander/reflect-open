@@ -25,10 +25,10 @@ describe('AST task mutations', () => {
     expect(result.paths.get('[0,1]')).toEqual([0])
   })
   it('creates and continues empty tasks', () => {
-    const initial = editTaskDocument('', [], true)
+    const initial = editTaskDocument('', [], { text: '' })
     expect(initial.createdPath).toEqual([0])
     const next = editTaskDocument(initial.source, [
-      { astPath: [0], text: 'first', insertAfter: true },
+      { astPath: [0], text: 'first', insertAfter: { text: '' } },
     ])
     expect(next.createdPath).toEqual([1])
     expect(next.tasks.map((task) => task.text)).toEqual(['first', ''])

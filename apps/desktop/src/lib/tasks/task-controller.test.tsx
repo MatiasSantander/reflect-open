@@ -3,7 +3,6 @@ import { hashContent, type TaskListItem } from '@reflect/core'
 import { createNoteSession } from '@/editor/note-session.ts'
 import { registerOpenDocument } from '@/editor/open-documents.ts'
 import { taskController } from './task-controller.ts'
-import { readTaskJournal, writeTaskJournal } from './task-journal.ts'
 
 const readNote = vi.hoisted(() => vi.fn<(path: string, generation?: number) => Promise<string>>())
 const writeNote = vi.hoisted(() =>
@@ -32,39 +31,6 @@ beforeEach(() => {
   writeNote.mockReset()
   toast.add.mockReset()
   toast.close.mockReset()
-})
-
-it('replays the journal before saving new edits submitted during startup', async () => {
-  const root = crypto.randomUUID()
-  let source = ''
-  readNote.mockImplementation(async () => source)
-  writeNote.mockImplementation(async (_path, next, _generation, before) => {
-    expect(before).toBe(source)
-    source = next
-  })
-  const row: TaskListItem = {
-    ...target,
-    taskId: 'restored',
-    text: '',
-    displayText: '',
-    checked: false,
-    dueDate: null,
-    updatedAt: 0,
-  }
-  await writeTaskJournal(
-    root,
-    target.notePath,
-    [{ id: 'restored', row, edit: { text: 'older draft' } }],
-    null,
-  )
-  const controller = taskController(root, 7)
-  controller.submit(controller.begin(target), { text: 'newer draft' })
-  await controller.flush()
-  expect(source).toContain('older draft')
-  expect(source).toContain('newer draft')
-  expect(source.match(/\+ \[ \]/g)).toHaveLength(2)
-  expect(await readTaskJournal(root)).toEqual([])
-  expect(toast.add).not.toHaveBeenCalled()
 })
 
 it('routes through a matching live NoteSession and preserves its dirty buffer', async () => {

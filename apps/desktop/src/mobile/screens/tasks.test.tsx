@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
 import { page, userEvent, type Locator } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { makeOpenTask as task } from '@/lib/tasks/open-task-fixture.ts'
 import { resetRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
 import { RouterProvider, useRouter } from '@/routing/router.tsx'
@@ -590,7 +590,7 @@ describe('MobileTasks', () => {
   it('keeps open tasks visible while the archived history is still loading', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
     getOpenTasks.mockResolvedValue([task({ displayText: 'still open' })])
-    getCompletedTasks.mockReturnValue(new Promise<OpenTask[]>(() => {}))
+    getCompletedTasks.mockReturnValue(new Promise<TaskListItem[]>(() => {}))
     const view = await renderScreen()
 
     // The open groups render; the pending completed query must not blank them.

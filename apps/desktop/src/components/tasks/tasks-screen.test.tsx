@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
 import { userEvent, type Locator } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { act, useEffect, useState, type MutableRefObject, type ReactNode } from 'react'
 import { queryKeys } from '@/lib/query-client.ts'
 import { makeOpenTask as task } from '@/lib/tasks/open-task-fixture.ts'
@@ -296,9 +296,9 @@ describe('TasksScreen', () => {
   it('does not flash an empty state while archived tasks are still loading', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
     getOpenTasks.mockResolvedValue([])
-    let resolveCompleted: (rows: OpenTask[]) => void = () => {}
+    let resolveCompleted: (rows: TaskListItem[]) => void = () => {}
     getCompletedTasks.mockReturnValue(
-      new Promise<OpenTask[]>((resolve) => {
+      new Promise<TaskListItem[]>((resolve) => {
         resolveCompleted = resolve
       }),
     )

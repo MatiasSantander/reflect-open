@@ -14,10 +14,9 @@ export * from './exports/ai-actions.ts'
 export * from './exports/link-preview.ts'
 export * from './exports/sync-markdown-indexing.ts'
 export {
-  createTaskController,
+  TaskController,
   taskListKey,
   type TaskControllerIO,
   type TaskCommand,
-  type TaskAttempt,
   type TaskChange,
 } from './tasks/task-controller.ts'

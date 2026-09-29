@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import { taskKey } from './task-identity.ts'
@@ -31,16 +31,15 @@ function makeActions(over: Partial<TaskActions> = {}): TaskActions {
     complete: vi.fn(),
     toggle: vi.fn(),
     remove: vi.fn(),
-    edit: vi.fn(),
     checkboxToggle: vi.fn(),
-    insert: vi.fn().mockResolvedValue(null),
-    insertAfter: vi.fn().mockResolvedValue(null),
-    editAndToggle: vi.fn(),
+    draft: vi.fn(),
+    discardDraft: vi.fn(),
+    commitDraft: vi.fn().mockReturnValue(null),
+    insert: vi.fn().mockReturnValue(null),
+    insertAfter: vi.fn().mockReturnValue(null),
     schedule: vi.fn(),
     convertToBullet: vi.fn(),
-    editAndConvertToBullet: vi.fn(),
     archive: vi.fn(),
-    isPending: false,
     ...over,
   }
 }
@@ -60,8 +59,8 @@ afterEach(() => {
 async function mount(options: {
   selection?: TaskSelection
   actions?: TaskActions
-  tasksByKey?: ReadonlyMap<string, OpenTask>
-  orderedTasks?: OpenTask[]
+  tasksByKey?: ReadonlyMap<string, TaskListItem>
+  orderedTasks?: TaskListItem[]
   query?: string
   today?: string
 }) {
@@ -337,7 +336,7 @@ describe('useTaskKeyboard', () => {
       astPath: [0],
       displayText: '',
     })
-    const insert = vi.fn().mockResolvedValue(created)
+    const insert = vi.fn().mockReturnValue(created)
     const { selection } = await mount({
       actions: makeActions({ insert }),
       today: '2026-06-15',
@@ -369,7 +368,7 @@ describe('useTaskKeyboard', () => {
       pinnedOrder: 3,
     })
     const other = task({ notePath: 'notes/z.md', noteTitle: 'Z' })
-    const insert = vi.fn().mockResolvedValue(null)
+    const insert = vi.fn().mockReturnValue(null)
     // Two notes selected; the pivot ('a') is the row last touched even though 'z'
     // renders later — the new task must join 'a', not 'z'.
     const selection = makeSelection({
@@ -403,8 +402,8 @@ describe('useTaskKeyboard', () => {
       breadcrumbs: ['Project', 'Phase one'],
       dueDate: '2026-06-15',
     })
-    const insert = vi.fn().mockResolvedValue(null)
-    const insertAfter = vi.fn().mockResolvedValue(null)
+    const insert = vi.fn().mockReturnValue(null)
+    const insertAfter = vi.fn().mockReturnValue(null)
     const selection = makeSelection({
       selected: new Set(['grouped']),
       selectedCount: 1,
@@ -417,7 +416,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Enter')
-    expect(insertAfter).toHaveBeenCalledWith(grouped, null, {
+    expect(insertAfter).toHaveBeenCalledWith(grouped, {
       notePath: 'notes/a.md',
       noteTitle: 'A',
       dailyDate: null,
@@ -429,7 +428,7 @@ describe('useTaskKeyboard', () => {
 
   it('Return falls to today’s daily when the pivot is no longer selected', async () => {
     const deselected = task({ notePath: 'notes/a.md', noteTitle: 'A' })
-    const insert = vi.fn().mockResolvedValue(null)
+    const insert = vi.fn().mockReturnValue(null)
     // The pivot still points at 'k' (last touched), but a ⌘-click deselected it —
     // nothing is selected now, so Return adds to today's daily, not 'k'.
     const selection = makeSelection({

@@ -1,4 +1,4 @@
-import { groupTasks, type TaskListItem as OpenTask, type TaskGroup } from '@reflect/core'
+import { groupTasks, type TaskListItem, type TaskGroup } from '@reflect/core'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 import type { TaskFilters } from '@/lib/tasks/task-filters.ts'
 
@@ -20,11 +20,11 @@ export function visibleGroups(groups: TaskGroup[], filters: TaskFilters): TaskGr
 
 export interface TaskListSources {
   /** The open-tasks query data (`undefined` while loading). */
-  readonly open: OpenTask[] | undefined
+  readonly open: TaskListItem[] | undefined
   /** The completed-tasks query data — only read when `filters.archived` is on. */
-  readonly completed: OpenTask[] | undefined
+  readonly completed: TaskListItem[] | undefined
   /** This session's completed tasks, still showing struck until archived. */
-  readonly recentlyCompleted: readonly OpenTask[]
+  readonly recentlyCompleted: readonly TaskListItem[]
   readonly filters: TaskFilters
   /** The search text, already trimmed and lowercased (empty = no filter). */
   readonly needle: string
@@ -32,7 +32,7 @@ export interface TaskListSources {
   readonly today: string
 }
 
-function taskMatchesNeedle(task: OpenTask, needle: string): boolean {
+function taskMatchesNeedle(task: TaskListItem, needle: string): boolean {
   return [task.displayText, task.noteTitle, ...task.breadcrumbs].some((text) =>
     text.toLowerCase().includes(needle),
   )

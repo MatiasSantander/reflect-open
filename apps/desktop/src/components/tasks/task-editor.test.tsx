@@ -2,7 +2,7 @@ import { useState, useSyncExternalStore } from 'react'
 import { render, cleanup } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { createTaskController, type TaskListItem } from '@reflect/core'
+import { TaskController, type TaskListItem } from '@reflect/core'
 import '@/test-utils/locator.ts'
 import { TaskEditor } from './task-editor.tsx'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
@@ -35,7 +35,7 @@ const target = {
   pinnedOrder: null,
 }
 let source: string | null
-let controller: ReturnType<typeof createTaskController>
+let controller: TaskController
 const write = vi.fn<(path: string, before: string | null, next: string) => Promise<void>>()
 const failure = vi.fn()
 
@@ -48,10 +48,9 @@ beforeEach(() => {
       source = next
     })
   failure.mockReset()
-  controller = createTaskController({
+  controller = new TaskController({
     read: async () => source,
     write,
-    checkpoint: async () => {},
     saved: () => {},
     failure,
   })
@@ -69,13 +68,10 @@ function Harness({ initial }: { initial: TaskListItem }) {
         <TaskEditor
           key={task.taskId}
           task={task}
-          onCommit={(text) => {
-            actions.edit(task, text)
-            setActive(null)
-          }}
-          onContinue={(text) => {
-            void actions.insertAfter(task, text, target).then(setActive)
-          }}
+          onContinue={() => setActive(actions.insertAfter(task, target))}
+          onCancel={() => setActive(null)}
+          onComplete={() => {}}
+          onConvertToBullet={() => {}}
           onDelete={() => {
             actions.remove([task])
             setActive(null)
@@ -84,27 +80,24 @@ function Harness({ initial }: { initial: TaskListItem }) {
             actions.remove([task])
             setActive(null)
           }}
-          onCancel={() => setActive(null)}
-          onComplete={() => {}}
-          onCheckboxToggle={() => {}}
-          onConvertToBullet={() => {}}
-          onFlush={(text) => actions.edit(task, text)}
           onNavigate={() => {}}
         />
       )}
-      <button type="button">Outside</button>
+      <button type="button" onClick={() => setActive(null)}>
+        Close
+      </button>
     </>
   )
 }
 
-it('keeps typing inside the real editor without publishing task state until blur', async () => {
+it('keeps typing inside the real editor without publishing task state until the edit ends', async () => {
   const initial = controller.begin({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
   const version = controller.snapshot()
   await userEvent.type(page.locate('.ProseMirror'), '你好，任务内容')
   expect(controller.snapshot()).toBe(version)
   expect(write).not.toHaveBeenCalled()
-  await userEvent.click(page.getByRole('button', { name: 'Outside' }))
+  await userEvent.click(page.getByRole('button', { name: 'Close' }))
   await vi.waitFor(() => expect(source).toContain('你好，任务内容'))
   expect(write).toHaveBeenCalledOnce()
 })
@@ -112,7 +105,7 @@ it('keeps typing inside the real editor without publishing task state until blur
 it('abandons an untouched placeholder without any file write', async () => {
   const initial = controller.begin({ ...target, breadcrumbs: [] })
   await render(<Harness initial={initial} />)
-  await userEvent.click(page.getByRole('button', { name: 'Outside' }))
+  await userEvent.click(page.getByRole('button', { name: 'Close' }))
   await controller.flush()
   expect(write).not.toHaveBeenCalled()
   await vi.waitFor(() => expect(controller.project([], false)).toEqual([]))
@@ -134,7 +127,7 @@ it('continues through twenty real editor instances while the first save is block
   expect(controller.project([], false)).toHaveLength(21)
   gate.resolve()
   await controller.flush()
-  await userEvent.click(page.getByRole('button', { name: 'Outside' }))
+  await userEvent.click(page.getByRole('button', { name: 'Close' }))
   expect(source?.match(/\+ \[ \]/g)).toHaveLength(20)
   await vi.waitFor(() => expect(controller.project([], false)).toHaveLength(20))
   expect(failure).not.toHaveBeenCalled()
@@ -155,7 +148,27 @@ it('does not submit the task when Enter confirms an IME composition', async () =
   editor
     .element()
     .dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '中文任务' }))
-  await userEvent.click(page.getByRole('button', { name: 'Outside' }))
+  await userEvent.click(page.getByRole('button', { name: 'Close' }))
   await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
   expect(source).toContain('中文任务')
+})
+
+it('discards the draft on Escape and deletes an emptied task', async () => {
+  source = '+ [ ] keep\n'
+  const row: TaskListItem = {
+    ...target,
+    revision: 'r1',
+    astPath: [0],
+    text: 'keep',
+    displayText: 'keep',
+    checked: false,
+    dueDate: null,
+    breadcrumbs: [],
+    updatedAt: 0,
+  }
+  await render(<Harness initial={row} />)
+  await userEvent.type(page.locate('.ProseMirror'), ' more')
+  await userEvent.keyboard('{Escape}')
+  await controller.flush()
+  expect(write).not.toHaveBeenCalled()
 })

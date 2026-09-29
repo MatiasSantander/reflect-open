@@ -1,4 +1,4 @@
-import type { createTaskController, TaskChange, TaskListItem } from '@reflect/core'
+import type { TaskChange, TaskController, TaskListItem } from '@reflect/core'
 import { taskListKey, inlineMarkdownToDisplayText } from '@reflect/core'
 
 interface TaskControllerStubIO {
@@ -10,11 +10,13 @@ interface TaskControllerStubIO {
   fail: (error: string) => void
 }
 
+/** The public surface of the task controller, for screen tests without file IO. */
+export type TaskControllerStub = Pick<TaskController, keyof TaskController>
+
 /** A command-boundary stub for screen interaction tests, without file IO. */
-export function createTaskControllerStub(
-  io: TaskControllerStubIO,
-): ReturnType<typeof createTaskController> {
+export function createTaskControllerStub(io: TaskControllerStubIO): TaskControllerStub {
   const rows = new Map<string, TaskListItem | null>()
+  const drafts = new Map<string, string>()
   const listeners = new Set<() => void>()
   let version = 0
   const emit = () => {
@@ -22,7 +24,7 @@ export function createTaskControllerStub(
     for (const listener of listeners) listener()
   }
   const current = (row: TaskListItem) => rows.get(taskListKey(row)) ?? row
-  const submit = (row: TaskListItem, edit: TaskChange) => {
+  const enqueue = (row: TaskListItem, edit: TaskChange) => {
     const key = taskListKey(row)
     const before = current(row)
     const text = edit.text ?? before.text
@@ -47,6 +49,17 @@ export function createTaskControllerStub(
       }
     })()
   }
+  const commitDraft = (row: TaskListItem): TaskListItem | null => {
+    const key = taskListKey(row)
+    const text = (drafts.get(key) ?? current(row).text).trim()
+    drafts.delete(key)
+    if (text === '') {
+      enqueue(row, { remove: true })
+      return null
+    }
+    if (text !== current(row).text.trim()) enqueue(row, { text })
+    return current(row)
+  }
   return {
     begin(target, after) {
       void io.begin(target.notePath, 1)
@@ -64,7 +77,25 @@ export function createTaskControllerStub(
       emit()
       return row
     },
-    submit,
+    draft(row, text) {
+      drafts.set(taskListKey(row), text)
+    },
+    discardDraft(row) {
+      drafts.delete(taskListKey(row))
+    },
+    commitDraft,
+    submit(row, edit) {
+      const key = taskListKey(row)
+      if (edit.remove) drafts.delete(key)
+      else if (drafts.has(key) && commitDraft(row) === null) return
+      if (edit.dueDate !== undefined) {
+        const text = current(row).text
+        edit = {
+          text: edit.dueDate === null ? text : `${text} [[${edit.dueDate}]]`.trim(),
+        }
+      }
+      enqueue(row, edit)
+    },
     current,
     projectRecent: (recent) =>
       recent.flatMap((row) => {
@@ -86,7 +117,6 @@ export function createTaskControllerStub(
       }
     },
     snapshot: () => version,
-    restore: () => {},
     reconcile: async () => {},
     flush: async () => {},
   }

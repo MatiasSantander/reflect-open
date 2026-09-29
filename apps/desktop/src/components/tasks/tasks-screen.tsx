@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
-import type { TaskListItem as OpenTask, TaskGroup } from '@reflect/core'
+import type { TaskListItem, TaskGroup } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
@@ -149,17 +149,16 @@ export function TasksScreen(): ReactElement {
     scrollToKey(focusedSelectedKey(selectedTaskKeys, activeTaskKey))
   }, [activeTaskKey, orderedKeys, scrollToKey, selectedTaskKeys])
   // The group headers' "+ Add" (V1): drop any search filter so the new row is
-  // visible, write it, then select it so its editor opens focused.
+  // visible, add it, then select it so its editor opens focused.
   const onAdd = useCallback(
     (target: InsertTaskTarget) => {
       setQuery('')
-      void actions.insert(target).then((created) => {
-        if (created !== null) {
-          const key = taskKey(created)
-          selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
-          scrollToKey(key)
-        }
-      })
+      const created = actions.insert(target)
+      if (created !== null) {
+        const key = taskKey(created)
+        selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
+        scrollToKey(key)
+      }
     },
     [actions, selection, scrollToKey],
   )
@@ -167,14 +166,14 @@ export function TasksScreen(): ReactElement {
   // toolbar actions (schedule, convert) act on. A row whose key no longer
   // resolves (pruned by a reindex) is dropped rather than acted on.
   const selectedTasks = useCallback(
-    (): OpenTask[] =>
+    (): TaskListItem[] =>
       [...selection.selected]
         .map((key) => tasksByKey.get(key))
-        .filter((task): task is OpenTask => task !== undefined),
+        .filter((task): task is TaskListItem => task !== undefined),
     [selection, tasksByKey],
   )
   const onSelectionCheckboxToggle = useCallback(
-    (task: OpenTask) => {
+    (task: TaskListItem) => {
       const tasks = selectedTasks()
       if (tasks.length <= 1 || !tasks.some((selectedTask) => sameTask(selectedTask, task))) {
         actions.checkboxToggle(task)
@@ -197,20 +196,10 @@ export function TasksScreen(): ReactElement {
     [actions, selection, selectedTasks],
   )
   // Convert the current selection to plain bullets (the toolbar / ⌘⇧K): the rows
-  // leave the Tasks view, so deselect after, like scheduling. When a single row is
-  // being inline-edited it holds a flush-then-convert trigger here — route through
-  // it so the unsaved draft is saved first, never written stale by the convert
-  // landing ahead of the editor's commit (the keyboard ⌘⇧K hits the editor's own
-  // keymap; this covers the toolbar button and an unfocused sole selection).
-  const convertControllerRef = useRef<(() => void) | null>(null)
+  // leave the Tasks view, so deselect after, like scheduling.
   const onConvertToBullet = useCallback(() => {
-    const convertEditing = convertControllerRef.current
-    if (convertEditing !== null) {
-      convertEditing()
-    } else {
-      actions.convertToBullet(selectedTasks())
-      selection.clear()
-    }
+    actions.convertToBullet(selectedTasks())
+    selection.clear()
   }, [actions, selection, selectedTasks])
   const openNote = useCallback(
     (path: string, event?: ModClickEvent) =>
@@ -333,11 +322,9 @@ export function TasksScreen(): ReactElement {
                 group={group}
                 selection={selection}
                 editHandlers={editHandlers}
-                taskActionPending={actions.isPending}
                 onSelectionCheckboxToggle={onSelectionCheckboxToggle}
                 today={today}
                 onAdd={onAdd}
-                convertControllerRef={convertControllerRef}
                 onOpen={openNote}
               />
             ))}

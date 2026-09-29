@@ -1,11 +1,11 @@
-import { Fragment, type MutableRefObject, type ReactElement } from 'react'
+import { Fragment, type ReactElement } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type TaskListItem as OpenTask, type TaskGroup } from '@reflect/core'
+import { groupTaskContexts, type TaskListItem, type TaskGroup } from '@reflect/core'
 import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
 import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
-import type { TaskRowEditHandlers } from '@/lib/tasks/use-task-row-handlers.ts'
+import type { TaskEditHandlers } from './task-editor.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { TaskBreadcrumbs } from './task-breadcrumbs.tsx'
@@ -15,17 +15,13 @@ interface TaskGroupSectionProps {
   group: TaskGroup
   selection: TaskSelection
   /** The inline-editor callbacks for a row, built once by the screen. */
-  editHandlers: (task: OpenTask) => TaskRowEditHandlers
-  /** Whether a Tasks-view write is already in flight. */
-  taskActionPending: boolean
+  editHandlers: (task: TaskListItem) => TaskEditHandlers
   /** Complete/reopen the selected rows using the clicked task's next checkbox state. */
-  onSelectionCheckboxToggle: (task: OpenTask) => void
+  onSelectionCheckboxToggle: (task: TaskListItem) => void
   /** Today's ISO date — the Current group's "+ Add" targets today's daily. */
   today: string
   /** Add a task to this group and open its editor (the header's "+ Add", V1). */
   onAdd: (target: InsertTaskTarget) => void
-  /** Holds the editing row's flush-then-convert trigger for the toolbar button. */
-  convertControllerRef: MutableRefObject<(() => void) | null>
   onOpen: (notePath: string, event?: ModClickEvent) => void
 }
 
@@ -39,11 +35,9 @@ export function TaskGroupSection({
   group,
   selection,
   editHandlers,
-  taskActionPending,
   onSelectionCheckboxToggle,
   today,
   onAdd,
-  convertControllerRef,
   onOpen,
 }: TaskGroupSectionProps): ReactElement {
   const showSource = group.kind !== 'note'
@@ -103,12 +97,10 @@ export function TaskGroupSection({
                       showSource={showSource}
                       selected={selected}
                       editing={selection.isSoleSelected(key)}
-                      taskActionPending={taskActionPending}
                       togglesSelection={selected && selection.selectedCount > 1}
                       onSelect={(event) => selection.clickSelect(key, event)}
                       onSelectionCheckboxToggle={() => onSelectionCheckboxToggle(task)}
-                      {...editHandlers(task)}
-                      convertControllerRef={convertControllerRef}
+                      editHandlers={editHandlers(task)}
                       onOpen={onOpen}
                     />
                   )

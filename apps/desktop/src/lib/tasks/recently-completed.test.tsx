@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { TaskListItem as OpenTask } from '@reflect/core'
+import type { TaskListItem } from '@reflect/core'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import {
   archiveRecentlyCompleted,
@@ -107,11 +107,11 @@ describe('recently-completed', () => {
   it('useRecentlyCompleted reconciles against the open rows it is given', async () => {
     const { result, rerender } = await renderHook(
       (
-        { open }: { open: readonly OpenTask[] | undefined } = {
+        { open }: { open: readonly TaskListItem[] | undefined } = {
           open: undefined,
         },
       ) => useRecentlyCompleted('/g', open),
-      { initialProps: { open: undefined as readonly OpenTask[] | undefined } },
+      { initialProps: { open: undefined as readonly TaskListItem[] | undefined } },
     )
     act(() =>
       markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [2], updatedAt: 100 })]),
@@ -135,7 +135,7 @@ describe('recently-completed', () => {
     const lengths: number[] = []
     const { rerender } = await renderHook(
       (
-        { open }: { open: readonly OpenTask[] | undefined } = {
+        { open }: { open: readonly TaskListItem[] | undefined } = {
           open: undefined,
         },
       ) => {
@@ -143,7 +143,7 @@ describe('recently-completed', () => {
         lengths.push(rows.length)
         return rows
       },
-      { initialProps: { open: undefined as readonly OpenTask[] | undefined } },
+      { initialProps: { open: undefined as readonly TaskListItem[] | undefined } },
     )
     act(() =>
       markRecentlyCompleted('/g', [task({ notePath: 'a.md', astPath: [2], updatedAt: 100 })]),

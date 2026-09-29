@@ -11,6 +11,14 @@ import { getTaskParagraph, projectTaskDocument } from './task-projection.ts'
 import { encodeTaskPath } from './task-path.ts'
 import { protectTaskParagraph } from './task-paragraph.ts'
 
+/** A list item to create: its paragraph text and marker. */
+export interface NewTask {
+  text: string
+  checked?: boolean | undefined
+  /** Create a plain `+` bullet instead of a checkbox. */
+  bullet?: boolean | undefined
+}
+
 /** Structural changes applied atomically to one revision of a note. */
 export interface TaskEdit {
   astPath: readonly number[]
@@ -19,16 +27,30 @@ export interface TaskEdit {
   text?: string | undefined
   remove?: boolean | undefined
   toBullet?: boolean | undefined
-  insertAfter?: boolean | undefined
-  insertText?: string | undefined
+  /** A new item to place right after this one. */
+  insertAfter?: NewTask | undefined
 }
 
-/** Edit a note's task nodes and serialize its entire body. */
-export function editTaskDocument(
-  source: string,
-  edits: readonly TaskEdit[],
-  append: boolean | string = false,
-) {
+function createItem(task: NewTask): MarkdownListItem {
+  const item: MarkdownListItem = {
+    type: 'listItem',
+    kind: task.bullet ? 'bullet' : 'task',
+    checked: task.bullet ? false : (task.checked ?? false),
+    collapsed: task.bullet === true,
+    marker: '+',
+    children: [{ type: 'paragraph', value: task.text }],
+  }
+  protectTaskParagraph(item)
+  return item
+}
+
+/**
+ * Edit a note's task nodes and serialize its entire body. `append` adds a new
+ * item at the end of the document. Returns the new source, a map from each
+ * surviving task's old AST path to its new one, the created item's path, and
+ * the projected tasks (round tasks outside quotes, then every checkbox).
+ */
+export function editTaskDocument(source: string, edits: readonly TaskEdit[], append?: NewTask) {
   const { body, bodyOffset } = splitFrontmatter(source)
   const document = parseMarkdownAst(body)
   const originals = new Map<MarkdownListItem, readonly number[]>()
@@ -60,20 +82,8 @@ export function editTaskDocument(
     }
     return { edit, item: entry.node, paragraph }
   })
-  let changed = append !== false
+  let changed = append !== undefined
   let created: MarkdownListItem | undefined
-  const create = (text: string): MarkdownListItem => {
-    const item: MarkdownListItem = {
-      type: 'listItem',
-      kind: 'task',
-      checked: false,
-      collapsed: false,
-      marker: '+',
-      children: [{ type: 'paragraph', value: text }],
-    }
-    protectTaskParagraph(item)
-    return item
-  }
   for (const { edit, item, paragraph } of targets) {
     if (edit.text !== undefined && paragraph.value !== edit.text) {
       paragraph.value = edit.text
@@ -94,7 +104,9 @@ export function editTaskDocument(
       protectTaskParagraph(item)
     }
     if (edit.remove || edit.insertAfter) {
-      // Earlier splices can change sibling indexes within this batch.
+      // Splices made for earlier edits in this batch shift sibling indexes, so
+      // the parent and index are looked up again rather than taken from the
+      // initial path resolution.
       const entry = [...walkMarkdownAst(document)].find((entry) => entry.node === item)
       const parent = entry?.parent
       if (
@@ -108,23 +120,21 @@ export function editTaskDocument(
       }
       const replacements: MarkdownBlock[] = edit.remove ? item.children.slice(1) : [item]
       if (edit.insertAfter) {
-        created = create(edit.insertText ?? '')
+        created = createItem(edit.insertAfter)
         replacements.push(created)
       }
       parent.children.splice(entry.index, 1, ...replacements)
       changed = true
     }
   }
-  if (append !== false) {
+  if (append !== undefined) {
     if (body === '') document.children = []
-    created = create(typeof append === 'string' ? append : '')
+    created = createItem(append)
     document.children.push(created)
   }
   const nextSource = changed ? source.slice(0, bodyOffset) + serializeMarkdownAst(document) : source
-  const nextBody = splitFrontmatter(nextSource).body
-  const reparsedDocument = parseMarkdownAst(nextBody)
-  const mutatedEntries = [...walkMarkdownAst(document)]
-  const mutatedPaths = new Map(mutatedEntries.map(({ node, path }) => [node, path]))
+  const reparsedDocument = parseMarkdownAst(splitFrontmatter(nextSource).body)
+  const mutatedPaths = new Map([...walkMarkdownAst(document)].map(({ node, path }) => [node, path]))
   // Check only paragraphs this operation edits, before the caller writes anything.
   for (const { edit, item } of targets) {
     if (edit.remove || (edit.text === undefined && !edit.toBullet)) continue
@@ -141,9 +151,11 @@ export function editTaskDocument(
       throw new Error('The edited task paragraph cannot be preserved. Refresh the task list.')
     }
   }
-  const finalTasks = projectTaskDocument(reparsedDocument).tasks
-  const allTasks = projectTaskDocument(reparsedDocument, true).tasks
-  const mutatedTasks = projectTaskDocument(document, true).tasks
+  const tasks = projectTaskDocument(reparsedDocument)
+  const allTasks = projectTaskDocument(reparsedDocument, true)
+  const mutatedTasks = projectTaskDocument(document, true)
+  // Old paths map to new ones only when the serialized document reads back
+  // with the task structure the in-memory mutation produced.
   const sameTaskProjection = JSON.stringify(mutatedTasks) === JSON.stringify(allTasks)
   const finalTaskPaths = new Set(allTasks.map((task) => encodeTaskPath(task.astPath)))
   const paths = new Map<string, readonly number[]>()
@@ -157,5 +169,5 @@ export function editTaskDocument(
     createdPath = created && mutatedPaths.get(created)
   }
   if (created && !createdPath) throw new Error('The new task could not be preserved.')
-  return { source: nextSource, paths, createdPath, tasks: finalTasks, allTasks }
+  return { source: nextSource, paths, createdPath, tasks, allTasks }
 }

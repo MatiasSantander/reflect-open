@@ -1,4 +1,4 @@
-import { dailyPath, taskDateBucket, type TaskListItem as OpenTask } from '@reflect/core'
+import { dailyPath, taskDateBucket, type TaskListItem } from '@reflect/core'
 import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 
@@ -11,7 +11,7 @@ import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
  */
 
 /** The note context a new task inherits when added next to `task` (V1: same note/group). */
-export function insertTargetForTask(task: OpenTask): InsertTaskTarget {
+export function insertTargetForTask(task: TaskListItem): InsertTaskTarget {
   return {
     notePath: task.notePath,
     noteTitle: task.noteTitle,
@@ -38,7 +38,7 @@ export function todaysDailyTarget(today: string): InsertTaskTarget {
  * task adds to its own note, and Overdue/Upcoming refuse — those buckets
  * aggregate tasks across many notes, so "add here" has no single home (`null`).
  */
-export function insertTargetForBucket(task: OpenTask, today: string): InsertTaskTarget | null {
+export function insertTargetForBucket(task: TaskListItem, today: string): InsertTaskTarget | null {
   switch (taskDateBucket(task, today)) {
     case 'current':
       return todaysDailyTarget(today)
@@ -54,7 +54,7 @@ export function insertTargetForBucket(task: OpenTask, today: string): InsertTask
  * just above it, or — when it was the first — the row just below (which becomes
  * the new first). `null` when it was the only row, so the caller clears.
  */
-export function previousTaskKey(ordered: readonly OpenTask[], task: OpenTask): string | null {
+export function previousTaskKey(ordered: readonly TaskListItem[], task: TaskListItem): string | null {
   const index = ordered.findIndex((row) => sameTask(row, task))
   if (index === -1) {
     return null
