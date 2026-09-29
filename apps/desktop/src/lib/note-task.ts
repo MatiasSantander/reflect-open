@@ -43,6 +43,7 @@ export async function mutateTasks(
   for (const [path, batch] of notes) await mutateNote(path, batch, generation)
 }
 
+// FIXME: `mutateNote` this function is too complex. try to split it into smaller functions to improve readability and maintainability. Also, consider adding more comments to explain the logic and flow of the function.
 async function mutateNote(
   path: string,
   edits: readonly { task: TaskAddress; edit: Omit<TaskEdit, 'astPath'> }[],
