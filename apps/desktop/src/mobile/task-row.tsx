@@ -32,7 +32,7 @@ interface MobileTaskRowProps {
 
 /**
  * One task row on the mobile Tasks tab (V1 mobile design over Plan 18 data): a
- * round checkbox that toggles the task through the same guarded write-back as
+ * round checkbox that toggles the task through the task store, as on
  * desktop — with a light haptic, V1's check feedback — and the task content
  * rendered as markdown. A completed (struck) row stays visible until archived.
  * Tapping the row body gives the same light confirmation and opens the
@@ -121,7 +121,7 @@ export function MobileTaskRow({
           aria-label={task.checked ? `Reopen: ${label}` : `Complete: ${label}`}
           onClick={() => {
             hapticImpactLight()
-            store?.setChecked([task], !task.checked)
+            store?.update(task, { checked: !task.checked })
           }}
           // A generous touch target around the small glyph; self-stretch keeps
           // the circle vertically centered in the row as task text wraps.

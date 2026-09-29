@@ -118,30 +118,30 @@ vi.mock('./task-editor', async () => {
             type="button"
             onClick={() => {
               draft('edited content')
-              commands.complete([task])
+              commands.complete()
             }}
           >
             complete-edited
           </button>
-          <button type="button" onClick={() => commands.complete([task])}>
+          <button type="button" onClick={() => commands.complete()}>
             complete-unchanged
           </button>
           <button
             type="button"
             onClick={() => {
               draft('edited content')
-              commands.convert([task])
+              commands.convert()
             }}
           >
             convert-edited
           </button>
-          <button type="button" onClick={() => commands.convert([task])}>
+          <button type="button" onClick={() => commands.convert()}>
             convert-unchanged
           </button>
-          <button type="button" onClick={() => commands.remove([task])}>
+          <button type="button" onClick={() => commands.remove()}>
             delete-edit
           </button>
-          <button type="button" onClick={() => commands.removeEmpty(task)}>
+          <button type="button" onClick={() => commands.removeEmpty()}>
             delete-empty-edit
           </button>
           <button type="button" onClick={() => commands.navigate(1, false)}>
@@ -718,6 +718,8 @@ describe('TasksScreen', () => {
     // Select the second row (its editor opens), then ⌫-delete it.
     await userEvent.click(await view.findByRole('button', { name: 'second' }))
     await view.findByTestId('task-editor')
+    // The editor only asks to remove an emptied row.
+    await userEvent.click(view.getByRole('button', { name: 'stage-empty' }))
     await userEvent.click(view.getByRole('button', { name: 'delete-empty-edit' }))
 
     await waitFor(() => expect(harness.notes.get('notes/b.md')).not.toContain('second'))

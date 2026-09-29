@@ -3,7 +3,6 @@ import { Circle, CircleCheck } from 'lucide-react'
 import { displayNoteTitle, type Task } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { formatDayLabel } from '@/lib/dates.ts'
-import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
@@ -19,12 +18,8 @@ interface TaskRowProps {
   selected: boolean
   /** Whether this row is the sole selection — it shows the inline editor. */
   editing: boolean
-  /** Whether this checkbox click should apply to the whole multi-selection. */
-  togglesSelection: boolean
   /** Select the row, honoring ⌘/Ctrl (toggle) and Shift (range) modifiers. */
   onSelect: (event: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey'>) => void
-  /** Checkbox click while part of a multi-selection: apply this row's next state to it. */
-  onSelectionCheckboxToggle: () => void
   /** The view's task commands, which the inline editor binds to its keys. */
   commands: TaskCommands
   onOpen: (notePath: string, event?: ModClickEvent) => void
@@ -32,12 +27,11 @@ interface TaskRowProps {
 
 /**
  * One task row in the Tasks view (V1 design): a circle checkbox that toggles
- * the task through the task controller, the task content with inline date
+ * the task, the task content with inline date
  * and link chips ({@link TaskText}), and a source-note link on the right.
  * Clicking the row body **selects** it (V1's
  * multi-select); a plain click selects exclusively, ⌘/Ctrl toggles, Shift
- * extends a range. Completing optimistically drops the row; an archived
- * (completed) row shows struck through. A checkbox click on any selected row in
+ * extends a range. A completed row shows struck through until archived. A checkbox click on any selected row in
  * a multi-selection completes or reopens the selected rows together.
  */
 export function TaskRow({
@@ -45,14 +39,11 @@ export function TaskRow({
   showSource,
   selected,
   editing,
-  togglesSelection,
   onSelect,
-  onSelectionCheckboxToggle,
   commands,
   onOpen,
 }: TaskRowProps): ReactElement {
   const { settings } = useSettings()
-  const store = useTaskStore()
   const done = task.checked
   const label = task.displayText || 'Empty task'
   const selectFromKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -95,11 +86,7 @@ export function TaskRow({
         aria-label={task.checked ? `Reopen: ${label}` : `Complete: ${label}`}
         onClick={(event) => {
           event.stopPropagation()
-          if (togglesSelection) {
-            onSelectionCheckboxToggle()
-          } else {
-            store?.setChecked([task], !task.checked)
-          }
+          commands.check(task)
         }}
         // h-6 matches the text/editor's 24px line so the circle centers on
         // the first line (items-start keeps it there when a task wraps).

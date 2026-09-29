@@ -23,7 +23,6 @@ import { useRouter } from '@/routing/router.tsx'
  * open task across the graph in desktop's exact groups — Current / Overdue /
  * Upcoming, then per-note — via the same queries, grouping
  * ({@link composeVisibleTaskGroups}) and optimistic mutations
- * ({@link useTaskActions}) the desktop view uses; this screen adds only the
  * touch surface. Task taps, toggles, adds, filters, scheduling, and archival
  * get light haptics; tapping a row opens the quick-edit sheet (edit / schedule /
  * complete / convert / open note) instead of desktop's multi-select; the filter
@@ -72,19 +71,14 @@ export function MobileTasks(): ReactElement {
     [tasks, filters, needle, today],
   )
 
-  // The sheet edits the task's *live* row, not the snapshot taken when it
-  // opened: a mutation or reindex can rewrite the row (raw, checked) while
-  // `editingTask` is set, and acting on the stale copy could flip a marker the
-  // wrong way or trip the write-back guard needlessly. Fall back to the
-  // snapshot when the row left the lists — the raw-match guard then refuses
-  // any write that no longer applies.
+  // The sheet edits the task's live row: the store or a reindex can rewrite it
+  // while the sheet is open. A row that left the list was deleted or converted,
+  // so the sheet closes with it.
   const liveEditingTask = useMemo(() => {
-    if (editingTask === null) {
-      return null
-    }
-    const key = editingTask.key
-    return groups.flatMap((group) => group.tasks).find((row) => row.key === key) ?? editingTask
+    if (editingTask === null) return null
+    return groups.flatMap((group) => group.tasks).find((row) => row.key === editingTask.key) ?? null
   }, [groups, editingTask])
+  if (sheetOpen && editingTask !== null && liveEditingTask === null) setSheetOpen(false)
 
   const editTask = (task: Task, options?: { autoFocus?: boolean; haptic?: boolean }): void => {
     if (options?.haptic !== false) {
@@ -180,7 +174,7 @@ export function MobileTasks(): ReactElement {
               onAdd={onAdd}
               onEdit={editTask}
               onOpen={(path) => navigate(routeForPath(path))}
-              onDelete={(task) => store?.remove([task])}
+              onDelete={(task) => store?.update(task, { gone: 'removed' })}
               revealedTaskKey={revealedTaskKey}
               setRevealedTaskKey={setRevealedTaskKey}
             />

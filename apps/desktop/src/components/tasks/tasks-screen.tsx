@@ -8,7 +8,7 @@ import {
   type ReactElement,
 } from 'react'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
-import type { Task, TaskGroup, TaskTarget } from '@reflect/core'
+import type { TaskGroup, TaskTarget } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
@@ -57,7 +57,7 @@ function focusedSelectedKey(
  * selection opens the inline editor.
  *
  * Completing a task keeps it showing (struck) in place — V1's middle state — via
- * the task store's recent set, until "Archive" (⌘⇧↵)
+ * the task store, until "Archive" (⌘⇧↵)
  * hides this run's completed tasks. They stay `[x]` on disk and remain under the
  * "show archived" filter, which reveals the whole completed history.
  */
@@ -98,7 +98,6 @@ export function TasksScreen(): ReactElement {
       scrollTaskIntoView(rootRef.current, key)
     }
   }, [])
-  const commands = useTaskCommands({ store, selection, orderedTasks, today, scrollToKey })
   const selectedTaskKeys = selection.selected
   const activeTaskKey = selection.activeKey
   // Selection opens the focused task's inline editor, often after an async insert
@@ -107,47 +106,21 @@ export function TasksScreen(): ReactElement {
   useLayoutEffect(() => {
     scrollToKey(focusedSelectedKey(selectedTaskKeys, activeTaskKey))
   }, [activeTaskKey, orderedKeys, scrollToKey, selectedTaskKeys])
-  // The group headers' "+ Add" (V1): drop any search filter so the new row is
-  // visible, add it, then select it so its editor opens focused.
+  const commands = useTaskCommands({
+    store,
+    selection,
+    tasksByKey,
+    orderedTasks,
+    today,
+    scrollToKey,
+  })
+  // The group headers' "+ Add" (V1): drop any search filter so the new row is visible.
   const onAdd = useCallback(
     (target: TaskTarget) => {
       setQuery('')
-      const created = store?.create(target)
-      if (created) {
-        selection.clickSelect(created.key, { metaKey: false, ctrlKey: false, shiftKey: false })
-        scrollToKey(created.key)
-      }
+      commands.add(target)
     },
-    [store, selection, scrollToKey],
-  )
-  // The tasks behind the current selection's keys, in selection order — what the
-  // toolbar actions (schedule, convert) act on. A row whose key no longer
-  // resolves (pruned by a reindex) is dropped rather than acted on.
-  const selectedTasks = useCallback(
-    (): Task[] =>
-      [...selection.selected]
-        .map((key) => tasksByKey.get(key))
-        .filter((task): task is Task => task !== undefined),
-    [selection, tasksByKey],
-  )
-  // A checkbox click on a selected row applies that row's next state to the
-  // whole selection (V1); a click elsewhere toggles just that row.
-  const onSelectionCheckboxToggle = useCallback(
-    (task: Task) => {
-      const tasks = selectedTasks()
-      const selected =
-        tasks.length > 1 && tasks.some((selectedTask) => selectedTask.key === task.key)
-      store?.setChecked(selected ? tasks : [task], !task.checked)
-    },
-    [store, selectedTasks],
-  )
-  const onSchedule = useCallback(
-    (isoDate: string | null) => commands.schedule(selectedTasks(), isoDate),
-    [commands, selectedTasks],
-  )
-  const onConvertToBullet = useCallback(
-    () => commands.convert(selectedTasks()),
-    [commands, selectedTasks],
+    [commands],
   )
   const openNote = useCallback(
     (path: string, event?: ModClickEvent) =>
@@ -160,7 +133,6 @@ export function TasksScreen(): ReactElement {
   useTaskKeyboard({
     selection,
     commands,
-    tasksByKey,
     query,
     setQuery,
     rootRef,
@@ -201,7 +173,7 @@ export function TasksScreen(): ReactElement {
             open={scheduleOpen}
             onOpenChange={setScheduleOpen}
             today={today}
-            onSchedule={onSchedule}
+            onSchedule={commands.schedule}
           >
             <Button
               type="button"
@@ -220,7 +192,7 @@ export function TasksScreen(): ReactElement {
             type="button"
             variant="ghost"
             aria-label={`Convert to bullet ${selection.selectedCount}`}
-            onClick={onConvertToBullet}
+            onClick={commands.convert}
             title="Drop the checkbox, keeping the line as a plain bullet — leaves the Tasks list"
             className="window-drag-control text-xs text-text-muted"
           >
@@ -266,7 +238,6 @@ export function TasksScreen(): ReactElement {
                 group={group}
                 selection={selection}
                 commands={commands}
-                onSelectionCheckboxToggle={onSelectionCheckboxToggle}
                 today={today}
                 onAdd={onAdd}
                 onOpen={openNote}

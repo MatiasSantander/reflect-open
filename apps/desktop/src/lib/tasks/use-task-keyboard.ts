@@ -1,5 +1,4 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import type { Task } from '@reflect/core'
 import { getIsComposing, isModEvent } from '@meowdown/core'
 import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
 import type { TaskCommands } from '@/lib/tasks/use-task-commands.ts'
@@ -7,8 +6,6 @@ import type { TaskCommands } from '@/lib/tasks/use-task-commands.ts'
 export interface TaskKeyboardOptions {
   selection: ListSelection
   commands: TaskCommands
-  /** The flat, render-order tasks the selection's keys resolve against. */
-  tasksByKey: ReadonlyMap<string, Task>
   /** The search box's text, and its setter: Escape clears it. */
   query: string
   setQuery: (value: string) => void
@@ -38,7 +35,6 @@ const OWNS_KEYS = '[data-task-editor], [role="menu"], [role="dialog"], [role="li
 export function useTaskKeyboard({
   selection,
   commands,
-  tasksByKey,
   query,
   setQuery,
   rootRef,
@@ -68,8 +64,6 @@ export function useTaskKeyboard({
       const root = rootRef.current
       if (root && target && target !== root.ownerDocument.body && !root.contains(target)) return
       if (target?.closest?.(OWNS_KEYS) != null) return
-      const selectedTasks = (): Task[] =>
-        [...selection.selected].flatMap((key) => tasksByKey.get(key) ?? [])
       if (target instanceof HTMLInputElement) {
         if (event.key === 'Escape') {
           setQuery('')
@@ -81,28 +75,19 @@ export function useTaskKeyboard({
       if (mod && event.key === 'Enter') {
         event.preventDefault()
         if (event.shiftKey) commands.archive()
-        else commands.complete(selectedTasks())
+        else commands.complete()
       } else if (event.key === 'Enter') {
-        // The pivot must still be selected: `activeKey()` keeps pointing at the
-        // last touched row after deselection, which falls back to today.
         event.preventDefault()
-        const activeKey = selection.activeKey()
-        commands.continue(
-          activeKey !== null && selection.selected.has(activeKey)
-            ? tasksByKey.get(activeKey)
-            : undefined,
-        )
+        commands.continue()
       } else if (mod && event.key === 'Backspace') {
         event.preventDefault()
-        commands.remove(selectedTasks())
+        commands.remove()
       } else if (event.key === 'Backspace') {
         // Plain ⌫ deletes only a single empty row (V1): never content, and never a
         // multi-selection, which is ambiguous.
-        const selected = selectedTasks()
-        const sole = selected.length === 1 ? selected[0] : undefined
-        if (sole !== undefined && sole.displayText.trim() === '') {
+        if (selection.selectedCount === 1) {
           event.preventDefault()
-          commands.removeEmpty(sole)
+          commands.removeEmpty()
         }
       } else if (mod && (event.key === 'a' || event.key === 'A')) {
         event.preventDefault()
@@ -110,7 +95,7 @@ export function useTaskKeyboard({
       } else if (mod && event.shiftKey && (event.key === 'k' || event.key === 'K')) {
         if (selection.selectedCount > 0) {
           event.preventDefault()
-          commands.convert(selectedTasks())
+          commands.convert()
         }
       } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault()

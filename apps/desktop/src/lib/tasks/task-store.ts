@@ -87,6 +87,7 @@ export function taskStore(root: string, generation: number): TaskStore {
       } catch (error) {
         console.error('indexing a task write failed:', error)
       }
+      return saved
     },
     failure(path, _error, retry) {
       if (!active || failures.has(path)) return
@@ -96,6 +97,7 @@ export function taskStore(root: string, generation: number): TaskStore {
         type: 'error',
         // Stays until saved or retried: the pending change is only visible here.
         timeout: 0,
+        data: { dismissible: false },
         title: "Couldn't save tasks. Your changes are kept.",
         actionProps: {
           children: 'Retry',

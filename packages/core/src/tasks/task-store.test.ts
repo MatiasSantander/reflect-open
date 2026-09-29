@@ -138,7 +138,7 @@ describe('task store', () => {
     expect(h.list()).toHaveLength(21)
     gate.resolve()
     await h.store.flush()
-    h.store.update(blank, { removed: true })
+    h.store.update(blank, { gone: 'removed' })
     expect(h.source()?.match(/\+ \[ \]/g)).toHaveLength(20)
     expect(h.source()).toContain('task 19')
     expect(h.io.failure).not.toHaveBeenCalled()
@@ -200,7 +200,7 @@ describe('task store', () => {
     const h = harness()
     const row = h.store.create(target)
     h.store.update(row, { text: 'keep this' })
-    h.store.update(row, { bullet: true })
+    h.store.update(row, { gone: 'bullet' })
     await h.store.flush()
     expect(h.source()).toContain('+ keep this')
     expect(h.list()).toEqual([])
@@ -254,14 +254,14 @@ describe('task store', () => {
   it('lists a completed task struck until archived, or until it is open again', async () => {
     const h = harness('+ [ ] one\n+ [ ] two\n')
     const [one, two] = h.list()
-    h.store.setChecked([one!], true)
+    h.store.update([one!], { checked: true })
     await h.store.flush()
     expect(h.list().map((task) => [task.text, task.checked])).toEqual([
       ['two', false],
       ['one', true],
     ])
     expect(h.store.isRecent(one!)).toBe(true)
-    h.store.setChecked([two!], true)
+    h.store.update([two!], { checked: true })
     await h.store.flush()
     h.store.update(h.list()[1]!, { checked: false })
     await h.store.flush()
@@ -274,9 +274,9 @@ describe('task store', () => {
   it('keeps a struck task and its key when a task above it is removed', async () => {
     const h = harness('+ [ ] one\n+ [ ] two\n+ [ ] three\n')
     const [one, two] = h.list()
-    h.store.setChecked([two!], true)
+    h.store.update([two!], { checked: true })
     await h.store.flush()
-    h.store.remove([one!])
+    h.store.update([one!], { gone: 'removed' })
     await h.store.flush()
     expect(h.source()).toBe('+ [x] two\n+ [ ] three\n')
     const rows = h.list()
@@ -337,7 +337,7 @@ describe('task store', () => {
     h.store.update({ ...a!, text: 'stale' }, { text: 'edited a' })
     await h.store.flush()
     expect(h.io.failure).toHaveBeenCalledOnce()
-    h.store.setChecked([b!], true)
+    h.store.update([b!], { checked: true })
     await h.store.flush()
     expect(h.source()).toBe('+ [ ] a\n+ [x] b\n')
     expect(h.io.saved).not.toHaveBeenCalled()
@@ -345,5 +345,80 @@ describe('task store', () => {
     await h.store.flush()
     expect(h.io.failure).toHaveBeenCalledTimes(2)
     expect(h.list().map((task) => task.text)).toEqual(['edited a', 'b'])
+  })
+
+  it('applies a change to several tasks of one note in one write', async () => {
+    const h = harness('+ [ ] a\n+ [ ] b\n+ [ ] c\n')
+    const [a, b] = h.list()
+    h.store.update([a!, b!], { checked: true })
+    await h.store.flush()
+    expect(h.source()).toBe('+ [x] a\n+ [x] b\n+ [ ] c\n')
+    expect(h.io.write).toHaveBeenCalledOnce()
+    h.store.update(h.list(), { gone: 'removed' })
+    await h.store.flush()
+    expect(h.source()?.trim()).toBe('')
+    expect(h.io.failure).not.toHaveBeenCalled()
+  })
+
+  it('keeps a change made during the index refetch on the right task', async () => {
+    const h = harness('+ [ ] a\n+ [ ] b\n+ [ ] c\n')
+    const [a, b, c] = h.list()
+    h.store.update(c!, { checked: true })
+    await h.store.flush()
+    const gate = Promise.withResolvers<void>()
+    const write = h.io.write.getMockImplementation()!
+    h.io.write.mockImplementationOnce(async (...args) => {
+      await write(...args)
+      await gate.promise
+    })
+    h.store.update(a!, { gone: 'removed' })
+    await vi.waitFor(() => expect(h.io.write).toHaveBeenCalledTimes(2))
+    // The refetch has not landed: `b` is still keyed by its old path.
+    h.store.update(b!, { checked: true })
+    gate.resolve()
+    await h.store.flush()
+    expect(h.source()).toBe('+ [x] b\n+ [x] c\n')
+    expect(h.io.failure).not.toHaveBeenCalled()
+    expect(h.list().map((task) => [task.text, h.store.isRecent(task)])).toEqual(
+      expect.arrayContaining([
+        ['b', true],
+        ['c', true],
+      ]),
+    )
+  })
+
+  it('flush saves typed drafts but never removes a task over an emptied one', async () => {
+    const h = harness('+ [ ] keep\n')
+    const row = h.list()[0]!
+    h.store.draft(row, '')
+    await h.store.flush()
+    expect(h.io.write).not.toHaveBeenCalled()
+    const fresh = h.store.create(target)
+    h.store.draft(fresh, 'typed')
+    await h.store.flush()
+    expect(h.source()).toBe('+ [ ] keep\n+ [ ] typed\n')
+    expect(h.store.commitDraft(row)).toBeNull()
+    await h.store.flush()
+    expect(h.source()).toBe('+ [ ] typed\n')
+  })
+
+  it('only lists a task struck when it was completed from the list', async () => {
+    const h = harness('> + [ ] quoted\n\n+ [ ] visible\n')
+    const quoted: Task = {
+      ...target,
+      key: indexedTaskKey(target.notePath, [0, 0]),
+      astPath: [0, 0],
+      text: 'quoted',
+      displayText: 'quoted',
+      checked: false,
+      dueDate: null,
+      breadcrumbs: [],
+      updatedAt: 0,
+    }
+    h.store.update(quoted, { checked: true })
+    h.store.update(h.list()[0]!, { checked: true })
+    await h.store.flush()
+    expect(h.source()).toBe('> + [x] quoted\n\n+ [x] visible\n')
+    expect(h.list().map((task) => task.text)).toEqual(['visible'])
   })
 })

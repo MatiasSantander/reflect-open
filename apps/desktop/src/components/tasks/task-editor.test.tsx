@@ -86,12 +86,14 @@ function Harness({ initial }: { initial: Task }) {
           commands={{
             continue: (from) => setActive(continueFrom(store, from, '2026-06-14')),
             complete: () => {},
-            remove: (tasks) => {
-              store.remove(tasks)
+            check: () => {},
+            add: () => {},
+            remove: () => {
+              store.update(task, { gone: 'removed' })
               setActive(null)
             },
-            removeEmpty: (empty) => {
-              store.remove([empty])
+            removeEmpty: () => {
+              store.update(task, { gone: 'removed' })
               setActive(null)
             },
             convert: () => {},

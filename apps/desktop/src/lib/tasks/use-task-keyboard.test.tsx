@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Task } from '@reflect/core'
 import type { TaskCommands } from './use-task-commands.ts'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
-import { makeOpenTask as task } from './open-task-fixture.ts'
 import type { ListSelection as TaskSelection } from '@/lib/selection/use-list-selection.ts'
 import { useTaskKeyboard } from './use-task-keyboard.ts'
 
@@ -29,6 +28,8 @@ function makeCommands(over: Partial<TaskCommands> = {}): TaskCommands {
   return {
     continue: vi.fn(),
     complete: vi.fn(),
+    check: vi.fn(),
+    add: vi.fn(),
     remove: vi.fn(),
     removeEmpty: vi.fn(),
     convert: vi.fn(),
@@ -55,7 +56,6 @@ afterEach(() => {
 async function mount(options: {
   selection?: TaskSelection
   commands?: TaskCommands
-  tasksByKey?: ReadonlyMap<string, Task>
   orderedTasks?: Task[]
   query?: string
   today?: string
@@ -69,7 +69,6 @@ async function mount(options: {
     useTaskKeyboard({
       selection,
       commands,
-      tasksByKey: options.tasksByKey ?? new Map(),
       query: options.query ?? '',
       setQuery,
       rootRef: { current: root },
@@ -119,18 +118,17 @@ describe('useTaskKeyboard', () => {
   })
 
   it('toggles the resolved selection on ⌘↵ and deletes it on ⌘⌫', async () => {
-    const t = task({ notePath: 'notes/a.md', astPath: [2] })
     const selection = makeSelection({
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { commands } = await mount({ selection, tasksByKey: new Map([['k', t]]) })
+    const { commands } = await mount({ selection })
 
     press(root, 'Enter', MOD_KEY)
-    expect(commands.complete).toHaveBeenCalledWith([t])
+    expect(commands.complete).toHaveBeenCalledWith()
 
     press(root, 'Backspace', MOD_KEY)
-    expect(commands.remove).toHaveBeenCalledWith([t])
+    expect(commands.remove).toHaveBeenCalledWith()
   })
 
   it('archives on ⌘⇧↵ instead of toggling', async () => {
@@ -185,7 +183,6 @@ describe('useTaskKeyboard', () => {
     })
     const { commands } = await mount({
       selection,
-      tasksByKey: new Map([['k', task()]]),
     })
 
     press(editor, 'k', { ...MOD_KEY, shiftKey: true })
@@ -194,47 +191,16 @@ describe('useTaskKeyboard', () => {
     expect(commands.convert).not.toHaveBeenCalled()
   })
 
-  it('plain ⌫ removes a single empty row and selects the previous (V1)', async () => {
-    const a = task({ notePath: 'notes/a.md', astPath: [2], displayText: 'first' })
-    const empty = task({ notePath: 'notes/b.md', astPath: [2], displayText: '' })
-    const selection = makeSelection({
-      selected: new Set(['b']),
-      selectedCount: 1,
-      activeKey: () => 'b',
-    })
-    const { commands } = await mount({
-      selection,
-      tasksByKey: new Map([
-        ['a', a],
-        ['b', empty],
-      ]),
-    })
+  it('plain ⌫ asks to remove a sole selected row, never a multi-selection (V1)', async () => {
+    const sole = await mount({ selection: makeSelection({ selectedCount: 1 }) })
+    const event = press(root, 'Backspace')
+    expect(sole.commands.removeEmpty).toHaveBeenCalledWith()
+    expect(event.defaultPrevented).toBe(true)
 
+    const many = await mount({ selection: makeSelection({ selectedCount: 2 }) })
     press(root, 'Backspace')
-    expect(commands.removeEmpty).toHaveBeenCalledWith(empty)
-  })
-
-  it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
-    const empty = task({ notePath: 'notes/a.md', astPath: [2], displayText: '' })
-    const full = task({
-      notePath: 'notes/b.md',
-      astPath: [2],
-      displayText: 'keep',
-    })
-    const selection = makeSelection({
-      selected: new Set(['e', 'f']),
-      selectedCount: 2,
-    })
-    const { commands } = await mount({
-      selection,
-      tasksByKey: new Map([
-        ['e', empty],
-        ['f', full],
-      ]),
-    })
-
-    press(root, 'Backspace')
-    expect(commands.remove).not.toHaveBeenCalled()
+    expect(many.commands.removeEmpty).not.toHaveBeenCalled()
+    expect(many.commands.remove).not.toHaveBeenCalled()
   })
 
   it('Escape clears the selection and the search query together (V1)', async () => {
@@ -296,34 +262,11 @@ describe('useTaskKeyboard', () => {
     sidebarButton.remove()
   })
 
-  it('Return continues from the active selected row, not whichever renders last', async () => {
-    const pinned = task({ notePath: 'notes/a.md', noteTitle: 'A' })
-    const other = task({ notePath: 'notes/z.md', noteTitle: 'Z' })
-    // Two notes selected; the pivot ('a') is the row last touched even though 'z'
-    // renders later.
-    const selection = makeSelection({
-      selected: new Set(['a', 'z']),
-      selectedCount: 2,
-      activeKey: () => 'a',
-    })
-    const { commands } = await mount({
-      selection,
-      tasksByKey: new Map([
-        ['a', pinned],
-        ['z', other],
-      ]),
-    })
+  it('Return continues the entry from the list', async () => {
+    const { commands } = await mount({ selection: makeSelection({ selectedCount: 1 }) })
     const event = press(root, 'Enter')
     expect(event.defaultPrevented).toBe(true)
-    expect(commands.continue).toHaveBeenCalledWith(pinned)
-  })
-
-  it('Return continues from nothing when the pivot is no longer selected', async () => {
-    // The pivot still points at 'k' (last touched), but a ⌘-click deselected it.
-    const selection = makeSelection({ selected: new Set(), selectedCount: 0, activeKey: () => 'k' })
-    const { commands } = await mount({ selection, tasksByKey: new Map([['k', task()]]) })
-    press(root, 'Enter')
-    expect(commands.continue).toHaveBeenCalledWith(undefined)
+    expect(commands.continue).toHaveBeenCalledWith()
   })
 
   it('backs off entirely while the inline editor is focused', async () => {
@@ -336,7 +279,6 @@ describe('useTaskKeyboard', () => {
     })
     const { commands } = await mount({
       selection,
-      tasksByKey: new Map([['k', task()]]),
     })
 
     press(editor, 'Backspace', MOD_KEY)

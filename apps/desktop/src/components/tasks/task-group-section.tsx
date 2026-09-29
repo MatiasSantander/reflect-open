@@ -1,6 +1,6 @@
 import { Fragment, type ReactElement } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type Task, type TaskGroup, type TaskTarget } from '@reflect/core'
+import { groupTaskContexts, type TaskGroup, type TaskTarget } from '@reflect/core'
 import { taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
 import { addTargetForGroup } from '@/lib/tasks/task-navigation.ts'
 import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
@@ -15,8 +15,6 @@ interface TaskGroupSectionProps {
   selection: ListSelection
   /** The view's task commands, shared by every row. */
   commands: TaskCommands
-  /** Complete/reopen the selected rows using the clicked task's next checkbox state. */
-  onSelectionCheckboxToggle: (task: Task) => void
   /** Today's ISO date — the Current group's "+ Add" targets today's daily. */
   today: string
   /** Add a task to this group and open its editor (the header's "+ Add", V1). */
@@ -34,7 +32,6 @@ export function TaskGroupSection({
   group,
   selection,
   commands,
-  onSelectionCheckboxToggle,
   today,
   onAdd,
   onOpen,
@@ -96,9 +93,7 @@ export function TaskGroupSection({
                       showSource={showSource}
                       selected={selected}
                       editing={selection.isSoleSelected(key)}
-                      togglesSelection={selected && selection.selectedCount > 1}
                       onSelect={(event) => selection.clickSelect(key, event)}
-                      onSelectionCheckboxToggle={() => onSelectionCheckboxToggle(task)}
                       commands={commands}
                       onOpen={onOpen}
                     />

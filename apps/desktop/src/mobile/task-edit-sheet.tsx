@@ -27,7 +27,7 @@ import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
 interface MobileTaskEditSheetProps {
-  /** The task being edited, as the task controller currently shows it. */
+  /** The task being edited, as the task store currently shows it. */
   task: Task
   open: boolean
   /** Close the sheet. A user dismissal saves the draft first (V1 mobile). */
@@ -101,10 +101,14 @@ export function MobileTaskEditSheet({
     [],
   )
 
-  const close = (): void => onOpenChange(false)
+  // Every way out of the sheet saves the draft first.
+  const close = (): void => {
+    store?.commitDraft(task)
+    onOpenChange(false)
+  }
   const handleOpenChange = (nextOpen: boolean): void => {
-    if (!nextOpen) store?.commitDraft(task)
-    onOpenChange(nextOpen)
+    if (nextOpen) onOpenChange(true)
+    else close()
   }
   const finishEdit = useCallback(() => {
     latest.current.store?.commitDraft(latest.current.task)
@@ -113,39 +117,36 @@ export function MobileTaskEditSheet({
 
   const complete = (): void => {
     hapticImpactLight()
-    store?.setChecked([task], !store.current(task).checked)
+    store?.update(task, { checked: !store.current(task).checked })
     close()
   }
   const convertToBullet = (): void => {
     hapticImpactLight()
-    store?.convertToBullet([task])
+    store?.update(task, { gone: 'bullet' })
     close()
   }
   const remove = (): void => {
     hapticImpactLight()
-    store?.remove([task])
+    store?.update(task, { gone: 'removed' })
     close()
   }
   const openNote = (): void => {
     hapticImpactLight()
-    store?.commitDraft(task)
     close()
     onOpenNote(task.notePath)
   }
   // A link tapped inside the draft navigates like "Open note".
   const openWikiLink = ({ target }: { target: string }): void => {
-    store?.commitDraft(task)
     close()
     navigateWikiLink({ target, openInNewWindow: false })
   }
   const openTag = (tag: string): void => {
-    store?.commitDraft(task)
     close()
     navigateTag(tag)
   }
   const schedule = (isoDate: string | null): void => {
     hapticImpactLight()
-    store?.schedule([task], isoDate)
+    store?.update(task, { dueDate: isoDate })
     setShowCalendar(false)
     setEditorSeed((seed) => seed + 1)
   }

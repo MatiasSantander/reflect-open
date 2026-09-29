@@ -98,13 +98,12 @@ function createTaskKeymap(editor: TaskEditorInstance, latest: RefObject<KeymapDe
       return true
     },
     'Mod-Enter': () => {
-      const { commands, task } = latest.current
-      commands.complete([task])
-      commands.cancel()
+      latest.current.commands.complete()
+      latest.current.commands.cancel()
       return true
     },
     'Mod-Shift-k': () => {
-      latest.current.commands.convert([latest.current.task])
+      latest.current.commands.convert()
       return true
     },
     Escape: () => {
@@ -114,12 +113,12 @@ function createTaskKeymap(editor: TaskEditorInstance, latest: RefObject<KeymapDe
       return true
     },
     'Mod-Backspace': () => {
-      latest.current.commands.remove([latest.current.task])
+      latest.current.commands.remove()
       return true
     },
     Backspace: () => {
       if (editor.state.doc.textContent.trim() !== '') return false
-      latest.current.commands.removeEmpty(latest.current.task)
+      latest.current.commands.removeEmpty()
       return true
     },
     ArrowUp: move(-1, false),
