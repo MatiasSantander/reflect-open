@@ -6,7 +6,7 @@ import {
   type ReactElement,
 } from 'react'
 import { Circle, CircleCheck } from 'lucide-react'
-import { displayNoteTitle, type OpenTask } from '@reflect/core'
+import { displayNoteTitle, type TaskListItem as OpenTask } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { formatDayLabel } from '@/lib/dates.ts'
 import { taskKey } from '@/lib/tasks/task-identity.ts'

@@ -439,7 +439,10 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
    * a failed flush reverts the in-memory edit so the editor and the Tasks list
    * can't diverge, then re-throws the failure.
    */
-  async function commitBodyEdit(transform: (full: string) => string): Promise<boolean> {
+  async function commitBodyEdit(
+    transform: (full: string) => string,
+    onApplied?: (source: string) => void,
+  ): Promise<boolean> {
     if (
       io.write === null ||
       disposed ||
@@ -458,6 +461,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
     buffer = doc.body
     applyToEditor(doc.body) // the open editor shows the edited line
     const appliedBuffer = buffer
+    const appliedSource = header + buffer
     dirty = header + buffer !== disk
     // A no-op edit (transform changed nothing) writes nothing, so a *prior*
     // surfaced save error must not be mistaken for this edit's failure.
@@ -478,6 +482,7 @@ export function createNoteSession(options: NoteSessionOptions): NoteSession {
       emit()
       throw new Error(message)
     }
+    onApplied?.(appliedSource)
     return true
   }
 

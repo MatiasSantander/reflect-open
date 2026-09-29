@@ -1,6 +1,6 @@
 import { Fragment, type Dispatch, type ReactElement, type SetStateAction } from 'react'
 import { Plus } from 'lucide-react'
-import { groupTaskContexts, type OpenTask, type TaskGroup } from '@reflect/core'
+import { groupTaskContexts, type TaskListItem as OpenTask, type TaskGroup } from '@reflect/core'
 import { TaskBreadcrumbs } from '@/components/tasks/task-breadcrumbs.tsx'
 import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
 import { taskKey } from '@/lib/tasks/task-identity.ts'

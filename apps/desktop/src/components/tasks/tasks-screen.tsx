@@ -1,4 +1,4 @@
-import { TaskDraftRecovery } from '@/components/tasks/task-draft-recovery.tsx'
+import { useTasksView } from '@/lib/tasks/use-tasks-view.ts'
 import {
   useCallback,
   useEffect,
@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
-import type { OpenTask, TaskGroup } from '@reflect/core'
+import type { TaskListItem as OpenTask, TaskGroup } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
@@ -85,14 +85,16 @@ export function TasksScreen(): ReactElement {
   const bridgeReady = useBridgeReady()
   const enabled = bridgeReady && graph !== null
 
-  const { data: open, isError: openFailed } = useQuery({
+  const { data: indexedOpen, isError: openFailed } = useQuery({
     ...createOpenTasksQueryOptions(graph?.root),
     enabled,
   })
-  const { data: completed, isError: completedFailed } = useQuery({
+  const { data: indexedCompleted, isError: completedFailed } = useQuery({
     ...createCompletedTasksQueryOptions(graph?.root),
     enabled: enabled && filters.archived,
   })
+
+  const { open, completed } = useTasksView(indexedOpen, indexedCompleted)
 
   // Either read failing surfaces the alert — a failed completed read must not
   // leave `ready` stuck (and the list blank) just because its data never arrived.
@@ -246,7 +248,6 @@ export function TasksScreen(): ReactElement {
       aria-label="Tasks"
       className="flex h-full min-h-0 flex-col outline-none"
     >
-      <TaskDraftRecovery />
       <header className="flex flex-none items-center gap-2 border-b border-border py-2.5 pl-2 pr-3 lg:pl-10">
         <div className="window-drag-control min-w-0 flex-1">
           <Search

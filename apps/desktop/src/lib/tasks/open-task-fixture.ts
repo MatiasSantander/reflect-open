@@ -1,4 +1,4 @@
-import { inlineMarkdownToDisplayText, type OpenTask } from '@reflect/core'
+import { inlineMarkdownToDisplayText, type TaskListItem as OpenTask } from '@reflect/core'
 
 /** An indexed task with defaults for UI tests. */
 export function makeOpenTask(overrides: Partial<OpenTask> = {}): OpenTask {

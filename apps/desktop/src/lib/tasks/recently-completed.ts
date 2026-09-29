@@ -1,7 +1,5 @@
-import type { TaskMutationReceipt } from '@/lib/note-task.ts'
-import { encodeTaskPath } from '@reflect/core'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
@@ -175,25 +173,5 @@ export function useRecentlyCompleted(
 export function resetRecentlyCompleted(): void {
   graphRoot = null
   tasks = EMPTY
-  emit()
-}
-
-/** Update session completions from a confirmed write, including changed paths. */
-export function relocateRecentlyCompleted(
-  root: string | null,
-  receipt: TaskMutationReceipt,
-  projected: readonly OpenTask[],
-): void {
-  if (root !== graphRoot) return
-  tasks = tasks.flatMap((task) => {
-    if (task.notePath !== receipt.notePath) return [task]
-    if (task.revision !== receipt.beforeRevision)
-      return task.revision === receipt.revision ? [task] : []
-    const path = receipt.paths.get(encodeTaskPath(task.astPath))
-    const next =
-      path &&
-      projected.find((candidate) => encodeTaskPath(candidate.astPath) === encodeTaskPath(path))
-    return next?.checked ? [next] : []
-  })
   emit()
 }

@@ -1,4 +1,4 @@
-import { dailyPath, taskDateBucket, type OpenTask } from '@reflect/core'
+import { dailyPath, taskDateBucket, type TaskListItem as OpenTask } from '@reflect/core'
 import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 

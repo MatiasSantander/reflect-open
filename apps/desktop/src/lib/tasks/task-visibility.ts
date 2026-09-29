@@ -1,4 +1,4 @@
-import { groupTasks, type OpenTask, type TaskGroup } from '@reflect/core'
+import { groupTasks, type TaskListItem as OpenTask, type TaskGroup } from '@reflect/core'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 import type { TaskFilters } from '@/lib/tasks/task-filters.ts'
 

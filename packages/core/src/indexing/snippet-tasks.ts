@@ -14,6 +14,7 @@ export interface SnippetTaskSource {
   content: string
   notePath: string
   revision: string
+  /** Whole-file offsets of the dedented snippet line starts. */
   lineOrigins: readonly number[]
 }
 
@@ -22,6 +23,7 @@ export function extractSnippetTasks(snippet: string, source?: SnippetTaskSource)
   const addresses = new Map<number, TaskAddress>()
   if (source) {
     const { body, bodyOffset } = splitFrontmatter(source.content)
+    // Both traversals recognize checkboxes only on bullet list items.
     const entries = [...walkMarkdownAst(parseMarkdownAst(body))].filter(
       ({ node }) => node.type === 'listItem' && node.kind === 'task',
     )

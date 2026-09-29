@@ -1,8 +1,8 @@
-import { TaskDraftRecovery } from '@/components/tasks/task-draft-recovery.tsx'
+import { useTasksView } from '@/lib/tasks/use-tasks-view.ts'
 import { useDeferredValue, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Archive, CircleCheck, Plus, SlidersHorizontal } from 'lucide-react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
@@ -73,14 +73,16 @@ export function MobileTasks(): ReactElement {
     selectText: true,
   })
 
-  const { data: open, isError: openFailed } = useQuery({
+  const { data: indexedOpen, isError: openFailed } = useQuery({
     ...createOpenTasksQueryOptions(graph?.root),
     enabled,
   })
-  const { data: completed, isError: completedFailed } = useQuery({
+  const { data: indexedCompleted, isError: completedFailed } = useQuery({
     ...createCompletedTasksQueryOptions(graph?.root),
     enabled: enabled && filters.archived,
   })
+
+  const { open, completed } = useTasksView(indexedOpen, indexedCompleted)
   const isError = openFailed || (filters.archived && completedFailed)
   const ready = open !== undefined && (!filters.archived || completed !== undefined)
 
@@ -144,7 +146,6 @@ export function MobileTasks(): ReactElement {
       className="flex h-full w-screen flex-col"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <TaskDraftRecovery />
       <MobileTopBar>
         <MobileTopBarRow>
           <SearchInput

@@ -200,7 +200,10 @@ export interface NoteSession {
    */
   commitBodyAppend: (block: string) => Promise<boolean>
   /** Apply a synchronous full-source transform through the live save pipeline. */
-  commitSourceEdit: (transform: (source: string) => string) => Promise<boolean>
+  commitSourceEdit: (
+    transform: (source: string) => string,
+    onApplied?: (source: string) => void,
+  ) => Promise<boolean>
   /** Flush pending edits and detach: no further snapshots are emitted. */
   dispose: () => void
   /**

@@ -1,5 +1,6 @@
+import { registerEditFinalizer } from '@/editor/open-documents.ts'
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { resolveTaskEdit, type TaskEditResult } from '@/lib/tasks/task-content.ts'
 
 /** The two writes the finalizer itself performs; {@link TaskActions} satisfies it. */
@@ -82,7 +83,10 @@ export function useTaskSheetFinalizer({
   const [draft, setDraft] = useState(liveContent)
   // Set once an action button has already written/closed, so the dismissal
   // commit doesn't double-write on the close that follows.
-  const [handled, setHandled] = useState(false)
+  const handledRef = useRef(false)
+  const setHandled = (value: boolean) => {
+    handledRef.current = value
+  }
   const [wasOpen, setWasOpen] = useState(open)
   if (open !== wasOpen) {
     setWasOpen(open)
@@ -119,7 +123,7 @@ export function useTaskSheetFinalizer({
   }
 
   const handleOpenChange = (nextOpen: boolean): void => {
-    if (!nextOpen && !handled) {
+    if (!nextOpen && !handledRef.current) {
       // Mark handled before finishing: a duplicate dismissal callback, or the
       // unmount flush racing the parent's close re-render, must not run the
       // same commit/delete twice (a second delete would trip the stale guard
@@ -148,12 +152,22 @@ export function useTaskSheetFinalizer({
   const unmountFlushRef = useRef<() => void>(() => {})
   useEffect(() => {
     unmountFlushRef.current = () => {
-      if (open && !handled) {
+      if (open && !handledRef.current) {
+        setHandled(true)
         finishAbandonedVisit()
       }
     }
   })
-  useEffect(() => () => unmountFlushRef.current(), [])
+  useEffect(() => {
+    const unregister = registerEditFinalizer(() => {
+      unmountFlushRef.current()
+      onOpenChange(false)
+    })
+    return () => {
+      unregister()
+      unmountFlushRef.current()
+    }
+  }, [])
 
   return { initialTask, draft, setDraft, resolve, handleOpenChange, closeHandled, closeNavigate }
 }

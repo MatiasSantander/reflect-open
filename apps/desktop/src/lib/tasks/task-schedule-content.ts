@@ -1,4 +1,4 @@
-import { clearTaskDueDate, setTaskDueDate, type OpenTask } from '@reflect/core'
+import { clearTaskDueDate, setTaskDueDate, type TaskListItem as OpenTask } from '@reflect/core'
 
 /** Return the task content after setting or clearing its scheduled date link. */
 export function scheduledContent(task: OpenTask, isoDate: string | null): string {

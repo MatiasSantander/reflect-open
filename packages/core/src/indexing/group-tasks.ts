@@ -1,6 +1,6 @@
 import { compareTaskPaths } from '../markdown/task-path.ts'
 import { displayNoteTitle } from '../markdown/note-title.ts'
-import type { OpenTask } from './queries.ts'
+import type { TaskListItem as OpenTask } from './queries-tasks.ts'
 
 /**
  * Grouping for the Tasks view (Plan 18), faithful to V1's `task-view.ts`: open
@@ -120,7 +120,10 @@ function compareDated(left: OpenTask, right: OpenTask): number {
   if (left.notePath !== right.notePath) {
     return left.notePath < right.notePath ? -1 : 1
   }
-  return compareTaskPaths(left.astPath, right.astPath)
+  return compareTaskPaths(
+    left.sortPath ?? left.astPath ?? [Number.MAX_SAFE_INTEGER],
+    right.sortPath ?? right.astPath ?? [Number.MAX_SAFE_INTEGER],
+  )
 }
 
 /**
@@ -235,7 +238,12 @@ export function groupTasks(tasks: readonly OpenTask[], today: string): TaskGroup
       // A `byNote` entry only exists once a task has been pushed into it.
       label: displayNoteTitle(noteTasks[0]!.noteTitle),
       notePath: noteTasks[0]!.notePath,
-      tasks: noteTasks.sort((left, right) => compareTaskPaths(left.astPath, right.astPath)),
+      tasks: noteTasks.sort((left, right) =>
+        compareTaskPaths(
+          left.sortPath ?? left.astPath ?? [Number.MAX_SAFE_INTEGER],
+          right.sortPath ?? right.astPath ?? [Number.MAX_SAFE_INTEGER],
+        ),
+      ),
     }))
     .sort(compareNoteGroups)
 

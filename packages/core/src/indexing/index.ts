@@ -92,6 +92,7 @@ export {
   type DuplicateIdGroup,
   type NoteRow,
   type OpenTask,
+  type TaskListItem,
   type PinnedNote,
   type TagSuggestion,
   type WikiLinkSuggestionResult,

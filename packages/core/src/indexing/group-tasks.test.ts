@@ -57,7 +57,7 @@ describe('groupTaskContexts', () => {
     ]
 
     const contexts = groupTaskContexts(tasks)
-    expect(contexts.map((context) => context.tasks.map((entry) => entry.astPath[0]))).toEqual([
+    expect(contexts.map((context) => context.tasks.map((entry) => entry.astPath![0]))).toEqual([
       [1, 2],
       [3],
       [4],

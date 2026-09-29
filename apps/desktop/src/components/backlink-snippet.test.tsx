@@ -6,7 +6,21 @@ import type { SnippetTask } from '@reflect/core'
 import { BacklinkSnippet } from './backlink-snippet.tsx'
 
 const toggleTask = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/note-task.ts', () => ({ toggleTask }))
+vi.mock('@/lib/tasks/task-controller.ts', () => ({
+  taskController: () => ({
+    current: (row: import('@reflect/core').TaskListItem) => row,
+    submit: (row: import('@reflect/core').TaskListItem) =>
+      toggleTask(
+        {
+          notePath: row.notePath,
+          revision: row.revision,
+          astPath: row.astPath,
+          checked: row.checked,
+        },
+        7,
+      ),
+  }),
+}))
 
 const operationFail = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/operations.ts', () => ({

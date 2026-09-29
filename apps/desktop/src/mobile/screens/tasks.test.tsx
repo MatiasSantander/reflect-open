@@ -1,10 +1,9 @@
-import { resetTaskDrafts } from '@/lib/tasks/task-drafts.ts'
 import type { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render } from 'vitest-browser-react'
 import { page, userEvent, type Locator } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { makeOpenTask as task } from '@/lib/tasks/open-task-fixture.ts'
 import { resetRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
 import { RouterProvider, useRouter } from '@/routing/router.tsx'
@@ -146,34 +145,25 @@ const editTask = vi.hoisted(() => vi.fn())
 const insertTask = vi.hoisted(() => vi.fn())
 const continueTaskInContext = vi.hoisted(() => vi.fn())
 const convertTaskToBullet = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/note-task.ts', () => ({
-  mutateTasks: async (
-    edits: {
-      task: OpenTask
-      edit: {
-        checked?: boolean
-        remove?: boolean
-        toBullet?: boolean
-        text?: string
-      }
-    }[],
-    generation: number,
-  ) => {
-    for (const { task, edit } of edits) {
-      if (edit.text !== undefined) await editTask(task, edit.text, generation)
-      if (edit.checked !== undefined) await toggleTask(task, generation)
-      if (edit.remove) await deleteTask(task, generation)
-      if (edit.toBullet) await convertTaskToBullet(task, generation)
-    }
-    return []
-  },
-  toggleTask,
-  deleteTask,
-  editTask,
-  insertTask,
-  continueTaskInContext,
-  convertTaskToBullet,
+const controllerStub = vi.hoisted(() => ({
+  value: null as ReturnType<
+    typeof import('@/test-utils/task-controller-stub.ts').createTaskControllerStub
+  > | null,
 }))
+vi.mock('@/lib/tasks/task-controller.ts', async () => {
+  const { createTaskControllerStub } = await import('@/test-utils/task-controller-stub.ts')
+  return {
+    taskController: () =>
+      (controllerStub.value ??= createTaskControllerStub({
+        edit: editTask,
+        toggle: toggleTask,
+        remove: deleteTask,
+        convert: convertTaskToBullet,
+        begin: insertTask,
+        fail: (message) => fail(message),
+      })),
+  }
+})
 
 const fail = vi.hoisted(() => vi.fn())
 const startOperation = vi.hoisted(() => vi.fn(() => ({ fail })))
@@ -271,7 +261,6 @@ async function revealSwipeActions(
 }
 
 beforeEach(async () => {
-  resetTaskDrafts()
   await page.viewport(375, 700)
   window.sessionStorage.clear()
   getOpenTasks.mockReset()

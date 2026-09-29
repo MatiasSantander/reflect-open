@@ -1,14 +1,10 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
 import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
 import { useCallback, type ReactElement } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { queryKeys } from '@/lib/query-client.ts'
-import { toggleTask } from '@/lib/note-task.ts'
-import { startOperation } from '@/lib/operations.ts'
-import { errorMessage } from '@reflect/core'
+import { taskController } from '@/lib/tasks/task-controller.ts'
 import { MarkdownView } from '@meowdown/react'
 import type { WikilinkClickHandler } from '@meowdown/core'
-import type { SnippetTask, TaskAddress } from '@reflect/core'
+import type { SnippetTask } from '@reflect/core'
 import { useOpenExternalLink } from '@/editor/open-external-link.ts'
 import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
 import { useNoteAttachments } from '@/editor/use-note-attachments.ts'
@@ -47,30 +43,27 @@ export function BacklinkSnippet({
 }: BacklinkSnippetProps): ReactElement {
   const graph = useGraph({ optional: true })?.graph
   const generation = graph?.generation ?? null
-  const queryClient = useQueryClient()
-  const mutation = useMutation({
-    scope: { id: 'tasks' },
-    mutationFn: ({
-      task,
-      generation,
-    }: {
-      task: TaskAddress & { checked: boolean }
-      generation: number
-    }) => toggleTask(task, generation),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.index.openTasks(graph?.root) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.index.completedTasks(graph?.root) })
-    },
-    onError: (cause) => startOperation('Updating task').fail(errorMessage(cause)),
-  })
-  const { mutate, isPending } = mutation
   const handleTaskClick = useCallback(
     ({ index }: { index: number }) => {
       const task = tasks[index]
-      if (!task?.address || !task.round || generation === null || isPending) return
-      mutate({ task: { ...task.address, checked: task.checked }, generation })
+      if (!task?.address || !task.round || !graph) return
+      const controller = taskController(graph.root, graph.generation)
+      const row = controller.current({
+        ...task.address,
+        text: task.text,
+        displayText: task.text,
+        checked: task.checked,
+        dueDate: null,
+        breadcrumbs: [],
+        noteTitle: notePath,
+        dailyDate: null,
+        isPinned: false,
+        pinnedOrder: null,
+        updatedAt: 0,
+      })
+      controller.submit(row, { checked: !row.checked })
     },
-    [tasks, generation, isPending, mutate],
+    [tasks, graph, notePath],
   )
   const { resolveImageUrl, resolveWikiEmbed } = useNoteAttachments(generation, notePath)
   const resolveXPost = useXPostResolver()

@@ -235,6 +235,7 @@ export async function getBacklinksWithContext(
         }
         seenSnippets.add(snippet)
       }
+      const taskSource = taskSources.get(pageSource.sourcePath)
       results.push({
         sourcePath: pageSource.sourcePath,
         sourceTitle: pageSource.sourceTitle,
@@ -242,9 +243,9 @@ export async function getBacklinksWithContext(
         posFrom,
         tasks: extractSnippetTasks(
           snippet,
-          taskSources.has(pageSource.sourcePath)
+          taskSource
             ? {
-                ...taskSources.get(pageSource.sourcePath)!,
+                ...taskSource,
                 notePath: pageSource.sourcePath,
                 lineOrigins: context.lineOrigins,
               }

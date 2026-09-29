@@ -8,7 +8,12 @@ import { db } from './db.ts'
 import { decodeTaskBreadcrumbs } from './indexed-note.ts'
 
 /** A projected task with its note context and derived display text. */
-export interface OpenTask extends TaskAddress {
+export interface TaskListItem {
+  taskId?: string | undefined
+  revision?: string | undefined
+  astPath?: readonly number[] | undefined
+  sortPath?: readonly number[] | undefined
+  notePath: string
   /** Raw first-paragraph Markdown from the note, without the `[ ]` or `[x]` marker. */
   text: string
   checked: boolean
@@ -22,6 +27,12 @@ export interface OpenTask extends TaskAddress {
   isPinned: boolean
   pinnedOrder: number | null
   updatedAt: number
+}
+
+/** A task read from a confirmed note revision. */
+export interface OpenTask extends TaskListItem, TaskAddress {
+  revision: string
+  astPath: readonly number[]
 }
 
 async function getTasks(checked: boolean): Promise<OpenTask[]> {

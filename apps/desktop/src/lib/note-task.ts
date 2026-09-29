@@ -76,7 +76,7 @@ async function saveTaskSource(
       throw new Error('This note changed while saving. Your draft is kept.')
     return next
   })
-  if (!applied) throw new Error('Resolve the note conflict before editing its tasks.')
+  if (!applied) throw new Error('This note cannot be edited right now.')
   return await readNote(path, generation)
 }
 

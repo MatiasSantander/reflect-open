@@ -7,9 +7,9 @@ import {
   type MutableRefObject,
   type ReactElement,
 } from 'react'
-import { Priority } from '@meowdown/core'
+import { Priority, getIsComposing } from '@meowdown/core'
 import { useKeymap } from '@meowdown/react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
@@ -85,6 +85,7 @@ function TaskCommitKeymap({
     () => ({
       // Enter adds the next task (V1 continuous entry), never a new block.
       Enter: () => {
+        if (getIsComposing()) return false
         apiRef.current.commitAndContinue()
         return true
       },
@@ -164,7 +165,7 @@ export function TaskEditor({
   // Frozen at mount: the editor is seeded once (uncontrolled), so the commit
   // baseline must stay the seed even if `task.text` is re-derived mid-edit.
   const [initial] = useState(() => task.text)
-  const [writeCallbacks] = useState(() => ({
+  const writeCallbacks = {
     onCommit,
     onContinue,
     onDelete,
@@ -173,7 +174,7 @@ export function TaskEditor({
     onCheckboxToggle,
     onConvertToBullet,
     onFlush,
-  }))
+  }
   const { apiRef, onChange } = useTaskEditorFinalizer({
     ...writeCallbacks,
     initial,
@@ -210,7 +211,30 @@ export function TaskEditor({
   }, [])
 
   return (
-    <div data-task-editor className="min-w-0 flex-1">
+    <div
+      data-task-editor
+      className="min-w-0 flex-1"
+      onCompositionEnd={(event) => {
+        const root = event.currentTarget
+        setTimeout(() => {
+          if (!root.contains(document.activeElement)) apiRef.current.commit()
+        }, 0)
+      }}
+      onBlur={(event) => {
+        const root = event.currentTarget
+        const next = event.relatedTarget
+        if (
+          next instanceof Node &&
+          (root.closest('[data-task-key]')?.contains(next) ||
+            (next instanceof Element &&
+              next.closest('[role="dialog"], [role="listbox"], [role="menu"]')))
+        )
+          return
+        setTimeout(() => {
+          if (!root.contains(document.activeElement) && !getIsComposing()) apiRef.current.commit()
+        }, 0)
+      }}
+    >
       <NoteEditor
         initialContent={initial}
         singleParagraph

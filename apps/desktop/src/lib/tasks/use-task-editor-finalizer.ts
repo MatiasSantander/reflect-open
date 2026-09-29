@@ -1,3 +1,4 @@
+import { registerEditFinalizer } from '@/editor/open-documents.ts'
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import { resolveTaskEdit } from '@/lib/tasks/task-content.ts'
 
@@ -144,7 +145,7 @@ export function useTaskEditorFinalizer({
       // unchanged editor claims nothing — so a StrictMode double-cleanup can't
       // starve a later explicit commit/cancel of the single-shot claim.
       const result = resolveTaskEdit(initial, currentRef.current)
-      if (result.type === 'cancel') {
+      if (result.type === 'cancel' && currentRef.current.trim() !== '') {
         return
       }
       doneRef.current = true
@@ -250,7 +251,13 @@ export function useTaskEditorFinalizer({
 
   // Persist a pending edit when the row unmounts — the selection moved off it, so
   // flush (never clear/cancel) keeps the now-current selection intact.
-  useEffect(() => () => flushRef.current(), [])
+  useEffect(() => {
+    const unregister = registerEditFinalizer(() => apiRef.current.commit())
+    return () => {
+      unregister()
+      flushRef.current()
+    }
+  }, [])
 
   const onChange = useCallback((markdown: string) => {
     currentRef.current = markdown

@@ -1,98 +1,85 @@
-import { act, type ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { act } from 'react'
 import { renderHook } from 'vitest-browser-react'
 import { beforeEach, expect, it, vi } from 'vitest'
-import type { TaskAddress } from '@reflect/core'
-import type { TaskMutationReceipt } from '@/lib/note-task.ts'
-import { queryKeys } from '@/lib/query-client.ts'
-import { makeOpenTask } from './open-task-fixture.ts'
-import { resetRecentlyCompleted, useRecentlyCompleted } from './recently-completed.ts'
+import { createTaskController } from '@reflect/core'
 import { useTaskActions } from './use-task-actions.ts'
+import { resetRecentlyCompleted, useRecentlyCompleted } from './recently-completed.ts'
 
-const mocks = vi.hoisted(() => ({
-  generation: 1,
-  edit: vi.fn<
-    (task: TaskAddress, content: string, generation: number) => Promise<TaskMutationReceipt[]>
-  >(),
-  batch: vi.fn(),
+const context = vi.hoisted(() => ({ generation: 1 }))
+const io = vi.hoisted(() => ({
+  read: vi.fn(),
+  write: vi.fn(),
+  checkpoint: vi.fn(),
+  failure: vi.fn(),
+  saved: vi.fn(),
 }))
+let controller: ReturnType<typeof createTaskController>
 vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', generation: mocks.generation } }),
+  useGraph: () => ({ graph: { root: '/g', generation: context.generation } }),
 }))
-vi.mock('@/lib/note-task.ts', () => ({
-  editTask: mocks.edit,
-  mutateTasks: mocks.batch,
-  toggleTask: vi.fn(),
-  insertTask: vi.fn(),
-  continueTaskInContext: vi.fn(),
-}))
-vi.mock('@/lib/operations.ts', () => ({ startOperation: () => ({ fail: vi.fn() }) }))
+vi.mock('./task-controller.ts', () => ({ taskController: () => controller }))
+const target = {
+  notePath: 'notes/a.md',
+  noteTitle: 'A',
+  dailyDate: null,
+  isPinned: false,
+  pinnedOrder: null,
+}
 
 beforeEach(() => {
-  mocks.generation = 1
-  mocks.edit.mockReset().mockResolvedValue([])
-  mocks.batch.mockReset().mockResolvedValue([])
+  let source: string | null = null
+  io.read.mockReset().mockImplementation(async () => source)
+  io.write
+    .mockReset()
+    .mockImplementation(async (_path: string, _before: string | null, next: string) => {
+      source = next
+    })
+  io.checkpoint.mockReset().mockResolvedValue(undefined)
+  io.failure.mockReset()
+  io.saved.mockReset()
+  controller = createTaskController(io)
   resetRecentlyCompleted()
 })
 
-function wrapper(client: QueryClient) {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  }
-}
-
-it('serializes separate task hooks through a native mutation scope and captures the submitted generation', async () => {
-  const client = new QueryClient()
-  const gate = Promise.withResolvers<TaskMutationReceipt[]>()
-  mocks.edit.mockImplementationOnce(() => gate.promise)
-  const { result, rerender } = await renderHook(() => [useTaskActions(), useTaskActions()], {
-    wrapper: wrapper(client),
-  })
-  const first = makeOpenTask({ notePath: 'one.md' })
-  const second = makeOpenTask({ notePath: 'two.md' })
-  act(() => {
-    result.current[0]!.edit(first, 'one')
-    result.current[1]!.edit(second, 'two')
-  })
-  await vi.waitFor(() => expect(mocks.edit).toHaveBeenCalledTimes(1))
-  expect(
-    client
-      .getMutationCache()
-      .getAll()
-      .some((mutation) => mutation.state.isPaused),
-  ).toBe(true)
-  mocks.generation = 2
-  await rerender()
-  gate.resolve([])
-  await vi.waitFor(() => expect(mocks.edit).toHaveBeenCalledTimes(2))
-  expect(mocks.edit.mock.calls.map((call) => call[2])).toEqual([1, 1])
+it('creates an editable placeholder immediately without a persistence mutation', async () => {
+  const { result } = await renderHook(() => useTaskActions())
+  const row = await result.current.insert(target)
+  expect(row?.taskId).toBeDefined()
+  expect(row?.revision).toBeUndefined()
+  expect(io.write).not.toHaveBeenCalled()
+  act(() => result.current.remove([row!]))
+  await controller.flush()
+  expect(io.read).not.toHaveBeenCalled()
 })
 
-it('updates the last recently completed row from the success receipt when the archived query is absent', async () => {
-  const client = new QueryClient()
-  const task = makeOpenTask({ text: '**done**', revision: 'before' })
-  client.setQueryData(queryKeys.index.openTasks('/g'), [task])
-  const receipt: TaskMutationReceipt = {
-    generation: 1,
-    notePath: task.notePath,
-    beforeRevision: 'before',
-    revision: 'after',
-    source: '+ [x] **done**\n',
-    paths: new Map([['[0]', [0]]]),
-    tasks: [{ astPath: [0], text: '**done**', checked: true, dueDate: null, breadcrumbs: [] }],
-  }
-  mocks.batch.mockResolvedValue([receipt])
-  const { result } = await renderHook(
-    () => ({ actions: useTaskActions(), recent: useRecentlyCompleted('/g', undefined) }),
-    {
-      wrapper: wrapper(client),
-    },
-  )
-  act(() => result.current.actions.complete([task]))
-  await vi.waitFor(() => expect(result.current.recent[0]?.revision).toBe('after'))
-  expect(result.current.recent[0]).toMatchObject({
-    text: '**done**',
-    displayText: 'done',
-    checked: true,
+it('continues typing while the previous task is saving and leaves the last empty row local', async () => {
+  const gate = Promise.withResolvers<void>()
+  const write = io.write.getMockImplementation()!
+  io.write.mockImplementationOnce(async (...args) => {
+    await gate.promise
+    await write(...args)
   })
+  const { result } = await renderHook(() => useTaskActions())
+  const first = (await result.current.insert(target))!
+  const second = (await result.current.insertAfter(first, 'first', target))!
+  await vi.waitFor(() => expect(io.write).toHaveBeenCalledOnce())
+  const third = (await result.current.insertAfter(second, 'second', target))!
+  expect(third.revision).toBeUndefined()
+  gate.resolve()
+  await controller.flush()
+  expect(io.failure).not.toHaveBeenCalled()
+  expect(io.write.mock.calls.at(-1)?.[2]).toContain('second')
+  expect(io.write.mock.calls.at(-1)?.[2].match(/\+ \[ \]/g)).toHaveLength(2)
+})
+
+it('keeps a newly completed task visible without loading the archived query', async () => {
+  const { result } = await renderHook(() => ({
+    actions: useTaskActions(),
+    recent: useRecentlyCompleted('/g', undefined),
+  }))
+  const row = (await result.current.actions.insert(target))!
+  act(() => result.current.actions.editAndToggle(row, 'done'))
+  expect(result.current.recent[0]?.checked).toBe(true)
+  await controller.flush()
+  expect(io.write.mock.calls.at(-1)?.[2]).toContain('[x] done')
 })

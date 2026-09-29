@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { ArrowRight, Circle, CircleCheck, Trash2 } from 'lucide-react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { TaskText } from '@/components/tasks/task-text.tsx'
 import { formatShortDate } from '@/lib/dates.ts'

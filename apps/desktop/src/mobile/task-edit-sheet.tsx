@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { ArrowRight, CalendarDays, Check, CircleCheck, List, Trash2, Undo2, X } from 'lucide-react'
-import { Priority } from '@meowdown/core'
+import { Priority, getIsComposing } from '@meowdown/core'
 import { useKeymap } from '@meowdown/react'
-import type { OpenTask } from '@reflect/core'
+import type { TaskListItem as OpenTask } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
@@ -104,7 +104,6 @@ export function MobileTaskEditSheet({
 
   const handleChange = (markdown: string): void => {
     liveDraftRef.current = { seed: editorSeed, markdown }
-    setDraft(markdown)
   }
   // Stable while the editor is mounted: the flag only changes between visits
   // (the screen sets it before opening), never mid-edit, so the ref callback
@@ -215,6 +214,10 @@ export function MobileTaskEditSheet({
         <DrawerTitle className="sr-only">Edit task</DrawerTitle>
         <div className="flex flex-col gap-3 p-4">
           <div
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget))
+                setDraft(readLiveDraft() ?? draft)
+            }}
             data-base-ui-swipe-ignore
             className="rounded-md border border-border bg-surface px-3 py-2 focus-within:ring-1 focus-within:ring-accent"
           >
@@ -327,6 +330,7 @@ function TaskSheetKeymap({ onDone }: { onDone: () => void }): null {
   const keymap = useMemo(
     () => ({
       Enter: () => {
+        if (getIsComposing()) return false
         onDone()
         return true
       },

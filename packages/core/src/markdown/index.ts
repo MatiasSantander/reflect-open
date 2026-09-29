@@ -45,7 +45,6 @@ export {
 } from './edit.ts'
 export { retitleWikiLinks, type WikiLinkRetitleOptions } from './retitle.ts'
 export { displayNoteTitle, wikiLinkTargetForTitle } from './note-title.ts'
-export { parseTaskMarker } from './task-marker.ts'
 export {
   conflictMarkerBlockCount,
   conflictMarkerLabels,

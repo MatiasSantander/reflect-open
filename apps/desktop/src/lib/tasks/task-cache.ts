@@ -1,4 +1,4 @@
-import { inlineMarkdownToDisplayText, type OpenTask } from '@reflect/core'
+import { inlineMarkdownToDisplayText, type TaskListItem as OpenTask } from '@reflect/core'
 import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
 
 /**
