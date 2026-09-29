@@ -55,7 +55,7 @@ it('continues typing while the previous task is saving and leaves the last empty
   const second = result.current.insertAfter(first, target)!
   await vi.waitFor(() => expect(io.write).toHaveBeenCalledOnce())
   result.current.draft(second, 'second')
-  const third = result.current.insertAfter(second, target)!
+  result.current.insertAfter(second, target)
   gate.resolve()
   await store.flush()
   expect(io.failure).not.toHaveBeenCalled()

@@ -1,4 +1,4 @@
-import { compareTaskPaths, decodeTaskPath, inlineMarkdownToDisplayText } from '../markdown/index.ts'
+import { decodeTaskPath, inlineMarkdownToDisplayText } from '../markdown/index.ts'
 import { indexedTaskKey, type Task } from '../tasks/task-store.ts'
 import { db } from './db.ts'
 import { decodeTaskBreadcrumbs } from './indexed-note.ts'
@@ -22,25 +22,18 @@ async function getTasks(checked: boolean): Promise<Task[]> {
       'notes.updatedAt',
     ])
     .execute()
-  return rows
-    .map((row) => {
-      const astPath = decodeTaskPath(row.astPath)
-      return {
-        ...row,
-        key: indexedTaskKey(row.notePath, astPath),
-        astPath,
-        checked,
-        isPinned: row.isPinned !== 0,
-        breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
-        displayText: inlineMarkdownToDisplayText(row.text),
-      }
-    })
-    .sort(
-      (left, right) =>
-        (checked ? right.updatedAt - left.updatedAt : 0) ||
-        left.notePath.localeCompare(right.notePath) ||
-        compareTaskPaths(left.astPath, right.astPath),
-    )
+  return rows.map((row) => {
+    const astPath = decodeTaskPath(row.astPath)
+    return {
+      ...row,
+      key: indexedTaskKey(row.notePath, astPath),
+      astPath,
+      checked,
+      isPinned: row.isPinned !== 0,
+      breadcrumbs: decodeTaskBreadcrumbs(row.breadcrumbs),
+      displayText: inlineMarkdownToDisplayText(row.text),
+    }
+  })
 }
 
 /** Open tasks across non-template notes. */
@@ -48,7 +41,7 @@ export function getOpenTasks(): Promise<Task[]> {
   return getTasks(false)
 }
 
-/** Completed tasks, newest note first, then note path and document order. */
+/** Completed tasks across non-template notes. */
 export function getCompletedTasks(): Promise<Task[]> {
   return getTasks(true)
 }

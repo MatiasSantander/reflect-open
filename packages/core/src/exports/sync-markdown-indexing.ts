@@ -231,14 +231,4 @@ export {
   type TitleRenameRewriteResult,
 } from '../indexing/index.ts'
 
-export {
-  taskPathSchema,
-  decodeTaskPath,
-  encodeTaskPath,
-  compareTaskPaths,
-  inlineMarkdownToDisplayText,
-  projectTasks,
-  type TaskAddress,
-} from '../markdown/index.ts'
-
-export { editTaskDocument, type TaskOp } from '../markdown/task-mutation.ts'
+export { inlineMarkdownToDisplayText, projectTasks, type TaskAddress } from '../markdown/index.ts'

@@ -183,23 +183,21 @@ export function groupTasks(tasks: readonly Task[], today: string): TaskGroup[] {
   const byNote = new Map<string, Task[]>()
 
   for (const task of tasks) {
-    const date = effectiveDate(task)
-    if (date === null) {
-      // No due date and no daily date — V1's "unscheduled": grouped by note.
-      const group = byNote.get(task.notePath)
-      if (group === undefined) {
-        byNote.set(task.notePath, [task])
-      } else {
-        group.push(task)
+    switch (taskDateBucket(task, today)) {
+      case 'current':
+        current.push(task)
+        break
+      case 'overdue':
+        overdue.push(task)
+        break
+      case 'upcoming':
+        upcoming.push(task)
+        break
+      case 'note': {
+        const group = byNote.get(task.notePath)
+        if (group === undefined) byNote.set(task.notePath, [task])
+        else group.push(task)
       }
-    } else if (task.dueDate !== null && task.dueDate < today) {
-      // Overdue keys off the explicit due date ALONE (V1's asymmetry): a bare
-      // task in a past daily note is not overdue — it lands in Current below.
-      overdue.push(task)
-    } else if (date > today) {
-      upcoming.push(task)
-    } else {
-      current.push(task)
     }
   }
 
