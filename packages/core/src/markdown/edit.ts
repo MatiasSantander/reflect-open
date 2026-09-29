@@ -39,7 +39,8 @@ export function setTaskDueDate(content: string, isoDate: string): string {
  * unchanged when it has no due date. The inverse of {@link setTaskDueDate}.
  */
 export function clearTaskDueDate(content: string): string {
-  for (const date of taskDateLinks(content).reverse()) content = content.slice(0, date.from) + content.slice(date.to)
+  for (const date of taskDateLinks(content).reverse())
+    content = content.slice(0, date.from) + content.slice(date.to)
   return content.replaceAll(/[ \t]{2,}/g, ' ').trim()
 }
 

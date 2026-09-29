@@ -54,7 +54,10 @@ export function insertTargetForBucket(task: TaskListItem, today: string): Insert
  * just above it, or — when it was the first — the row just below (which becomes
  * the new first). `null` when it was the only row, so the caller clears.
  */
-export function previousTaskKey(ordered: readonly TaskListItem[], task: TaskListItem): string | null {
+export function previousTaskKey(
+  ordered: readonly TaskListItem[],
+  task: TaskListItem,
+): string | null {
   const index = ordered.findIndex((row) => sameTask(row, task))
   if (index === -1) {
     return null

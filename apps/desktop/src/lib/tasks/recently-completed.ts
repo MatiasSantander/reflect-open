@@ -49,7 +49,10 @@ function adopt(root: string | null): void {
  * is flipped to `[x]` to match disk — these rows outlive the reindex, so a stale
  * `[ ]` would later fail the reopen/edit/delete write-back .
  */
-export function markRecentlyCompleted(root: string | null, completed: readonly TaskListItem[]): void {
+export function markRecentlyCompleted(
+  root: string | null,
+  completed: readonly TaskListItem[],
+): void {
   if (completed.length === 0) {
     return
   }
@@ -115,7 +118,10 @@ function withoutReopened(
  * withoutReopened}) — so `hasRecentlyCompleted` and the Archive count agree
  * with what the surfaces render.
  */
-export function reconcileRecentlyCompleted(root: string | null, open: readonly TaskListItem[]): void {
+export function reconcileRecentlyCompleted(
+  root: string | null,
+  open: readonly TaskListItem[],
+): void {
   if (root !== graphRoot) {
     return
   }
