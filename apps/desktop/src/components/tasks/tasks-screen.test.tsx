@@ -15,7 +15,7 @@ import {
   type TaskStoreHarness,
 } from '@/test-utils/task-store-harness.ts'
 import '@/test-utils/locator.ts'
-import type { TaskEditHandlers } from './task-editor.tsx'
+import type { TaskCommands } from '@/lib/tasks/use-task-commands.ts'
 import { TasksScreen } from './tasks-screen.tsx'
 
 const getOpenTasks = vi.hoisted(() => vi.fn())
@@ -61,16 +61,7 @@ vi.mock('@/lib/tasks/task-store.ts', async () => {
 vi.mock('./task-editor', async () => {
   const { useTaskStore } = await import('@/lib/tasks/task-store.ts')
   return {
-    TaskEditor: ({
-      task,
-      onContinue,
-      onCancel,
-      onComplete,
-      onConvertToBullet,
-      onDelete,
-      onDeleteEmpty,
-      onNavigate,
-    }: TaskEditHandlers & { task: Task }) => {
+    TaskEditor: ({ task, commands }: { task: Task; commands: TaskCommands }) => {
       const store = useTaskStore()!
       const latest = useRef({ task, store })
       useLayoutEffect(() => {
@@ -97,19 +88,19 @@ vi.mock('./task-editor', async () => {
             type="button"
             onClick={() => {
               draft('edited content')
-              onContinue()
+              commands.continue(task)
             }}
           >
             continue-edit
           </button>
-          <button type="button" onClick={() => onContinue()}>
+          <button type="button" onClick={() => commands.continue(task)}>
             continue-unchanged
           </button>
           <button
             type="button"
             onClick={() => {
               draft('')
-              onContinue()
+              commands.continue(task)
             }}
           >
             continue-empty
@@ -118,7 +109,7 @@ vi.mock('./task-editor', async () => {
             type="button"
             onClick={() => {
               store.discardDraft(task)
-              onCancel()
+              commands.cancel()
             }}
           >
             cancel-edit
@@ -127,36 +118,36 @@ vi.mock('./task-editor', async () => {
             type="button"
             onClick={() => {
               draft('edited content')
-              onComplete()
+              commands.complete([task])
             }}
           >
             complete-edited
           </button>
-          <button type="button" onClick={() => onComplete()}>
+          <button type="button" onClick={() => commands.complete([task])}>
             complete-unchanged
           </button>
           <button
             type="button"
             onClick={() => {
               draft('edited content')
-              onConvertToBullet()
+              commands.convert([task])
             }}
           >
             convert-edited
           </button>
-          <button type="button" onClick={() => onConvertToBullet()}>
+          <button type="button" onClick={() => commands.convert([task])}>
             convert-unchanged
           </button>
-          <button type="button" onClick={() => onDelete()}>
+          <button type="button" onClick={() => commands.remove([task])}>
             delete-edit
           </button>
-          <button type="button" onClick={() => onDeleteEmpty()}>
+          <button type="button" onClick={() => commands.removeEmpty(task)}>
             delete-empty-edit
           </button>
-          <button type="button" onClick={() => onNavigate(1, { span: false })}>
+          <button type="button" onClick={() => commands.navigate(1, false)}>
             nav-down
           </button>
-          <button type="button" onClick={() => onNavigate(-1, { span: false })}>
+          <button type="button" onClick={() => commands.navigate(-1, false)}>
             nav-up
           </button>
         </div>
@@ -551,7 +542,7 @@ describe('TasksScreen', () => {
     await view.unmount()
   })
 
-  it('editing an already-completed task with ⌘↵ saves the text, never reopens it', async () => {
+  it('editing an already-completed task with ⌘↵ saves the text and reopens it', async () => {
     window.sessionStorage.setItem('reflect.tasks.filter.archived', 'true')
     seed('notes/p.md', '+ [x] done task\n', { noteTitle: 'P' })
     const view = await renderScreen()
@@ -559,7 +550,7 @@ describe('TasksScreen', () => {
     await userEvent.click(await view.findByRole('button', { name: 'done task' }))
     await userEvent.click(view.getByText('complete-edited'))
     // The marker stays `[x]`, no toggle back to open.
-    await waitFor(() => expect(harness.notes.get('notes/p.md')).toBe('+ [x] edited content\n'))
+    await waitFor(() => expect(harness.notes.get('notes/p.md')).toBe('+ [ ] edited content\n'))
     await view.unmount()
   })
 

@@ -83,19 +83,23 @@ function Harness({ initial }: { initial: Task }) {
         <TaskEditor
           key={task.key}
           task={task}
-          onContinue={() => setActive(continueFrom(store, task, '2026-06-14'))}
-          onCancel={() => setActive(null)}
-          onComplete={() => {}}
-          onConvertToBullet={() => {}}
-          onDelete={() => {
-            store.remove([task])
-            setActive(null)
+          commands={{
+            continue: (from) => setActive(continueFrom(store, from, '2026-06-14')),
+            complete: () => {},
+            remove: (tasks) => {
+              store.remove(tasks)
+              setActive(null)
+            },
+            removeEmpty: (empty) => {
+              store.remove([empty])
+              setActive(null)
+            },
+            convert: () => {},
+            schedule: () => {},
+            navigate: () => {},
+            cancel: () => setActive(null),
+            archive: () => {},
           }}
-          onDeleteEmpty={() => {
-            store.remove([task])
-            setActive(null)
-          }}
-          onNavigate={() => {}}
         />
       )}
       <button type="button" onClick={() => setActive(null)}>

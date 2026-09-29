@@ -1,9 +1,9 @@
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getCompletedTasks, getOpenTasks, type Task, type TaskStore } from '@reflect/core'
 import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { queryKeys } from '@/lib/query-client.ts'
-import { useTaskStore, useTaskStoreVersion } from '@/lib/tasks/task-store.ts'
+import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 
 export interface TaskList {
@@ -24,7 +24,7 @@ export function useTaskList(archived: boolean): TaskList {
   const { graph } = useGraph()
   const enabled = useBridgeReady() && graph !== null
   const store = useTaskStore()
-  const version = useTaskStoreVersion(store)
+  const version = useSyncExternalStore(store?.subscribe ?? noSubscribe, store?.snapshot ?? zero)
   const open = useQuery({
     queryKey: queryKeys.index.openTasks(graph?.root),
     queryFn: getOpenTasks,
@@ -51,3 +51,6 @@ export function useTaskList(archived: boolean): TaskList {
     recentCount: store ? tasks.filter((task) => store.isRecent(task)).length : 0,
   }
 }
+
+const noSubscribe = () => () => {}
+const zero = () => 0

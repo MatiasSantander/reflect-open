@@ -11,14 +11,13 @@ import { openSession, registerPendingWriter } from '@/editor/open-documents.ts'
 import { toast } from '@/components/ui/toast.tsx'
 import { queryClient, queryKeys } from '@/lib/query-client.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo } from 'react'
 
-const stores = new Map<string, TaskStore>()
-const retirements = new Map<string, () => Promise<void>>()
+const stores = new Map<string, { store: TaskStore; retire: () => Promise<void> }>()
 
 /** Finish every graph's pending task writes and release the stores. */
 export async function retireTaskStores(): Promise<void> {
-  await Promise.all([...retirements.values()].map((retire) => retire()))
+  await Promise.all([...stores.values()].map(({ retire }) => retire()))
 }
 
 /**
@@ -32,7 +31,7 @@ export async function retireTaskStores(): Promise<void> {
 export function taskStore(root: string, generation: number): TaskStore {
   const key = JSON.stringify([root, generation])
   const existing = stores.get(key)
-  if (existing) return existing
+  if (existing) return existing.store
   let active = true
   const assertActive = () => {
     if (!active) throw new Error('This graph session has closed.')
@@ -95,6 +94,8 @@ export function taskStore(root: string, generation: number): TaskStore {
       toast.add({
         id: toastId(path),
         type: 'error',
+        // Stays until saved or retried: the pending change is only visible here.
+        timeout: 0,
         title: "Couldn't save tasks. Your changes are kept.",
         actionProps: {
           children: 'Retry',
@@ -110,15 +111,16 @@ export function taskStore(root: string, generation: number): TaskStore {
       toast.close(toastId(path))
     },
   })
-  stores.set(key, store)
   const unregister = registerPendingWriter(store.flush)
-  retirements.set(key, async () => {
-    await store.flush()
-    active = false
-    unregister()
-    stores.delete(key)
-    retirements.delete(key)
-    for (const path of failures) toast.close(toastId(path))
+  stores.set(key, {
+    store,
+    retire: async () => {
+      await store.flush()
+      active = false
+      unregister()
+      stores.delete(key)
+      for (const path of failures) toast.close(toastId(path))
+    },
   })
   return store
 }
@@ -133,10 +135,3 @@ export function useTaskStore(): TaskStore | null {
     [root, generation],
   )
 }
-
-/** Re-render whenever the store's list would change. */
-export function useTaskStoreVersion(store: TaskStore | null): number {
-  return useSyncExternalStore(store?.subscribe ?? noSubscribe, store?.snapshot ?? zero)
-}
-const noSubscribe = () => () => {}
-const zero = () => 0

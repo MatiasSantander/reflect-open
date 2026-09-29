@@ -15,7 +15,6 @@ import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
-import { registerEditFinalizer } from '@/editor/open-documents.ts'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
@@ -89,22 +88,18 @@ export function MobileTaskEditSheet({
     [autoFocusEditor],
   )
 
-  // A route change can unmount the open sheet without a dismissal, and the
-  // application flushes edits before quitting: save the draft then too.
+  // A route change can unmount the open sheet without a dismissal: save the
+  // draft then too. An application flush saves it through the store itself.
   const latest = useRef({ task, store, open })
   useLayoutEffect(() => {
     latest.current = { task, store, open }
   })
-  useEffect(() => {
-    const commit = () => {
+  useEffect(
+    () => () => {
       if (latest.current.open) latest.current.store?.commitDraft(latest.current.task)
-    }
-    const unregister = registerEditFinalizer(commit)
-    return () => {
-      unregister()
-      commit()
-    }
-  }, [])
+    },
+    [],
+  )
 
   const close = (): void => onOpenChange(false)
   const handleOpenChange = (nextOpen: boolean): void => {

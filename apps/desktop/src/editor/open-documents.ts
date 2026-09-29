@@ -26,16 +26,7 @@ export interface OpenDocument {
   settled?: () => Promise<void>
 }
 
-const editFinalizers = new Set<() => void>()
 const pendingWriters = new Set<() => Promise<void>>()
-
-/** Register an active edit boundary for application lifecycle flushes. */
-export function registerEditFinalizer(finalize: () => void): () => void {
-  editFinalizers.add(finalize)
-  return () => {
-    editFinalizers.delete(finalize)
-  }
-}
 
 /** Register background writes that must settle before shutdown. */
 export function registerPendingWriter(flush: () => Promise<void>): () => void {
@@ -125,7 +116,6 @@ export function retargetOpenDocument(from: string, to: string, session: NoteSess
  * absorbed, never re-thrown.
  */
 export async function flushOpenDocuments(): Promise<void> {
-  for (const finalize of editFinalizers) finalize()
   await Promise.allSettled([...pendingWriters].map((flush) => flush()))
   await Promise.allSettled(
     [...documents.values()].map(async (document) => {

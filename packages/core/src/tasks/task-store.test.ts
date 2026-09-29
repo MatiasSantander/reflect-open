@@ -270,4 +270,80 @@ describe('task store', () => {
     expect(h.list().map((task) => task.text)).toEqual(['two'])
     expect(h.all().map((task) => task.text)).toEqual(['two', 'one'])
   })
+
+  it('keeps a struck task and its key when a task above it is removed', async () => {
+    const h = harness('+ [ ] one\n+ [ ] two\n+ [ ] three\n')
+    const [one, two] = h.list()
+    h.store.setChecked([two!], true)
+    await h.store.flush()
+    h.store.remove([one!])
+    await h.store.flush()
+    expect(h.source()).toBe('+ [x] two\n+ [ ] three\n')
+    const rows = h.list()
+    expect(rows.map((task) => [task.text, task.checked, h.store.isRecent(task)])).toEqual([
+      ['three', false, false],
+      ['two', true, true],
+    ])
+    expect(new Set(rows.map((task) => task.key)).size).toBe(2)
+  })
+
+  it('refuses to guess between identical tasks once the note changed elsewhere', async () => {
+    const h = harness('+ [ ] same\n+ [ ] same\n')
+    // A no-op change makes the store read the note once.
+    h.store.update(h.list()[0]!, { text: 'same' })
+    await h.store.flush()
+    expect(h.io.read).toHaveBeenCalledOnce()
+    const second = h.list()[1]!
+    h.io.read.mockResolvedValueOnce('para\n\n+ [ ] same\n+ [ ] same\n')
+    h.store.update(second, { text: 'edited second' })
+    await h.store.flush()
+    expect(h.io.write).not.toHaveBeenCalled()
+    expect(h.io.failure).toHaveBeenCalledOnce()
+    expect(h.list().some((task) => task.text === 'edited second')).toBe(true)
+  })
+
+  it('forgets a task created here once the index alone describes it', async () => {
+    const h = harness()
+    const row = h.store.create(target)
+    h.store.update(row, { text: 'mine' })
+    await h.store.flush()
+    expect(h.list().map((task) => task.key)).toEqual([row.key])
+    // The note editor rewrites the note: the task moves and changes.
+    const rewritten = '+ [ ] above\n+ [x] mine, done in the editor\n'
+    expect(h.store.list(indexed(rewritten, false)).map((task) => task.text)).toEqual(['above'])
+    expect(h.store.list(indexed(rewritten, false), indexed(rewritten, true))).toHaveLength(2)
+  })
+
+  it('lists a written task once while the index refetch is still in flight', async () => {
+    const h = harness()
+    const gate = Promise.withResolvers<void>()
+    const write = h.io.write.getMockImplementation()!
+    h.io.write.mockImplementationOnce(async (...args) => {
+      await write(...args)
+      await gate.promise
+    })
+    const row = h.store.create(target)
+    h.store.update(row, { text: 'written' })
+    await vi.waitFor(() => expect(h.io.write).toHaveBeenCalledOnce())
+    expect(h.list().map((task) => [task.key, task.text])).toEqual([[row.key, 'written']])
+    gate.resolve()
+    await h.store.flush()
+    expect(h.list().map((task) => task.text)).toEqual(['written'])
+  })
+
+  it('keeps other changes flowing while one change waits on a conflict', async () => {
+    const h = harness('+ [ ] a\n+ [ ] b\n')
+    const [a, b] = h.list()
+    h.store.update({ ...a!, text: 'stale' }, { text: 'edited a' })
+    await h.store.flush()
+    expect(h.io.failure).toHaveBeenCalledOnce()
+    h.store.setChecked([b!], true)
+    await h.store.flush()
+    expect(h.source()).toBe('+ [ ] a\n+ [x] b\n')
+    expect(h.io.saved).not.toHaveBeenCalled()
+    h.io.failure.mock.calls[0]![2]()
+    await h.store.flush()
+    expect(h.io.failure).toHaveBeenCalledTimes(2)
+    expect(h.list().map((task) => task.text)).toEqual(['edited a', 'b'])
+  })
 })

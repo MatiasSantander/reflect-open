@@ -1,5 +1,4 @@
 import { parseMarkdownAst } from '@meowdown/markdown'
-import { isAppError } from '../errors.ts'
 import { clearTaskDueDate, setTaskDueDate } from '../markdown/edit.ts'
 import { splitFrontmatter } from '../markdown/frontmatter.ts'
 import type { ParsedTask } from '../markdown/model.ts'
@@ -11,7 +10,10 @@ import { projectTaskDocument } from '../markdown/task-projection.ts'
 
 /** A task as the Tasks surfaces show it. Index rows and tasks created locally share this shape. */
 export interface Task {
-  /** Stable identity: `notePath#astPath` for an indexed task, a random id for one created here. */
+  /**
+   * Identity: `notePath#astPath` for an indexed task, a random id for one
+   * created here until the index lists it.
+   */
   key: string
   notePath: string
   /**
@@ -53,7 +55,7 @@ export interface TaskStoreIO {
    * `before`. Resolves once the index and the task queries reflect the write.
    */
   write: (path: string, before: string | null, source: string) => Promise<void>
-  /** A note's changes could not be saved; `retry` tries again. */
+  /** Some of a note's changes could not be saved; `retry` tries them again. */
   failure: (path: string, error: unknown, retry: () => void) => void
   /** A note's changes are all on disk. */
   saved: (path: string) => void
@@ -80,23 +82,23 @@ interface Entry {
   /** The task as it should be. A new object on every change. */
   row: Task
   /** The `row` the last write saved. The entry is pending while it differs from `row`. */
-  saved: Task | null
+  saved: Task
   /** The task should leave the note as a checkbox. */
   gone?: 'removed' | 'bullet' | undefined
-  /** For a task created here: the task it is inserted after. */
+  /** For a task created here: the task it is inserted after, at its last known location. */
   after?: Task | undefined
   /** Text typed into an open editor, until the edit ends. */
   draft?: string | undefined
   /** Completed here; stays listed, struck, until archived. */
   recent?: boolean | undefined
-  /** The note cannot take this change as it stands; cleared by a retry. */
+  /** The last write could not take this change; cleared by a retry or a further change. */
   error?: unknown
 }
 
 interface Note {
   running: Promise<void> | null
-  /** True after a failed read or write, until the host retries. */
-  failed: boolean
+  /** The source last read or written, to tell an outside change from our own. */
+  source?: string | null | undefined
 }
 
 /** The key of an indexed task. */
@@ -126,18 +128,26 @@ function patched(task: Task, patch: TaskPatch): Task {
   }
 }
 
-/** The task at `location`, or the only task with its text when it moved. */
-function find(tasks: readonly ParsedTask[], location: Location): ParsedTask | undefined {
-  const atPath = tasks.find(
-    (task) => samePath(task.astPath, location.path) && task.text === location.text,
-  )
-  if (atPath) return atPath
+/**
+ * The task at `location`. Its path counts only while the note has not changed
+ * since the store last saw it; otherwise, or when the path no longer holds
+ * that text, the task must be the only one with its text.
+ */
+function find(
+  tasks: readonly ParsedTask[],
+  location: Location,
+  trustPaths: boolean,
+): ParsedTask | undefined {
+  if (trustPaths) {
+    const atPath = tasks.find((task) => samePath(task.astPath, location.path))
+    if (atPath?.text === location.text) return atPath
+  }
   const byText = tasks.filter((task) => task.text === location.text)
   return byText.length === 1 ? byText[0] : undefined
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function conflict(): Error {
+  return new Error('This task changed elsewhere. Your text is kept.')
 }
 
 /**
@@ -153,20 +163,20 @@ function delay(ms: number): Promise<void> {
  * schedules its note; the note's write loop reads the file, makes every
  * pending task look like its row, writes once, and marks the rows it wrote as
  * saved. `io.write` resolves only after the index and the task queries
- * reflect the write, so an entry is only forgotten once the index shows it.
+ * reflect the write, so an entry is forgotten only once the index shows it.
  *
- * A task created here has a random key and no location until written; the
- * entry then maps the index row at that location back to the key the UI
- * holds. Typing goes to `draft`, which stores text without notifying anyone;
+ * A task created here has a random key until the index lists it; the entry
+ * maps the index row at its location back to that key while the entry lives.
+ * Typing goes to `draft`, which stores text without notifying anyone;
  * `commitDraft` turns it into an update when the edit ends, and `update` folds
  * a pending draft in first, so a checkbox click during an edit acts on the
  * typed text. An emptied task, or an abandoned empty new task, is removed; an
  * empty new task is never written.
  *
  * Tasks completed through `setChecked` stay listed, struck, until `archive`
- * (V1's middle state). A change the note cannot take (its task is gone or
- * ambiguous) is reported once and waits, without blocking the note's other
- * changes; a failed read or write pauses the whole note until retried.
+ * (V1's middle state). A change the note cannot take waits with its own
+ * error, reported once per note, without blocking the note's other changes;
+ * a retry or a further change tries it again.
  */
 export class TaskStore {
   private readonly entries = new Map<string, Entry>()
@@ -187,8 +197,11 @@ export class TaskStore {
   /** A counter that changes whenever `list` would return something new. */
   readonly snapshot = (): number => this.version
 
-  /** Resolve once no write loop is running. */
+  /** Save every open draft, then resolve once no write loop is running. */
   readonly flush = async (): Promise<void> => {
+    for (const entry of this.entries.values()) {
+      if (entry.draft !== undefined) this.commitDraft(entry.row)
+    }
     for (;;) {
       const running = [...this.notes.values()].flatMap((note) =>
         note.running ? [note.running] : [],
@@ -204,21 +217,31 @@ export class TaskStore {
    * all with pending changes applied.
    */
   list(open: readonly Task[], completed?: readonly Task[]): Task[] {
+    // Index rows of tasks created here take the key the UI already holds.
+    const claims = new Map<string, string>()
+    for (const [key, entry] of this.entries) {
+      if (entry.at && key !== indexedTaskKey(entry.row.notePath, entry.at.path)) {
+        claims.set(`${indexedTaskKey(entry.row.notePath, entry.at.path)}\n${entry.at.text}`, key)
+      }
+    }
     const rows = new Map<string, Task>()
-    for (const task of this.rekey(open)) rows.set(task.key, task)
-    for (const task of this.rekey(completed ?? [])) rows.set(task.key, task)
+    for (const task of [...open, ...(completed ?? [])]) {
+      const key = claims.get(`${task.key}\n${task.text}`) ?? task.key
+      rows.set(key, key === task.key ? task : { ...task, key })
+    }
     for (const [key, entry] of this.entries) {
       if (entry.gone) {
         rows.delete(key)
         continue
       }
-      const base = rows.get(key) ?? (entry.created || entry.recent ? entry.row : undefined)
+      // Without an index row, a task created here shows itself until the index
+      // lists it; a struck one shows itself until archived.
+      const pending = entry.row !== entry.saved
+      const own = entry.created && (entry.at === null || pending)
+      const base = rows.get(key) ?? (own || entry.recent ? entry.row : undefined)
       if (!base) continue
       const { text, displayText, checked, dueDate } = entry.row
-      rows.set(
-        key,
-        entry.row === entry.saved ? base : { ...base, text, displayText, checked, dueDate },
-      )
+      rows.set(key, pending ? { ...base, text, displayText, checked, dueDate } : base)
     }
     return [...rows.values()].filter(
       (task) => !task.checked || completed !== undefined || this.entries.get(task.key)?.recent,
@@ -320,7 +343,7 @@ export class TaskStore {
     if (entry) entry.draft = undefined
     if (entry?.gone) return null
     const text = (draft ?? entry?.row.text ?? task.text).trim()
-    const untouchedNew = draft === undefined && entry?.created && entry.at === null && text === ''
+    const untouchedNew = draft === undefined && entry?.at === null && text === ''
     if ((draft !== undefined && text === '') || untouchedNew) {
       this.update(task, { removed: true })
       return null
@@ -336,6 +359,7 @@ export class TaskStore {
     else if (entry.draft !== undefined && this.commitDraft(task) === null) return
     if (entry.gone) return
     entry.row = patched(entry.row, patch)
+    entry.error = undefined
     if (patch.removed) entry.gone = 'removed'
     else if (patch.bullet) entry.gone = 'bullet'
     if (entry.gone) entry.recent = false
@@ -360,7 +384,7 @@ export class TaskStore {
   private note(path: string): Note {
     let note = this.notes.get(path)
     if (!note) {
-      note = { running: null, failed: false }
+      note = { running: null }
       this.notes.set(path, note)
     }
     return note
@@ -371,42 +395,18 @@ export class TaskStore {
     for (const listener of this.listeners) listener()
   }
 
-  /** Nothing pending and nothing to remember: the index alone describes the task. */
+  /**
+   * Nothing pending and nothing to remember. A task created here keeps its
+   * entry, and so its key, while it stays in the note as a checkbox.
+   */
   private done(entry: Entry): boolean {
     return (
       entry.row === entry.saved &&
       entry.draft === undefined &&
+      entry.error === undefined &&
       !(entry.recent && entry.row.checked) &&
       (!entry.created || entry.gone !== undefined)
     )
-  }
-
-  /** Index rows, with tasks the store knows given back the key the UI knows them by. */
-  private rekey(indexed: readonly Task[]): Task[] {
-    return indexed.map((task) => {
-      for (const [key, entry] of this.entries) {
-        if (
-          key !== task.key &&
-          entry.at &&
-          entry.at.text === task.text &&
-          samePath(entry.at.path, task.astPath) &&
-          entry.row.notePath === task.notePath
-        ) {
-          return { ...task, key }
-        }
-      }
-      return task
-    })
-  }
-
-  /** Run the note's write loop unless it is already running or waiting for a retry. */
-  private start(path: string): void {
-    const note = this.note(path)
-    if (note.running || note.failed) return
-    note.running = this.drain(path, note).finally(() => {
-      note.running = null
-      if (!note.failed && this.pending(path).length > 0) this.start(path)
-    })
   }
 
   private pending(path: string): [string, Entry][] {
@@ -416,10 +416,19 @@ export class TaskStore {
     )
   }
 
+  /** Run the note's write loop unless it is already running. */
+  private start(path: string): void {
+    const note = this.note(path)
+    if (note.running) return
+    note.running = this.drain(path, note).finally(() => {
+      note.running = null
+      if (this.pending(path).length > 0) this.start(path)
+    })
+  }
+
   /** Make the file match every pending task of the note, one read-edit-write round per batch. */
   private async drain(path: string, note: Note): Promise<void> {
-    let retries = 0
-    while (!note.failed) {
+    for (;;) {
       const batch = this.pending(path)
       if (batch.length === 0) return
       const rows = new Map(batch.map(([key, entry]) => [key, entry.row]))
@@ -432,72 +441,116 @@ export class TaskStore {
           entry.at && entry.row.notePath === path ? [[key, entry.at] as const] : [],
         ),
       )
-      let firstError: unknown
-      try {
-        if (work.length > 0) {
+      let error: unknown
+      if (work.length > 0) {
+        const previous = new Map(locations)
+        try {
           const disk = await this.io.read(path)
+          const trustPaths = note.source === undefined || note.source === disk
+          note.source = disk
           let source = disk ?? ''
           let tasks = projectTaskDocument(parseMarkdownAst(splitFrontmatter(source).body), true)
           for (const [key, entry] of work) {
             try {
-              const applied = this.apply(locations, source, tasks, key, entry)
+              const applied = this.apply(locations, trustPaths, source, tasks, key, entry)
               source = applied.source
               tasks = applied.tasks
               locations = applied.locations
-            } catch (error) {
-              entry.error = error
-              firstError ??= error
+            } catch (failure) {
+              entry.error = failure
+              error ??= failure
             }
           }
-          if (source !== (disk ?? '')) await this.io.write(path, disk, source)
+          // The new locations show before the index refetch, so a written task is
+          // never listed twice.
+          this.relocate(path, locations)
+          if (source !== (disk ?? '')) {
+            await this.io.write(path, disk, source)
+            note.source = source
+          }
+        } catch (failure) {
+          this.relocate(path, previous)
+          for (const [, entry] of work) entry.error = failure
+          error = failure
         }
-      } catch (error) {
-        if (isAppError(error) && error.kind === 'io' && retries < 2) {
-          retries++
-          await delay(retries === 1 ? 200 : 800)
-          continue
-        }
-        note.failed = true
-        this.io.failure(path, error, () => {
-          note.failed = false
-          this.start(path)
-        })
-        this.emit()
-        return
       }
       for (const [key, entry] of this.entries) {
-        if (entry.row.notePath !== path) continue
-        entry.at = locations.get(key) ?? (entry.gone ? null : entry.at)
-        if (rows.get(key) === entry.row && entry.error === undefined) entry.saved = entry.row
-        if (this.done(entry)) this.entries.delete(key)
+        if (
+          entry.row.notePath === path &&
+          rows.get(key) === entry.row &&
+          entry.error === undefined
+        ) {
+          entry.saved = entry.row
+        }
       }
-      retries = 0
-      if (firstError !== undefined) {
-        this.io.failure(path, firstError, () => {
-          for (const [, entry] of this.entries)
+      this.settle(path)
+      const stillFailing = [...this.entries.values()].some(
+        (entry) => entry.row.notePath === path && entry.error !== undefined,
+      )
+      if (error !== undefined) {
+        this.io.failure(path, error, () => {
+          for (const entry of this.entries.values()) {
             if (entry.row.notePath === path) entry.error = undefined
+          }
           this.start(path)
         })
-      } else {
+      } else if (!stillFailing) {
         this.io.saved(path)
       }
       this.emit()
+      if (error !== undefined) return
+    }
+  }
+
+  /** Give every entry of the note its new location; tasks that left the note, or were never written, have none. */
+  private relocate(path: string, locations: ReadonlyMap<string, Location>): void {
+    for (const entry of this.entries.values()) {
+      if (entry.row.notePath === path) entry.at = locations.get(entry.row.key) ?? null
+    }
+  }
+
+  /**
+   * After a write: tasks the index alone describes are forgotten, a task
+   * created after a forgotten one remembers where that one was, and every
+   * indexed task takes the key of its new location.
+   */
+  private settle(path: string): void {
+    const own = [...this.entries].filter(([, entry]) => entry.row.notePath === path)
+    for (const [key, entry] of own) {
+      if (!this.done(entry)) continue
+      this.entries.delete(key)
+      for (const [, other] of own) {
+        if (other.after?.key === key && entry.at) {
+          other.after = { ...other.after, astPath: entry.at.path, text: entry.at.text }
+        }
+      }
+    }
+    const renamed = own.flatMap(([key, entry]) => {
+      if (!this.entries.has(key) || entry.created || !entry.at) return []
+      const next = indexedTaskKey(path, entry.at.path)
+      return next === key ? [] : [[key, next, entry] as const]
+    })
+    for (const [key] of renamed) this.entries.delete(key)
+    for (const [, next, entry] of renamed) {
+      const unchanged = entry.row === entry.saved
+      entry.row = { ...entry.row, key: next }
+      entry.saved = unchanged ? entry.row : { ...entry.saved, key: next }
+      this.entries.set(next, entry)
     }
   }
 
   /** Make one task in `source` match its row. Returns the new source, its tasks, and every task's new location. */
   private apply(
     locations: ReadonlyMap<string, Location>,
+    trustPaths: boolean,
     source: string,
     tasks: readonly ParsedTask[],
     key: string,
-    { row, gone, after }: Entry,
+    { at, row, gone, after }: Entry,
   ): { source: string; tasks: ParsedTask[]; locations: Map<string, Location> } {
     const location = locations.get(key)
-    const found = location && find(tasks, location)
-    if (location && !found && gone !== 'removed') {
-      throw new Error('This task changed elsewhere. Your text is kept.')
-    }
+    if (at !== null && !location) throw conflict()
+    const found = location && find(tasks, location, trustPaths)
     let result: ReturnType<typeof editTaskDocument>
     if (found) {
       result = editTaskDocument(
@@ -511,12 +564,13 @@ export class TaskStore {
               toBullet: gone === 'bullet',
             },
       )
-    } else if (location || gone === 'removed') {
-      return { source, tasks: [...tasks], locations: new Map(locations) }
+    } else if (location) {
+      if (gone === 'removed') return { source, tasks: [...tasks], locations: new Map(locations) }
+      throw conflict()
     } else {
       const anchorLocation =
         after && (locations.get(after.key) ?? { path: after.astPath, text: after.text })
-      const anchor = anchorLocation && find(tasks, anchorLocation)
+      const anchor = anchorLocation && find(tasks, anchorLocation, trustPaths)
       result = editTaskDocument(source, {
         after: anchor?.astPath ?? null,
         create: { text: row.text, checked: row.checked, bullet: gone === 'bullet' },

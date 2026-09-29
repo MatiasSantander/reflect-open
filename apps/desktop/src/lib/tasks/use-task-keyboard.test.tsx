@@ -1,7 +1,8 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Task, TaskStore } from '@reflect/core'
+import type { Task } from '@reflect/core'
+import type { TaskCommands } from './use-task-commands.ts'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import { makeOpenTask as task } from './open-task-fixture.ts'
 import type { ListSelection as TaskSelection } from '@/lib/selection/use-list-selection.ts'
@@ -24,18 +25,17 @@ function makeSelection(over: Partial<TaskSelection> = {}): TaskSelection {
   }
 }
 
-type StoreFake = Pick<
-  TaskStore,
-  'toggle' | 'remove' | 'archive' | 'create' | 'commitDraft' | 'current'
->
-function makeStore(over: Partial<StoreFake> = {}): StoreFake {
+function makeCommands(over: Partial<TaskCommands> = {}): TaskCommands {
   return {
-    toggle: vi.fn(),
+    continue: vi.fn(),
+    complete: vi.fn(),
     remove: vi.fn(),
+    removeEmpty: vi.fn(),
+    convert: vi.fn(),
+    schedule: vi.fn(),
+    navigate: vi.fn(),
+    cancel: vi.fn(),
     archive: vi.fn(),
-    create: vi.fn().mockReturnValue(null),
-    commitDraft: vi.fn((task: Task) => task),
-    current: vi.fn((task: Task) => task),
     ...over,
   }
 }
@@ -54,51 +54,30 @@ afterEach(() => {
 
 async function mount(options: {
   selection?: TaskSelection
-  store?: StoreFake
+  commands?: TaskCommands
   tasksByKey?: ReadonlyMap<string, Task>
   orderedTasks?: Task[]
   query?: string
   today?: string
 }) {
   const selection = options.selection ?? makeSelection()
-  const store = options.store ?? makeStore()
+  const commands = options.commands ?? makeCommands()
   const setQuery = vi.fn()
-  const scrollToKey = vi.fn()
   const onToggleFilters = vi.fn()
   const onToggleSchedule = vi.fn()
-  const onConvertToBullet = vi.fn()
   await renderHook(() =>
     useTaskKeyboard({
       selection,
-      store: store as unknown as TaskStore,
+      commands,
       tasksByKey: options.tasksByKey ?? new Map(),
-      orderedTasks: options.orderedTasks ?? [...(options.tasksByKey?.values() ?? [])],
       query: options.query ?? '',
       setQuery,
-      today: options.today ?? '2026-06-15',
       rootRef: { current: root },
-      scrollToKey,
       onToggleFilters,
       onToggleSchedule,
-      onConvertToBullet,
     }),
   )
-  return {
-    selection,
-    store: store as unknown as TaskStore,
-    setQuery,
-    scrollToKey,
-    onToggleFilters,
-    onToggleSchedule,
-    onConvertToBullet,
-  }
-}
-
-/** Let the `void insert(...).then(...)` microtask settle before asserting. */
-async function flush(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve()
-  })
+  return { selection, commands, setQuery, onToggleFilters, onToggleSchedule }
 }
 
 function press(
@@ -120,17 +99,17 @@ function press(
 
 describe('useTaskKeyboard', () => {
   it('selects all on ⌘A and moves / extends with the arrows', async () => {
-    const { selection } = await mount({})
+    const { selection, commands } = await mount({})
     const a = press(root, 'a', MOD_KEY)
     expect(selection.selectAll).toHaveBeenCalled()
     expect(a.defaultPrevented).toBe(true)
 
     press(root, 'ArrowDown')
-    expect(selection.move).toHaveBeenCalledWith(1)
+    expect(commands.navigate).toHaveBeenCalledWith(1, false)
     press(root, 'ArrowUp')
-    expect(selection.move).toHaveBeenCalledWith(-1)
+    expect(commands.navigate).toHaveBeenCalledWith(-1, false)
     press(root, 'ArrowDown', { shiftKey: true })
-    expect(selection.extend).toHaveBeenCalledWith(1)
+    expect(commands.navigate).toHaveBeenCalledWith(1, true)
   })
 
   it('works when nothing is focused (the body is on-surface)', async () => {
@@ -145,21 +124,20 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { store } = await mount({ selection, tasksByKey: new Map([['k', t]]) })
+    const { commands } = await mount({ selection, tasksByKey: new Map([['k', t]]) })
 
     press(root, 'Enter', MOD_KEY)
-    expect(store.toggle).toHaveBeenCalledWith([t]) // complete, or reopen if checked
+    expect(commands.complete).toHaveBeenCalledWith([t])
 
     press(root, 'Backspace', MOD_KEY)
-    expect(store.remove).toHaveBeenCalledWith([t])
-    expect(selection.clear).toHaveBeenCalled()
+    expect(commands.remove).toHaveBeenCalledWith([t])
   })
 
   it('archives on ⌘⇧↵ instead of toggling', async () => {
-    const { store } = await mount({})
+    const { commands } = await mount({})
     press(root, 'Enter', { ...MOD_KEY, shiftKey: true })
-    expect(store.archive).toHaveBeenCalled()
-    expect(store.toggle).not.toHaveBeenCalled()
+    expect(commands.archive).toHaveBeenCalled()
+    expect(commands.complete).not.toHaveBeenCalled()
   })
 
   it('toggles the filters menu on ⌘⇧E, even from the search box', async () => {
@@ -188,12 +166,12 @@ describe('useTaskKeyboard', () => {
   it('converts the selection to bullets on ⌘⇧K only when something is selected', async () => {
     const withNone = await mount({ selection: makeSelection({ selectedCount: 0 }) })
     const noneEvent = press(root, 'k', { ...MOD_KEY, shiftKey: true })
-    expect(withNone.onConvertToBullet).not.toHaveBeenCalled()
+    expect(withNone.commands.convert).not.toHaveBeenCalled()
     expect(noneEvent.defaultPrevented).toBe(false)
 
     const withSel = await mount({ selection: makeSelection({ selectedCount: 2 }) })
     const selEvent = press(root, 'k', { ...MOD_KEY, shiftKey: true })
-    expect(withSel.onConvertToBullet).toHaveBeenCalledTimes(1)
+    expect(withSel.commands.convert).toHaveBeenCalledTimes(1)
     expect(selEvent.defaultPrevented).toBe(true)
   })
 
@@ -205,7 +183,7 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { onConvertToBullet } = await mount({
+    const { commands } = await mount({
       selection,
       tasksByKey: new Map([['k', task()]]),
     })
@@ -213,7 +191,7 @@ describe('useTaskKeyboard', () => {
     press(editor, 'k', { ...MOD_KEY, shiftKey: true })
     // The editor's own keymap flushes the draft then converts — the screen handler
     // must not also fire (that's the data-loss race Bugbot flagged).
-    expect(onConvertToBullet).not.toHaveBeenCalled()
+    expect(commands.convert).not.toHaveBeenCalled()
   })
 
   it('plain ⌫ removes a single empty row and selects the previous (V1)', async () => {
@@ -224,10 +202,8 @@ describe('useTaskKeyboard', () => {
       selectedCount: 1,
       activeKey: () => 'b',
     })
-    const ordered = [a, empty]
-    const { store } = await mount({
+    const { commands } = await mount({
       selection,
-      orderedTasks: ordered,
       tasksByKey: new Map([
         ['a', a],
         ['b', empty],
@@ -235,13 +211,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Backspace')
-    expect(store.remove).toHaveBeenCalledWith([empty])
-    // Lands on the previous row so the keyboard flow continues.
-    expect(selection.clickSelect).toHaveBeenCalledWith(a.key, {
-      metaKey: false,
-      ctrlKey: false,
-      shiftKey: false,
-    })
+    expect(commands.removeEmpty).toHaveBeenCalledWith(empty)
   })
 
   it('plain ⌫ leaves a multi-selection untouched (ambiguous, V1)', async () => {
@@ -255,7 +225,7 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['e', 'f']),
       selectedCount: 2,
     })
-    const { store } = await mount({
+    const { commands } = await mount({
       selection,
       tasksByKey: new Map([
         ['e', empty],
@@ -264,7 +234,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Backspace')
-    expect(store.remove).not.toHaveBeenCalled()
+    expect(commands.remove).not.toHaveBeenCalled()
   })
 
   it('Escape clears the selection and the search query together (V1)', async () => {
@@ -326,130 +296,34 @@ describe('useTaskKeyboard', () => {
     sidebarButton.remove()
   })
 
-  it('Return adds a task to today’s daily when nothing is selected', async () => {
-    const created = task({
-      notePath: 'daily/2026-06-15.md',
-      astPath: [0],
-      displayText: '',
-    })
-    const create = vi.fn().mockReturnValue(created)
-    const { selection } = await mount({
-      store: makeStore({ create }),
-      today: '2026-06-15',
-    })
-
-    const event = press(root, 'Enter')
-    expect(event.defaultPrevented).toBe(true)
-    expect(create).toHaveBeenCalledWith({
-      notePath: 'daily/2026-06-15.md',
-      noteTitle: '2026-06-15',
-      dailyDate: '2026-06-15',
-      isPinned: false,
-      pinnedOrder: null,
-    })
-    await flush()
-    expect(selection.clickSelect).toHaveBeenCalledWith(created.key, {
-      metaKey: false,
-      ctrlKey: false,
-      shiftKey: false,
-    })
-  })
-
-  it('Return adds to the active selected row’s note, not whichever renders last', async () => {
-    const pinned = task({
-      notePath: 'notes/a.md',
-      noteTitle: 'A',
-      dailyDate: null,
-      isPinned: true,
-      pinnedOrder: 3,
-    })
+  it('Return continues from the active selected row, not whichever renders last', async () => {
+    const pinned = task({ notePath: 'notes/a.md', noteTitle: 'A' })
     const other = task({ notePath: 'notes/z.md', noteTitle: 'Z' })
-    const create = vi.fn().mockReturnValue(null)
     // Two notes selected; the pivot ('a') is the row last touched even though 'z'
-    // renders later — the new task must join 'a', not 'z'.
+    // renders later.
     const selection = makeSelection({
       selected: new Set(['a', 'z']),
       selectedCount: 2,
       activeKey: () => 'a',
     })
-    await mount({
+    const { commands } = await mount({
       selection,
-      store: makeStore({ create }),
       tasksByKey: new Map([
         ['a', pinned],
         ['z', other],
       ]),
     })
-
-    press(root, 'Enter')
-    expect(create).toHaveBeenCalledWith({
-      notePath: 'notes/a.md',
-      noteTitle: 'A',
-      dailyDate: null,
-      isPinned: true,
-      pinnedOrder: 3,
-    })
+    const event = press(root, 'Enter')
+    expect(event.defaultPrevented).toBe(true)
+    expect(commands.continue).toHaveBeenCalledWith(pinned)
   })
 
-  it('Return continues a grouped Current row inside its task context', async () => {
-    const grouped = task({
-      notePath: 'notes/a.md',
-      noteTitle: 'A',
-      breadcrumbs: ['Project', 'Phase one'],
-      dueDate: '2026-06-15',
-    })
-    const create = vi.fn().mockReturnValue(null)
-    const selection = makeSelection({
-      selected: new Set(['grouped']),
-      selectedCount: 1,
-      activeKey: () => 'grouped',
-    })
-    await mount({
-      selection,
-      store: makeStore({ create }),
-      tasksByKey: new Map([['grouped', grouped]]),
-    })
-
+  it('Return continues from nothing when the pivot is no longer selected', async () => {
+    // The pivot still points at 'k' (last touched), but a ⌘-click deselected it.
+    const selection = makeSelection({ selected: new Set(), selectedCount: 0, activeKey: () => 'k' })
+    const { commands } = await mount({ selection, tasksByKey: new Map([['k', task()]]) })
     press(root, 'Enter')
-    // The saved row is continued inside its own context, right below it.
-    expect(create).toHaveBeenCalledWith(
-      {
-        notePath: 'notes/a.md',
-        noteTitle: 'A',
-        dailyDate: null,
-        isPinned: false,
-        pinnedOrder: null,
-        breadcrumbs: ['Project', 'Phase one'],
-      },
-      grouped,
-    )
-  })
-
-  it('Return falls to today’s daily when the pivot is no longer selected', async () => {
-    const deselected = task({ notePath: 'notes/a.md', noteTitle: 'A' })
-    const create = vi.fn().mockReturnValue(null)
-    // The pivot still points at 'k' (last touched), but a ⌘-click deselected it —
-    // nothing is selected now, so Return adds to today's daily, not 'k'.
-    const selection = makeSelection({
-      selected: new Set(),
-      selectedCount: 0,
-      activeKey: () => 'k',
-    })
-    await mount({
-      selection,
-      store: makeStore({ create }),
-      today: '2026-06-15',
-      tasksByKey: new Map([['k', deselected]]),
-    })
-
-    press(root, 'Enter')
-    expect(create).toHaveBeenCalledWith({
-      notePath: 'daily/2026-06-15.md',
-      noteTitle: '2026-06-15',
-      dailyDate: '2026-06-15',
-      isPinned: false,
-      pinnedOrder: null,
-    })
+    expect(commands.continue).toHaveBeenCalledWith(undefined)
   })
 
   it('backs off entirely while the inline editor is focused', async () => {
@@ -460,14 +334,14 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { store } = await mount({
+    const { commands } = await mount({
       selection,
       tasksByKey: new Map([['k', task()]]),
     })
 
     press(editor, 'Backspace', MOD_KEY)
     press(editor, 'a', MOD_KEY)
-    expect(store.remove).not.toHaveBeenCalled()
+    expect(commands.remove).not.toHaveBeenCalled()
     expect(selection.selectAll).not.toHaveBeenCalled()
   })
 

@@ -4,7 +4,7 @@ import { groupTaskContexts, type Task, type TaskGroup, type TaskTarget } from '@
 import { taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
 import { addTargetForGroup } from '@/lib/tasks/task-navigation.ts'
 import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
-import type { TaskEditHandlers } from './task-editor.tsx'
+import type { TaskCommands } from '@/lib/tasks/use-task-commands.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { TaskBreadcrumbs } from './task-breadcrumbs.tsx'
@@ -13,8 +13,8 @@ import { TaskRow } from './task-row.tsx'
 interface TaskGroupSectionProps {
   group: TaskGroup
   selection: ListSelection
-  /** The inline-editor callbacks for a row, built once by the screen. */
-  editHandlers: (task: Task) => TaskEditHandlers
+  /** The view's task commands, shared by every row. */
+  commands: TaskCommands
   /** Complete/reopen the selected rows using the clicked task's next checkbox state. */
   onSelectionCheckboxToggle: (task: Task) => void
   /** Today's ISO date — the Current group's "+ Add" targets today's daily. */
@@ -33,7 +33,7 @@ interface TaskGroupSectionProps {
 export function TaskGroupSection({
   group,
   selection,
-  editHandlers,
+  commands,
   onSelectionCheckboxToggle,
   today,
   onAdd,
@@ -99,7 +99,7 @@ export function TaskGroupSection({
                       togglesSelection={selected && selection.selectedCount > 1}
                       onSelect={(event) => selection.clickSelect(key, event)}
                       onSelectionCheckboxToggle={() => onSelectionCheckboxToggle(task)}
-                      editHandlers={editHandlers(task)}
+                      commands={commands}
                       onOpen={onOpen}
                     />
                   )

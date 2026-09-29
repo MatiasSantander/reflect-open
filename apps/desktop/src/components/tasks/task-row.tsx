@@ -7,7 +7,8 @@ import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
-import { TaskEditor, type TaskEditHandlers } from './task-editor.tsx'
+import type { TaskCommands } from '@/lib/tasks/use-task-commands.ts'
+import { TaskEditor } from './task-editor.tsx'
 import { TaskText } from './task-text.tsx'
 
 interface TaskRowProps {
@@ -24,8 +25,8 @@ interface TaskRowProps {
   onSelect: (event: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey'>) => void
   /** Checkbox click while part of a multi-selection: apply this row's next state to it. */
   onSelectionCheckboxToggle: () => void
-  /** The inline editor's callbacks, built once by the screen. */
-  editHandlers: TaskEditHandlers
+  /** The view's task commands, which the inline editor binds to its keys. */
+  commands: TaskCommands
   onOpen: (notePath: string, event?: ModClickEvent) => void
 }
 
@@ -47,7 +48,7 @@ export function TaskRow({
   togglesSelection,
   onSelect,
   onSelectionCheckboxToggle,
-  editHandlers,
+  commands,
   onOpen,
 }: TaskRowProps): ReactElement {
   const { settings } = useSettings()
@@ -111,7 +112,7 @@ export function TaskRow({
         )}
       </button>
       {editing ? (
-        <TaskEditor task={task} {...editHandlers} />
+        <TaskEditor task={task} commands={commands} />
       ) : (
         <div
           role="button"

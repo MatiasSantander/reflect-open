@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input.tsx'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
 import { useTaskList } from '@/lib/tasks/use-task-list.ts'
 import { scrollTaskIntoView } from '@/lib/tasks/task-navigation.ts'
-import { useTaskRowHandlers } from '@/lib/tasks/use-task-row-handlers.ts'
+import { useTaskCommands } from '@/lib/tasks/use-task-commands.ts'
 import { useTaskFilters } from '@/lib/tasks/task-filters.ts'
 import { composeVisibleTaskGroups } from '@/lib/tasks/task-visibility.ts'
 import { useTaskKeyboard } from '@/lib/tasks/use-task-keyboard.ts'
@@ -98,7 +98,7 @@ export function TasksScreen(): ReactElement {
       scrollTaskIntoView(rootRef.current, key)
     }
   }, [])
-  const editHandlers = useTaskRowHandlers({ selection, store, orderedTasks, today, scrollToKey })
+  const commands = useTaskCommands({ store, selection, orderedTasks, today, scrollToKey })
   const selectedTaskKeys = selection.selected
   const activeTaskKey = selection.activeKey
   // Selection opens the focused task's inline editor, often after an async insert
@@ -141,20 +141,14 @@ export function TasksScreen(): ReactElement {
     },
     [store, selectedTasks],
   )
-  // Schedule the current selection (the calendar / ⌘⇧S), then deselect (V1).
   const onSchedule = useCallback(
-    (isoDate: string | null) => {
-      store?.schedule(selectedTasks(), isoDate)
-      selection.clear()
-    },
-    [store, selection, selectedTasks],
+    (isoDate: string | null) => commands.schedule(selectedTasks(), isoDate),
+    [commands, selectedTasks],
   )
-  // Convert the current selection to plain bullets (the toolbar / ⌘⇧K): the rows
-  // leave the Tasks view, so deselect after, like scheduling.
-  const onConvertToBullet = useCallback(() => {
-    store?.convertToBullet(selectedTasks())
-    selection.clear()
-  }, [store, selection, selectedTasks])
+  const onConvertToBullet = useCallback(
+    () => commands.convert(selectedTasks()),
+    [commands, selectedTasks],
+  )
   const openNote = useCallback(
     (path: string, event?: ModClickEvent) =>
       navigateNoteLink({
@@ -165,17 +159,13 @@ export function TasksScreen(): ReactElement {
   )
   useTaskKeyboard({
     selection,
-    store,
+    commands,
     tasksByKey,
-    orderedTasks,
     query,
     setQuery,
-    today,
     rootRef,
-    scrollToKey,
     onToggleFilters: () => setFiltersOpen((open) => !open),
     onToggleSchedule: () => setScheduleOpen((open) => !open),
-    onConvertToBullet,
   })
 
   // Move focus into the Tasks surface on mount so the shortcuts work the moment
@@ -244,7 +234,7 @@ export function TasksScreen(): ReactElement {
             type="button"
             variant="ghost"
             aria-label={`Archive ${recentCount}`}
-            onClick={() => store?.archive()}
+            onClick={commands.archive}
             className="window-drag-control text-xs text-text-muted"
           >
             <Archive aria-hidden className="size-3.5" />
@@ -275,7 +265,7 @@ export function TasksScreen(): ReactElement {
                 key={group.kind === 'note' ? `note:${group.notePath}` : group.kind}
                 group={group}
                 selection={selection}
-                editHandlers={editHandlers}
+                commands={commands}
                 onSelectionCheckboxToggle={onSelectionCheckboxToggle}
                 today={today}
                 onAdd={onAdd}
