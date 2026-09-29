@@ -111,6 +111,7 @@ function TaskCommitKeymap({
       },
       // Leave only at the visual boundary; otherwise move within the paragraph.
       ArrowUp: () => {
+        {/*FIXME: let's create a seperate PR in meowdown, which adds related API in the editorRef.current. If possible, let's do not use prosekit API like "useEditor" in reflect-open */}
         if (!editor.view.endOfTextblock('up')) return false
         onNavigate(-1, { span: false })
         return true
