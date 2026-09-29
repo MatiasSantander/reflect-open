@@ -23,7 +23,7 @@ pub const INDEX_FILE: &str = "index.sqlite";
 /// `user_version` after every migration has run. Read-only consumers compare
 /// this against `PRAGMA user_version` to detect an index written by a newer
 /// (or older) app than they were built for.
-pub const LATEST_SCHEMA_VERSION: usize = 25;
+pub const LATEST_SCHEMA_VERSION: usize = 23;
 
 /// The `index_meta` key holding the TS-owned projection version (the rows'
 /// derivation version, distinct from the schema version above).
@@ -68,8 +68,6 @@ mod schema {
             M::up(include_str!("../migrations/0021_note_has_content.sql")),
             M::up(include_str!("../migrations/0022_drop_note_text.sql")),
             M::up(include_str!("../migrations/0023_task_paragraph.sql")),
-            M::up(include_str!("../migrations/0024_task_ast_path.sql")),
-            M::up(include_str!("../migrations/0025_task_text.sql")),
         ])
     });
 
@@ -218,8 +216,8 @@ mod schema {
         }
 
         #[test]
-        fn task_ast_upgrade_rebuilds_master_and_draft_without_losing_chat() {
-            for version in [22, 23] {
+        fn task_ast_upgrade_rebuilds_master_without_losing_chat() {
+            for version in [22] {
                 let mut conn = open_in_memory().unwrap();
                 migrate_to(&mut conn, version).unwrap();
                 conn.execute_batch(
@@ -275,34 +273,9 @@ mod schema {
         }
 
         #[test]
-        fn task_text_upgrade_preserves_existing_ast_rows() {
-            let mut conn = open_in_memory().unwrap();
-            migrate_to(&mut conn, 24).unwrap();
-            conn.execute_batch(
-                "INSERT INTO notes(path, title, title_key, file_hash, reference_markdown)
-                 VALUES('a.md', 'A', 'a', 'h', '[ref]: /target');
-                 INSERT INTO tasks(note_path, ast_path, first_paragraph_markdown, checked)
-                 VALUES('a.md', '[0]', '**keep**', 1);",
-            )
-            .unwrap();
-            migrate(&mut conn).unwrap();
-            let row: (String, String, i64) = conn
-                .query_row("SELECT ast_path, text, checked FROM tasks", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })
-                .unwrap();
-            assert_eq!(row, ("[0]".into(), "**keep**".into(), 1));
-            let references: i64 = conn.query_row(
-                "SELECT count(*) FROM pragma_table_info('notes') WHERE name = 'reference_markdown'",
-                [], |row| row.get(0),
-            ).unwrap();
-            assert_eq!(references, 0);
-        }
-
-        #[test]
         fn failed_task_ast_upgrade_rolls_back_and_can_retry() {
             let mut conn = open_in_memory().unwrap();
-            migrate_to(&mut conn, 23).unwrap();
+            migrate_to(&mut conn, 22).unwrap();
             conn.execute_batch(
                 "INSERT INTO notes(path, title, title_key, file_hash) VALUES('a.md', 'A', 'a', 'h');
                  INSERT INTO tasks(note_path, marker_offset, text, raw, checked) VALUES('a.md', 2, 'old', '[ ] old', 0);
@@ -313,7 +286,7 @@ mod schema {
             let version: i64 = conn
                 .query_row("PRAGMA user_version", [], |row| row.get(0))
                 .unwrap();
-            assert_eq!(version, 23);
+            assert_eq!(version, 22);
             let offset: i64 = conn
                 .query_row("SELECT marker_offset FROM tasks", [], |row| row.get(0))
                 .unwrap();
