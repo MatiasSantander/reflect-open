@@ -7,29 +7,21 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
 import type { Task, TaskGroup, TaskTarget } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
-import { useTaskStore, useTaskStoreVersion } from '@/lib/tasks/task-store.ts'
+import { useTaskList } from '@/lib/tasks/use-task-list.ts'
 import { scrollTaskIntoView } from '@/lib/tasks/task-navigation.ts'
-import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useTaskRowHandlers } from '@/lib/tasks/use-task-row-handlers.ts'
 import { useTaskFilters } from '@/lib/tasks/task-filters.ts'
 import { composeVisibleTaskGroups } from '@/lib/tasks/task-visibility.ts'
 import { useTaskKeyboard } from '@/lib/tasks/use-task-keyboard.ts'
-import { useTaskSelection } from '@/lib/tasks/use-task-selection.ts'
-import {
-  createCompletedTasksQueryOptions,
-  createOpenTasksQueryOptions,
-} from '@/lib/tasks/tasks-query.ts'
+import { useListSelection } from '@/lib/selection/use-list-selection.ts'
 import { useScrollRestoration } from '@/lib/use-scroll-restoration.ts'
 import { useToday } from '@/lib/use-today.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 import { routeForPath } from '@/routing/route.ts'
 import { TaskFiltersMenu } from './task-filters-menu.tsx'
 import { TaskGroupSection } from './task-group-section.tsx'
@@ -70,7 +62,6 @@ function focusedSelectedKey(
  * "show archived" filter, which reveals the whole completed history.
  */
 export function TasksScreen(): ReactElement {
-  const { graph } = useGraph()
   const navigateNoteLink = useNoteLinkNavigation()
   const today = useToday()
   const { filters, toggle } = useTaskFilters()
@@ -79,39 +70,8 @@ export function TasksScreen(): ReactElement {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && graph !== null
-
-  const { data: indexedOpen, isError: openFailed } = useQuery({
-    ...createOpenTasksQueryOptions(graph?.root),
-    enabled,
-  })
-  const { data: indexedCompleted, isError: completedFailed } = useQuery({
-    ...createCompletedTasksQueryOptions(graph?.root),
-    enabled: enabled && filters.archived,
-  })
-
-  const store = useTaskStore()
-  const version = useTaskStoreVersion(store)
-  // Either read failing surfaces the alert. The completed error only counts
-  // while archived is on: TanStack keeps the last error on the disabled query.
-  const isError = openFailed || (filters.archived && completedFailed)
-  // With archived on, the list merges open + completed, so the empty state
-  // must wait for both.
-  const ready = indexedOpen !== undefined && (!filters.archived || indexedCompleted !== undefined)
+  const { store, tasks, ready, isError, recentCount } = useTaskList(filters.archived)
   const { onScroll } = useScrollRestoration(scrollElement, ready)
-  const tasks = useMemo(
-    () =>
-      store && indexedOpen
-        ? store.list(indexedOpen, filters.archived ? indexedCompleted : undefined)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `version` tracks the store's changes
-    [store, version, indexedOpen, indexedCompleted, filters.archived],
-  )
-  const recentCount = useMemo(
-    () => (store ? tasks.filter((task) => store.isRecent(task)).length : 0),
-    [store, tasks],
-  )
 
   const needle = query.trim().toLowerCase()
   const groups = useMemo(
@@ -126,20 +86,19 @@ export function TasksScreen(): ReactElement {
     () => new Map(orderedTasks.map((task) => [task.key, task])),
     [orderedTasks],
   )
-  const selection = useTaskSelection(orderedKeys)
+  const selection = useListSelection(orderedKeys)
   // Close the schedule popover when the selection it acts on goes away (e.g. a
   // reindex prunes the selected row): the toolbar trigger and the calendar unmount
   // together, so a lingering `scheduleOpen` would remount it open on re-select.
   if (scheduleOpen && selection.selectedCount === 0) {
     setScheduleOpen(false)
   }
-  const actions = useTaskActions()
   const scrollToKey = useCallback((key: string | null) => {
     if (key !== null) {
       scrollTaskIntoView(rootRef.current, key)
     }
   }, [])
-  const editHandlers = useTaskRowHandlers({ selection, actions, orderedTasks, today, scrollToKey })
+  const editHandlers = useTaskRowHandlers({ selection, store, orderedTasks, today, scrollToKey })
   const selectedTaskKeys = selection.selected
   const activeTaskKey = selection.activeKey
   // Selection opens the focused task's inline editor, often after an async insert
@@ -153,14 +112,13 @@ export function TasksScreen(): ReactElement {
   const onAdd = useCallback(
     (target: TaskTarget) => {
       setQuery('')
-      const created = actions.insert(target)
-      if (created !== null) {
-        const key = created.key
-        selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
-        scrollToKey(key)
+      const created = store?.create(target)
+      if (created) {
+        selection.clickSelect(created.key, { metaKey: false, ctrlKey: false, shiftKey: false })
+        scrollToKey(created.key)
       }
     },
-    [actions, selection, scrollToKey],
+    [store, selection, scrollToKey],
   )
   // The tasks behind the current selection's keys, in selection order — what the
   // toolbar actions (schedule, convert) act on. A row whose key no longer
@@ -172,35 +130,31 @@ export function TasksScreen(): ReactElement {
         .filter((task): task is Task => task !== undefined),
     [selection, tasksByKey],
   )
+  // A checkbox click on a selected row applies that row's next state to the
+  // whole selection (V1); a click elsewhere toggles just that row.
   const onSelectionCheckboxToggle = useCallback(
     (task: Task) => {
       const tasks = selectedTasks()
-      if (tasks.length <= 1 || !tasks.some((selectedTask) => selectedTask.key === task.key)) {
-        actions.checkboxToggle(task)
-        return
-      }
-      if (task.checked) {
-        actions.toggle(tasks.filter((selectedTask) => selectedTask.checked))
-      } else {
-        actions.complete(tasks)
-      }
+      const selected =
+        tasks.length > 1 && tasks.some((selectedTask) => selectedTask.key === task.key)
+      store?.setChecked(selected ? tasks : [task], !task.checked)
     },
-    [actions, selectedTasks],
+    [store, selectedTasks],
   )
   // Schedule the current selection (the calendar / ⌘⇧S), then deselect (V1).
   const onSchedule = useCallback(
     (isoDate: string | null) => {
-      actions.schedule(selectedTasks(), isoDate)
+      store?.schedule(selectedTasks(), isoDate)
       selection.clear()
     },
-    [actions, selection, selectedTasks],
+    [store, selection, selectedTasks],
   )
   // Convert the current selection to plain bullets (the toolbar / ⌘⇧K): the rows
   // leave the Tasks view, so deselect after, like scheduling.
   const onConvertToBullet = useCallback(() => {
-    actions.convertToBullet(selectedTasks())
+    store?.convertToBullet(selectedTasks())
     selection.clear()
-  }, [actions, selection, selectedTasks])
+  }, [store, selection, selectedTasks])
   const openNote = useCallback(
     (path: string, event?: ModClickEvent) =>
       navigateNoteLink({
@@ -211,7 +165,7 @@ export function TasksScreen(): ReactElement {
   )
   useTaskKeyboard({
     selection,
-    actions,
+    store,
     tasksByKey,
     orderedTasks,
     query,
@@ -290,7 +244,7 @@ export function TasksScreen(): ReactElement {
             type="button"
             variant="ghost"
             aria-label={`Archive ${recentCount}`}
-            onClick={actions.archive}
+            onClick={() => store?.archive()}
             className="window-drag-control text-xs text-text-muted"
           >
             <Archive aria-hidden className="size-3.5" />

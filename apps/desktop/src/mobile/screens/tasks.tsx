@@ -1,19 +1,12 @@
 import { useDeferredValue, useMemo, useRef, useState, type ReactElement } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Archive, CircleCheck, Plus, SlidersHorizontal } from 'lucide-react'
 import type { Task, TaskTarget } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { useTaskStore, useTaskStoreVersion } from '@/lib/tasks/task-store.ts'
+import { useTaskList } from '@/lib/tasks/use-task-list.ts'
 import { useTaskFilters } from '@/lib/tasks/task-filters.ts'
 import { todaysDailyTarget } from '@/lib/tasks/task-navigation.ts'
 import { composeVisibleTaskGroups } from '@/lib/tasks/task-visibility.ts'
-import {
-  createCompletedTasksQueryOptions,
-  createOpenTasksQueryOptions,
-} from '@/lib/tasks/tasks-query.ts'
-import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useToday } from '@/lib/use-today.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
 import { SearchInput } from '@/mobile/search-input.tsx'
@@ -22,7 +15,6 @@ import { TaskFiltersDrawer } from '@/mobile/task-filters-drawer.tsx'
 import { MobileTaskGroup } from '@/mobile/task-group.tsx'
 import { MobileTopBar, MobileTopBarIconButton, MobileTopBarRow } from '@/mobile/top-bar.tsx'
 import { useArrivalFocus } from '@/mobile/use-arrival-focus.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 import { routeForPath } from '@/routing/route.ts'
 import { useRouter } from '@/routing/router.tsx'
 
@@ -42,7 +34,6 @@ import { useRouter } from '@/routing/router.tsx'
  * completed tasks.
  */
 export function MobileTasks(): ReactElement {
-  const { graph } = useGraph()
   const { navigate, arrivalSeq, arrivalFocusEditor } = useRouter()
   const today = useToday()
   const { filters, toggle } = useTaskFilters()
@@ -58,8 +49,6 @@ export function MobileTasks(): ReactElement {
   // Whether the current sheet visit should open with the editor focused
   // (keyboard up) — set per visit: true for "+"-added tasks, false for row taps.
   const [autoFocusEditor, setAutoFocusEditor] = useState(false)
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && graph !== null
 
   // The Tasks-tab double-tap lands in the tab's capture surface: its live
   // search filter, selected so a replacement query can start immediately.
@@ -70,32 +59,7 @@ export function MobileTasks(): ReactElement {
     selectText: true,
   })
 
-  const { data: indexedOpen, isError: openFailed } = useQuery({
-    ...createOpenTasksQueryOptions(graph?.root),
-    enabled,
-  })
-  const { data: indexedCompleted, isError: completedFailed } = useQuery({
-    ...createCompletedTasksQueryOptions(graph?.root),
-    enabled: enabled && filters.archived,
-  })
-
-  const store = useTaskStore()
-  const version = useTaskStoreVersion(store)
-  const isError = openFailed || (filters.archived && completedFailed)
-  const ready = indexedOpen !== undefined && (!filters.archived || indexedCompleted !== undefined)
-  const tasks = useMemo(
-    () =>
-      store && indexedOpen
-        ? store.list(indexedOpen, filters.archived ? indexedCompleted : undefined)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `version` tracks the store's changes
-    [store, version, indexedOpen, indexedCompleted, filters.archived],
-  )
-  const recentCount = useMemo(
-    () => (store ? tasks.filter((task) => store.isRecent(task)).length : 0),
-    [store, tasks],
-  )
-  const actions = useTaskActions()
+  const { store, enabled, tasks, ready, isError, recentCount } = useTaskList(filters.archived)
 
   // Defer the needle like the All tab defers its query: fast typing coalesces
   // while the input stays live. A cleared query applies immediately — the "+"
@@ -137,15 +101,15 @@ export function MobileTasks(): ReactElement {
   const onAdd = (target: TaskTarget): void => {
     hapticImpactLight()
     setQuery('')
-    const created = actions.insert(target)
-    if (created !== null) {
+    const created = store?.create(target)
+    if (created) {
       editTask(created, { autoFocus: true, haptic: false })
     }
   }
 
   const archiveCompleted = (): void => {
     hapticImpactLight()
-    actions.archive()
+    store?.archive()
   }
 
   return (
@@ -216,7 +180,7 @@ export function MobileTasks(): ReactElement {
               onAdd={onAdd}
               onEdit={editTask}
               onOpen={(path) => navigate(routeForPath(path))}
-              onDelete={(task) => actions.remove([task])}
+              onDelete={(task) => store?.remove([task])}
               revealedTaskKey={revealedTaskKey}
               setRevealedTaskKey={setRevealedTaskKey}
             />
@@ -241,7 +205,6 @@ export function MobileTasks(): ReactElement {
           open={sheetOpen}
           onOpenChange={setSheetOpen}
           today={today}
-          actions={actions}
           onOpenNote={(path) => navigate(routeForPath(path))}
           autoFocusEditor={autoFocusEditor}
         />

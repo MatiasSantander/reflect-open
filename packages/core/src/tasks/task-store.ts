@@ -163,7 +163,7 @@ function delay(ms: number): Promise<void> {
  * typed text. An emptied task, or an abandoned empty new task, is removed; an
  * empty new task is never written.
  *
- * Tasks completed through `complete` stay listed, struck, until `archive`
+ * Tasks completed through `setChecked` stay listed, struck, until `archive`
  * (V1's middle state). A change the note cannot take (its task is gone or
  * ambiguous) is reported once and waits, without blocking the note's other
  * changes; a failed read or write pauses the whole note until retried.
@@ -225,11 +225,36 @@ export class TaskStore {
     )
   }
 
-  /** Complete a task from the list. It stays listed, struck, until `archive`. */
-  complete(task: Task): void {
-    this.update(task, { checked: true })
-    const entry = this.entries.get(task.key)
-    if (entry?.row.checked) entry.recent = true
+  /**
+   * Check or uncheck tasks. A task completed here stays listed, struck, until
+   * `archive`; tasks already in the wanted state are left alone.
+   */
+  setChecked(tasks: readonly Task[], checked: boolean): void {
+    for (const task of tasks) {
+      if (this.current(task).checked === checked) continue
+      this.update(task, { checked })
+      const entry = this.entries.get(task.key)
+      if (checked && entry?.row.checked) entry.recent = true
+    }
+  }
+
+  /** ⌘↵ on a selection: reopen every task when all are checked, else complete the open ones. */
+  toggle(tasks: readonly Task[]): void {
+    this.setChecked(tasks, !tasks.every((task) => this.current(task).checked))
+  }
+
+  remove(tasks: readonly Task[]): void {
+    for (const task of tasks) this.update(task, { removed: true })
+  }
+
+  /** Set every task's due date to `isoDate`, or clear it when null. */
+  schedule(tasks: readonly Task[], isoDate: string | null): void {
+    for (const task of tasks) this.update(task, { dueDate: isoDate })
+  }
+
+  /** Drop every task's checkbox so the line stays in its note as a plain bullet. */
+  convertToBullet(tasks: readonly Task[]): void {
+    for (const task of tasks) this.update(task, { bullet: true })
   }
 
   /** Whether a task was completed in this session and is still listed struck. */

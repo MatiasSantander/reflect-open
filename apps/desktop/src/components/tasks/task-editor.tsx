@@ -8,14 +8,14 @@ import {
 } from 'react'
 import { Priority, getIsComposing, type EditorExtension } from '@meowdown/core'
 import { useEditor, useKeymap } from '@meowdown/react'
-import type { Task } from '@reflect/core'
+import type { Task, TaskStore } from '@reflect/core'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor } from '@/editor/note-editor.tsx'
 import { registerEditFinalizer } from '@/editor/open-documents.ts'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
-import { useTaskActions, type TaskActions } from '@/lib/tasks/use-task-actions.ts'
+import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
@@ -47,7 +47,7 @@ interface TaskEditorProps extends TaskEditHandlers {
 /**
  * The inline editor of the sole-selected task row: the task's first paragraph
  * without its checkbox marker. Keystrokes only update the editor and the task
- * controller's draft. The draft is saved when the edit ends: on Enter, on any
+ * store's draft. The draft is saved when the edit ends: on Enter, on any
  * action taken on the task, when the row leaves edit mode, or on an
  * application flush.
  */
@@ -57,14 +57,14 @@ export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement
   const navigate = useWikiLinkNavigation(graph?.generation ?? null)
   const onTagClick = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
-  const actions = useTaskActions()
+  const store = useTaskStore()
 
-  const latest = useRef({ task, actions })
+  const latest = useRef({ task, store })
   useLayoutEffect(() => {
-    latest.current = { task, actions }
+    latest.current = { task, store }
   })
   useEffect(() => {
-    const commit = () => latest.current.actions.commitDraft(latest.current.task)
+    const commit = () => latest.current.store?.commitDraft(latest.current.task)
     const unregister = registerEditFinalizer(commit)
     return () => {
       unregister()
@@ -77,7 +77,7 @@ export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement
       <NoteEditor
         initialContent={task.text}
         singleParagraph
-        onChange={(markdown) => actions.draft(task, markdown)}
+        onChange={(markdown) => store?.draft(task, markdown)}
         markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
         spellCheck={settings.editorSpellCheck}
         smoothCaretAnimation={settings.editorSmoothCaretAnimation}
@@ -89,7 +89,7 @@ export function TaskEditor({ task, ...handlers }: TaskEditorProps): ReactElement
         onTagSearch={onTagSearch}
         className="reflect-task-editor text-sm"
       >
-        <TaskKeymap task={task} actions={actions} {...handlers} />
+        <TaskKeymap task={task} store={store} {...handlers} />
       </NoteEditor>
     </div>
   )
@@ -104,7 +104,7 @@ type TaskEditorInstance = ReturnType<typeof useEditor<EditorExtension>>
  */
 function createTaskKeymap(
   editor: TaskEditorInstance,
-  latest: RefObject<TaskEditorProps & { actions: TaskActions }>,
+  latest: RefObject<TaskEditorProps & { store: TaskStore | null }>,
 ) {
   const atEdge = (direction: 'up' | 'down') =>
     editor.mounted && editor.view.endOfTextblock(direction)
@@ -128,8 +128,8 @@ function createTaskKeymap(
       return true
     },
     Escape: () => {
-      const { actions, task, onCancel } = latest.current
-      actions.discardDraft(task)
+      const { store, task, onCancel } = latest.current
+      store?.discardDraft(task)
       onCancel()
       return true
     },
@@ -154,7 +154,7 @@ function createTaskKeymap(
  * take their keys first while open. Enter never inserts a block: a task is one
  * paragraph, and Shift+Enter inserts a soft break.
  */
-function TaskKeymap(props: TaskEditorProps & { actions: TaskActions }): null {
+function TaskKeymap(props: TaskEditorProps & { store: TaskStore | null }): null {
   const editor = useEditor<EditorExtension>()
   useEffect(() => {
     editor.focus()

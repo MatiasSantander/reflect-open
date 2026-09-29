@@ -20,7 +20,7 @@ import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
 import { addDaysIso, formatDayLabel } from '@/lib/dates.ts'
-import type { TaskActions } from '@/lib/tasks/use-task-actions.ts'
+import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
 import { TaskScheduleGrid } from '@/mobile/task-schedule-grid.tsx'
@@ -35,8 +35,6 @@ interface MobileTaskEditSheetProps {
   onOpenChange: (open: boolean) => void
   /** Today's live ISO date, for the schedule shortcuts and the month grid. */
   today: string
-  /** The screen's shared task actions. */
-  actions: TaskActions
   /** Navigate to the task's source note (the sheet saves the draft first). */
   onOpenNote: (notePath: string) => void
   /**
@@ -51,7 +49,7 @@ interface MobileTaskEditSheetProps {
  * The quick-edit bottom sheet (V1 mobile's edit modal): edit a task's text,
  * schedule it, complete it, or jump to its source note without opening the
  * note. The text is desktop's inline task editor surface over the same task
- * controller: keystrokes go to the controller's draft, and dismissing the
+ * store: keystrokes go to the store's draft, and dismissing the
  * sheet, tapping an action, or following a link saves it. An emptied draft
  * deletes the task, and an untouched draft writes nothing.
  */
@@ -60,7 +58,6 @@ export function MobileTaskEditSheet({
   open,
   onOpenChange,
   today,
-  actions,
   onOpenNote,
   autoFocusEditor = false,
 }: MobileTaskEditSheetProps): ReactElement {
@@ -69,6 +66,7 @@ export function MobileTaskEditSheet({
   const navigateWikiLink = useWikiLinkNavigation(graph?.generation ?? null)
   const navigateTag = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
+  const store = useTaskStore()
   const [showCalendar, setShowCalendar] = useState(false)
   // The editor is uncontrolled and the sheet stays mounted while closed (the
   // exit animation needs its content), so reopening remounts the editor with
@@ -93,13 +91,13 @@ export function MobileTaskEditSheet({
 
   // A route change can unmount the open sheet without a dismissal, and the
   // application flushes edits before quitting: save the draft then too.
-  const latest = useRef({ task, actions, open })
+  const latest = useRef({ task, store, open })
   useLayoutEffect(() => {
-    latest.current = { task, actions, open }
+    latest.current = { task, store, open }
   })
   useEffect(() => {
     const commit = () => {
-      if (latest.current.open) latest.current.actions.commitDraft(latest.current.task)
+      if (latest.current.open) latest.current.store?.commitDraft(latest.current.task)
     }
     const unregister = registerEditFinalizer(commit)
     return () => {
@@ -110,50 +108,49 @@ export function MobileTaskEditSheet({
 
   const close = (): void => onOpenChange(false)
   const handleOpenChange = (nextOpen: boolean): void => {
-    if (!nextOpen) actions.commitDraft(task)
+    if (!nextOpen) store?.commitDraft(task)
     onOpenChange(nextOpen)
   }
   const finishEdit = useCallback(() => {
-    latest.current.actions.commitDraft(latest.current.task)
+    latest.current.store?.commitDraft(latest.current.task)
     onOpenChange(false)
   }, [onOpenChange])
 
   const complete = (): void => {
     hapticImpactLight()
-    actions.checkboxToggle(task)
+    store?.setChecked([task], !store.current(task).checked)
     close()
   }
   const convertToBullet = (): void => {
     hapticImpactLight()
-    actions.convertToBullet([task])
+    store?.convertToBullet([task])
     close()
   }
   const remove = (): void => {
     hapticImpactLight()
-    actions.discardDraft(task)
-    actions.remove([task])
+    store?.remove([task])
     close()
   }
   const openNote = (): void => {
     hapticImpactLight()
-    actions.commitDraft(task)
+    store?.commitDraft(task)
     close()
     onOpenNote(task.notePath)
   }
   // A link tapped inside the draft navigates like "Open note".
   const openWikiLink = ({ target }: { target: string }): void => {
-    actions.commitDraft(task)
+    store?.commitDraft(task)
     close()
     navigateWikiLink({ target, openInNewWindow: false })
   }
   const openTag = (tag: string): void => {
-    actions.commitDraft(task)
+    store?.commitDraft(task)
     close()
     navigateTag(tag)
   }
   const schedule = (isoDate: string | null): void => {
     hapticImpactLight()
-    actions.schedule([task], isoDate)
+    store?.schedule([task], isoDate)
     setShowCalendar(false)
     setEditorSeed((seed) => seed + 1)
   }
@@ -187,7 +184,7 @@ export function MobileTaskEditSheet({
               key={editorSeed}
               initialContent={task.text}
               singleParagraph
-              onChange={(markdown) => actions.draft(task, markdown)}
+              onChange={(markdown) => store?.draft(task, markdown)}
               markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
               spellCheck={settings.editorSpellCheck}
               smoothCaretAnimation={settings.editorSmoothCaretAnimation}

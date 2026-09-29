@@ -3,7 +3,7 @@ import { Circle, CircleCheck } from 'lucide-react'
 import { displayNoteTitle, type Task } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { formatDayLabel } from '@/lib/dates.ts'
-import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
+import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
@@ -51,7 +51,7 @@ export function TaskRow({
   onOpen,
 }: TaskRowProps): ReactElement {
   const { settings } = useSettings()
-  const actions = useTaskActions()
+  const store = useTaskStore()
   const done = task.checked
   const label = task.displayText || 'Empty task'
   const selectFromKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -97,7 +97,7 @@ export function TaskRow({
           if (togglesSelection) {
             onSelectionCheckboxToggle()
           } else {
-            actions.checkboxToggle(task)
+            store?.setChecked([task], !task.checked)
           }
         }}
         // h-6 matches the text/editor's 24px line so the circle centers on

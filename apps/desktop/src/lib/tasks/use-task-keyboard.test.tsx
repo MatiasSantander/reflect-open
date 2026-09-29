@@ -1,11 +1,10 @@
 import { act } from 'react'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Task } from '@reflect/core'
+import type { Task, TaskStore } from '@reflect/core'
 import { MOD_KEY } from '@/test-utils/mod-key.ts'
 import { makeOpenTask as task } from './open-task-fixture.ts'
-import type { TaskActions } from './use-task-actions.ts'
-import type { TaskSelection } from './use-task-selection.ts'
+import type { ListSelection as TaskSelection } from '@/lib/selection/use-list-selection.ts'
 import { useTaskKeyboard } from './use-task-keyboard.ts'
 
 function makeSelection(over: Partial<TaskSelection> = {}): TaskSelection {
@@ -25,20 +24,18 @@ function makeSelection(over: Partial<TaskSelection> = {}): TaskSelection {
   }
 }
 
-function makeActions(over: Partial<TaskActions> = {}): TaskActions {
+type StoreFake = Pick<
+  TaskStore,
+  'toggle' | 'remove' | 'archive' | 'create' | 'commitDraft' | 'current'
+>
+function makeStore(over: Partial<StoreFake> = {}): StoreFake {
   return {
-    complete: vi.fn(),
     toggle: vi.fn(),
     remove: vi.fn(),
-    checkboxToggle: vi.fn(),
-    draft: vi.fn(),
-    discardDraft: vi.fn(),
-    commitDraft: vi.fn().mockReturnValue(null),
-    insert: vi.fn().mockReturnValue(null),
-    insertAfter: vi.fn().mockReturnValue(null),
-    schedule: vi.fn(),
-    convertToBullet: vi.fn(),
     archive: vi.fn(),
+    create: vi.fn().mockReturnValue(null),
+    commitDraft: vi.fn((task: Task) => task),
+    current: vi.fn((task: Task) => task),
     ...over,
   }
 }
@@ -57,14 +54,14 @@ afterEach(() => {
 
 async function mount(options: {
   selection?: TaskSelection
-  actions?: TaskActions
+  store?: StoreFake
   tasksByKey?: ReadonlyMap<string, Task>
   orderedTasks?: Task[]
   query?: string
   today?: string
 }) {
   const selection = options.selection ?? makeSelection()
-  const actions = options.actions ?? makeActions()
+  const store = options.store ?? makeStore()
   const setQuery = vi.fn()
   const scrollToKey = vi.fn()
   const onToggleFilters = vi.fn()
@@ -73,7 +70,7 @@ async function mount(options: {
   await renderHook(() =>
     useTaskKeyboard({
       selection,
-      actions,
+      store: store as unknown as TaskStore,
       tasksByKey: options.tasksByKey ?? new Map(),
       orderedTasks: options.orderedTasks ?? [...(options.tasksByKey?.values() ?? [])],
       query: options.query ?? '',
@@ -88,7 +85,7 @@ async function mount(options: {
   )
   return {
     selection,
-    actions,
+    store: store as unknown as TaskStore,
     setQuery,
     scrollToKey,
     onToggleFilters,
@@ -148,21 +145,21 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { actions } = await mount({ selection, tasksByKey: new Map([['k', t]]) })
+    const { store } = await mount({ selection, tasksByKey: new Map([['k', t]]) })
 
     press(root, 'Enter', MOD_KEY)
-    expect(actions.toggle).toHaveBeenCalledWith([t]) // complete, or reopen if checked
+    expect(store.toggle).toHaveBeenCalledWith([t]) // complete, or reopen if checked
 
     press(root, 'Backspace', MOD_KEY)
-    expect(actions.remove).toHaveBeenCalledWith([t])
+    expect(store.remove).toHaveBeenCalledWith([t])
     expect(selection.clear).toHaveBeenCalled()
   })
 
   it('archives on ⌘⇧↵ instead of toggling', async () => {
-    const { actions } = await mount({})
+    const { store } = await mount({})
     press(root, 'Enter', { ...MOD_KEY, shiftKey: true })
-    expect(actions.archive).toHaveBeenCalled()
-    expect(actions.toggle).not.toHaveBeenCalled()
+    expect(store.archive).toHaveBeenCalled()
+    expect(store.toggle).not.toHaveBeenCalled()
   })
 
   it('toggles the filters menu on ⌘⇧E, even from the search box', async () => {
@@ -228,7 +225,7 @@ describe('useTaskKeyboard', () => {
       activeKey: () => 'b',
     })
     const ordered = [a, empty]
-    const { actions } = await mount({
+    const { store } = await mount({
       selection,
       orderedTasks: ordered,
       tasksByKey: new Map([
@@ -238,7 +235,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Backspace')
-    expect(actions.remove).toHaveBeenCalledWith([empty])
+    expect(store.remove).toHaveBeenCalledWith([empty])
     // Lands on the previous row so the keyboard flow continues.
     expect(selection.clickSelect).toHaveBeenCalledWith(a.key, {
       metaKey: false,
@@ -258,7 +255,7 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['e', 'f']),
       selectedCount: 2,
     })
-    const { actions } = await mount({
+    const { store } = await mount({
       selection,
       tasksByKey: new Map([
         ['e', empty],
@@ -267,7 +264,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Backspace')
-    expect(actions.remove).not.toHaveBeenCalled()
+    expect(store.remove).not.toHaveBeenCalled()
   })
 
   it('Escape clears the selection and the search query together (V1)', async () => {
@@ -335,15 +332,15 @@ describe('useTaskKeyboard', () => {
       astPath: [0],
       displayText: '',
     })
-    const insert = vi.fn().mockReturnValue(created)
+    const create = vi.fn().mockReturnValue(created)
     const { selection } = await mount({
-      actions: makeActions({ insert }),
+      store: makeStore({ create }),
       today: '2026-06-15',
     })
 
     const event = press(root, 'Enter')
     expect(event.defaultPrevented).toBe(true)
-    expect(insert).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       notePath: 'daily/2026-06-15.md',
       noteTitle: '2026-06-15',
       dailyDate: '2026-06-15',
@@ -367,7 +364,7 @@ describe('useTaskKeyboard', () => {
       pinnedOrder: 3,
     })
     const other = task({ notePath: 'notes/z.md', noteTitle: 'Z' })
-    const insert = vi.fn().mockReturnValue(null)
+    const create = vi.fn().mockReturnValue(null)
     // Two notes selected; the pivot ('a') is the row last touched even though 'z'
     // renders later — the new task must join 'a', not 'z'.
     const selection = makeSelection({
@@ -377,7 +374,7 @@ describe('useTaskKeyboard', () => {
     })
     await mount({
       selection,
-      actions: makeActions({ insert }),
+      store: makeStore({ create }),
       tasksByKey: new Map([
         ['a', pinned],
         ['z', other],
@@ -385,7 +382,7 @@ describe('useTaskKeyboard', () => {
     })
 
     press(root, 'Enter')
-    expect(insert).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       notePath: 'notes/a.md',
       noteTitle: 'A',
       dailyDate: null,
@@ -401,8 +398,7 @@ describe('useTaskKeyboard', () => {
       breadcrumbs: ['Project', 'Phase one'],
       dueDate: '2026-06-15',
     })
-    const insert = vi.fn().mockReturnValue(null)
-    const insertAfter = vi.fn().mockReturnValue(null)
+    const create = vi.fn().mockReturnValue(null)
     const selection = makeSelection({
       selected: new Set(['grouped']),
       selectedCount: 1,
@@ -410,24 +406,28 @@ describe('useTaskKeyboard', () => {
     })
     await mount({
       selection,
-      actions: makeActions({ insert, insertAfter }),
+      store: makeStore({ create }),
       tasksByKey: new Map([['grouped', grouped]]),
     })
 
     press(root, 'Enter')
-    expect(insertAfter).toHaveBeenCalledWith(grouped, {
-      notePath: 'notes/a.md',
-      noteTitle: 'A',
-      dailyDate: null,
-      isPinned: false,
-      pinnedOrder: null,
-    })
-    expect(insert).not.toHaveBeenCalled()
+    // The saved row is continued inside its own context, right below it.
+    expect(create).toHaveBeenCalledWith(
+      {
+        notePath: 'notes/a.md',
+        noteTitle: 'A',
+        dailyDate: null,
+        isPinned: false,
+        pinnedOrder: null,
+        breadcrumbs: ['Project', 'Phase one'],
+      },
+      grouped,
+    )
   })
 
   it('Return falls to today’s daily when the pivot is no longer selected', async () => {
     const deselected = task({ notePath: 'notes/a.md', noteTitle: 'A' })
-    const insert = vi.fn().mockReturnValue(null)
+    const create = vi.fn().mockReturnValue(null)
     // The pivot still points at 'k' (last touched), but a ⌘-click deselected it —
     // nothing is selected now, so Return adds to today's daily, not 'k'.
     const selection = makeSelection({
@@ -437,13 +437,13 @@ describe('useTaskKeyboard', () => {
     })
     await mount({
       selection,
-      actions: makeActions({ insert }),
+      store: makeStore({ create }),
       today: '2026-06-15',
       tasksByKey: new Map([['k', deselected]]),
     })
 
     press(root, 'Enter')
-    expect(insert).toHaveBeenCalledWith({
+    expect(create).toHaveBeenCalledWith({
       notePath: 'daily/2026-06-15.md',
       noteTitle: '2026-06-15',
       dailyDate: '2026-06-15',
@@ -460,14 +460,14 @@ describe('useTaskKeyboard', () => {
       selected: new Set(['k']),
       selectedCount: 1,
     })
-    const { actions } = await mount({
+    const { store } = await mount({
       selection,
       tasksByKey: new Map([['k', task()]]),
     })
 
     press(editor, 'Backspace', MOD_KEY)
     press(editor, 'a', MOD_KEY)
-    expect(actions.remove).not.toHaveBeenCalled()
+    expect(store.remove).not.toHaveBeenCalled()
     expect(selection.selectAll).not.toHaveBeenCalled()
   })
 

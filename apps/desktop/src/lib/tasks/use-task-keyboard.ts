@@ -1,18 +1,12 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import type { Task } from '@reflect/core'
+import type { Task, TaskStore } from '@reflect/core'
 import { getIsComposing, isModEvent } from '@meowdown/core'
-import {
-  insertTargetForBucket,
-  insertTargetForTask,
-  previousTaskKey,
-  todaysDailyTarget,
-} from '@/lib/tasks/task-navigation.ts'
-import type { TaskActions } from '@/lib/tasks/use-task-actions.ts'
-import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
+import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
+import { continueFrom, previousTaskKey } from '@/lib/tasks/task-navigation.ts'
 
 export interface TaskKeyboardOptions {
-  selection: TaskSelection
-  actions: TaskActions
+  selection: ListSelection
+  store: TaskStore | null
   /** The flat, render-order tasks the selection's keys resolve against. */
   tasksByKey: ReadonlyMap<string, Task>
   /** The flat, render-order tasks — used to pick the row to select after a delete. */
@@ -42,7 +36,7 @@ const OWNS_KEYS = '[data-task-editor], [role="menu"], [role="dialog"], [role="li
  * `document` keydown listener for the life of the screen — so they work as soon
  * as you're on the Tasks view, without first clicking into the list. Kept out of
  * the component so the screen reads as markup + wiring and the shortcut map is
- * one cohesive unit, mirroring {@link useTaskSelection}/{@link useTaskActions}.
+ * one cohesive unit, mirroring {@link useListSelection}.
  *
  * The map: Return adds a task (to the selected task's note, else today's daily),
  * ⌘A select all, ↑/↓ move a single selection (Shift to extend the range), ⌘↵
@@ -66,7 +60,7 @@ const OWNS_KEYS = '[data-task-editor], [role="menu"], [role="dialog"], [role="li
  */
 export function useTaskKeyboard({
   selection,
-  actions,
+  store,
   tasksByKey,
   orderedTasks,
   query,
@@ -158,35 +152,20 @@ export function useTaskKeyboard({
       if (mod && event.key === 'Enter') {
         event.preventDefault()
         if (event.shiftKey) {
-          actions.archive() // ⌘⇧↵ — hide the session's completed tasks
+          store?.archive() // ⌘⇧↵ — hide the session's completed tasks
         } else {
-          actions.toggle(selectedTasks()) // ⌘↵ — complete, or reopen if all checked
+          store?.toggle(selectedTasks()) // ⌘↵ — complete, or reopen if all checked
         }
       } else if (event.key === 'Enter') {
         // Return adds a task (V1). A sole selection's editor owns Enter (it bailed
         // above via OWNS_KEYS and continues the entry there), so this fires from the
-        // list itself: insert, then select the new row to open its editor focused.
-        // A null target means the active row is Overdue/Upcoming — nothing to add to.
+        // list itself: add, then select the new row to open its editor focused.
         event.preventDefault()
-        const active = activeTask()
-        const taskTarget =
-          active === undefined
-            ? todaysDailyTarget(today)
-            : active.breadcrumbs.length > 0
-              ? insertTargetForTask(active)
-              : insertTargetForBucket(active, today)
-        if (taskTarget !== null) {
-          const created =
-            active !== undefined && active.breadcrumbs.length > 0
-              ? actions.insertAfter(active, taskTarget)
-              : actions.insert(taskTarget)
-          if (created !== null) {
-            selectExclusively(created.key)
-          }
-        }
+        const created = store && continueFrom(store, activeTask(), today)
+        if (created) selectExclusively(created.key)
       } else if (mod && event.key === 'Backspace') {
         event.preventDefault()
-        actions.remove(selectedTasks())
+        store?.remove(selectedTasks())
         selection.clear()
       } else if (event.key === 'Backspace') {
         // Plain ⌫ deletes only a single empty row (V1) — never content, and never a
@@ -198,7 +177,7 @@ export function useTaskKeyboard({
         if (sole !== undefined && sole.displayText.trim() === '') {
           event.preventDefault()
           const previous = previousTaskKey(orderedTasks, sole)
-          actions.remove(selected)
+          store?.remove(selected)
           if (previous !== null) {
             selectExclusively(previous)
           } else {

@@ -59,7 +59,7 @@ vi.mock('@/lib/tasks/task-store.ts', async () => {
 // by drafting into the task store, exactly as the real editor does, so the
 // store's draft folding is exercised, not bypassed.
 vi.mock('./task-editor', async () => {
-  const { useTaskActions } = await import('@/lib/tasks/use-task-actions.ts')
+  const { useTaskStore } = await import('@/lib/tasks/task-store.ts')
   return {
     TaskEditor: ({
       task,
@@ -71,19 +71,19 @@ vi.mock('./task-editor', async () => {
       onDeleteEmpty,
       onNavigate,
     }: TaskEditHandlers & { task: Task }) => {
-      const actions = useTaskActions()
-      const latest = useRef({ task, actions })
+      const store = useTaskStore()!
+      const latest = useRef({ task, store })
       useLayoutEffect(() => {
-        latest.current = { task, actions }
+        latest.current = { task, store }
       })
       // Like the real editor, save the draft when the row leaves edit mode.
       useEffect(
         () => () => {
-          latest.current.actions.commitDraft(latest.current.task)
+          latest.current.store.commitDraft(latest.current.task)
         },
         [],
       )
-      const draft = (text: string) => actions.draft(task, text)
+      const draft = (text: string) => store.draft(task, text)
       return (
         <div data-task-editor data-testid="task-editor">
           <span>editing: {task.displayText}</span>
@@ -117,7 +117,7 @@ vi.mock('./task-editor', async () => {
           <button
             type="button"
             onClick={() => {
-              actions.discardDraft(task)
+              store.discardDraft(task)
               onCancel()
             }}
           >

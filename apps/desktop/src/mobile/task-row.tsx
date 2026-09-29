@@ -4,7 +4,7 @@ import type { Task } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { TaskText } from '@/components/tasks/task-text.tsx'
 import { formatShortDate } from '@/lib/dates.ts'
-import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
+import { useTaskStore } from '@/lib/tasks/task-store.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
 import { SWIPE_ACTION_WIDTH, SwipeActionButton } from '@/mobile/swipe-action-button.tsx'
@@ -52,7 +52,7 @@ export function MobileTaskRow({
   onDelete,
 }: MobileTaskRowProps): ReactElement {
   const { settings } = useSettings()
-  const actions = useTaskActions()
+  const store = useTaskStore()
   const label = task.displayText || 'Empty task'
   const edit = (): void => onEdit(task)
   const swipe = useRowSwipe({
@@ -121,7 +121,7 @@ export function MobileTaskRow({
           aria-label={task.checked ? `Reopen: ${label}` : `Complete: ${label}`}
           onClick={() => {
             hapticImpactLight()
-            actions.checkboxToggle(task)
+            store?.setChecked([task], !task.checked)
           }}
           // A generous touch target around the small glyph; self-stretch keeps
           // the circle vertically centered in the row as task text wraps.

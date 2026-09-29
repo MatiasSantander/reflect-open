@@ -11,7 +11,7 @@ import {
 } from '@reflect/core'
 import '@/test-utils/locator.ts'
 import { TaskEditor } from './task-editor.tsx'
-import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
+import { continueFrom } from '@/lib/tasks/task-navigation.ts'
 
 vi.mock('@/providers/graph-provider.tsx', () => ({
   useGraph: () => ({ graph: { root: '/task-editor-test', generation: 1 } }),
@@ -76,7 +76,6 @@ afterEach(cleanup)
 function Harness({ initial }: { initial: Task }) {
   const [active, setActive] = useState<Task | null>(initial)
   useSyncExternalStore(store.subscribe, store.snapshot)
-  const actions = useTaskActions()
   const task = active && store.current(active)
   return (
     <>
@@ -84,16 +83,16 @@ function Harness({ initial }: { initial: Task }) {
         <TaskEditor
           key={task.key}
           task={task}
-          onContinue={() => setActive(actions.insertAfter(task, target))}
+          onContinue={() => setActive(continueFrom(store, task, '2026-06-14'))}
           onCancel={() => setActive(null)}
           onComplete={() => {}}
           onConvertToBullet={() => {}}
           onDelete={() => {
-            actions.remove([task])
+            store.remove([task])
             setActive(null)
           }}
           onDeleteEmpty={() => {
-            actions.remove([task])
+            store.remove([task])
             setActive(null)
           }}
           onNavigate={() => {}}

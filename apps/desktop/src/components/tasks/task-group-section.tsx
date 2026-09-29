@@ -1,8 +1,9 @@
 import { Fragment, type ReactElement } from 'react'
 import { Plus } from 'lucide-react'
 import { groupTaskContexts, type Task, type TaskGroup, type TaskTarget } from '@reflect/core'
-import { addTargetForGroup, taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
-import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
+import { taskGroupHeaderStyle } from '@/lib/tasks/task-group-presentation.tsx'
+import { addTargetForGroup } from '@/lib/tasks/task-navigation.ts'
+import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
 import type { TaskEditHandlers } from './task-editor.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
@@ -11,7 +12,7 @@ import { TaskRow } from './task-row.tsx'
 
 interface TaskGroupSectionProps {
   group: TaskGroup
-  selection: TaskSelection
+  selection: ListSelection
   /** The inline-editor callbacks for a row, built once by the screen. */
   editHandlers: (task: Task) => TaskEditHandlers
   /** Complete/reopen the selected rows using the clicked task's next checkbox state. */

@@ -254,14 +254,14 @@ describe('task store', () => {
   it('lists a completed task struck until archived, or until it is open again', async () => {
     const h = harness('+ [ ] one\n+ [ ] two\n')
     const [one, two] = h.list()
-    h.store.complete(one!)
+    h.store.setChecked([one!], true)
     await h.store.flush()
     expect(h.list().map((task) => [task.text, task.checked])).toEqual([
       ['two', false],
       ['one', true],
     ])
     expect(h.store.isRecent(one!)).toBe(true)
-    h.store.complete(two!)
+    h.store.setChecked([two!], true)
     await h.store.flush()
     h.store.update(h.list()[1]!, { checked: false })
     await h.store.flush()
