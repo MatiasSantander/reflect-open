@@ -6,6 +6,7 @@ import {
   classicAccessUntil,
   classicPaidThrough,
   loadClassicAccess,
+  readClassicAccess,
   signInWithClassic,
   type ClassicAccess,
   type ClassicInvoice,
@@ -325,6 +326,19 @@ describe('signInWithClassic', () => {
       'Reflect Classic returned an unexpected body (/api/users/me/invoices)',
       expect.anything(),
     )
+  })
+})
+
+describe('readClassicAccess', () => {
+  it('returns a record older than a day without a request', async () => {
+    const access = storedAccess({ checkedAt: NOW - 30 * DAY_MS })
+    fakeKeychain({ [CLASSIC_ACCESS_SECRET]: JSON.stringify(access) })
+    await expect(readClassicAccess()).resolves.toEqual(access)
+  })
+
+  it('is null without a stored record', async () => {
+    fakeKeychain()
+    await expect(readClassicAccess()).resolves.toBeNull()
   })
 })
 
