@@ -27,7 +27,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "^4.0.17",
+    "@ai-sdk/provider": "^4.0.20",
     "@ocavue/tsconfig": "^0.7.1",
     "@vitest/browser-playwright": "^5.0.1",
     "playwright": "^1.63.0",
