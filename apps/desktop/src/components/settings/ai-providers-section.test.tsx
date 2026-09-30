@@ -144,7 +144,7 @@ describe('AiProvidersSection', () => {
     await dialog.getByRole('combobox', { name: 'Provider' }).click()
     await page.getByRole('option', { name: 'Anthropic' }).click()
     await dialog.getByRole('combobox', { name: 'Default model' }).click()
-    await page.getByRole('option', { name: /Claude Sonnet 5/ }).click()
+    await page.getByRole('option', { name: /Claude Sonnet 5\.5/ }).click()
     await dialog.getByLabelText('API key').fill('sk-ant-test-wxyz1')
     await dialog.getByRole('button', { name: 'Add provider' }).click()
 
@@ -153,7 +153,7 @@ describe('AiProvidersSection', () => {
     const [added] = doc.aiProviders
     expect(added).toMatchObject({
       provider: 'anthropic',
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       keyHint: 'wxyz1',
     })
     // The first entry becomes the default automatically.
