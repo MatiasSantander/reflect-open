@@ -77,18 +77,27 @@ Per [Architecture & Conventions §2](architecture-conventions.md): Rust owns
 The payoff is that the pipeline the user already exercises daily is reused
 rather than forked — only the writer of the segment files changes.
 
-### 2. One mixed track
+### 2. Two tracks, not one mixed track
 
-bitácora records two tracks to separate "you" from "them", because it
-diarizes. This plan doesn't, so one mixed track is enough: half the
-transcription cost, smaller files, and none of the echo-filtering machinery a
-split capture forces (a microphone picking up the speakers produces duplicated
-text that has to be filtered by similarity and containment).
+Settled against the SDK headers rather than assumed. `SCStreamConfiguration`
+does expose `captureMicrophone` (macOS 15+), but the microphone arrives as its
+own output type — `SCStreamOutputTypeMicrophone`, separate from
+`SCStreamOutputTypeAudio`, and in *"the selected microphone capture device's
+native format"* rather than the stream's. The property that would mix both
+into one file, `SCRecordingOutputConfiguration.mixesAudioWithMicrophone`, is
+macOS 27+, so it is not available to the versions this app must run on.
 
-On macOS 15+, `SCStream` can capture the microphone alongside system audio in
-one stream, which avoids building an audio graph at all — **confirm the API
-before committing**; the fallback is mixing the mic into the stream with
-`AVAudioEngine` (D1).
+Mixing them by hand means format conversion, resampling and a sample-buffer
+mixer — the audio graph this plan wanted to avoid. Writing them as two files
+means two `AVAssetWriter`s and nothing else.
+
+So: **two tracks**, `sistema` and `mic` — the shape bitácora already
+validated. It costs a second transcription call per segment and buys something
+a mixed track can never recover: **who said it**, with no diarization at all.
+Since `transcribeAudio` returns plain text with no timestamps, the two
+transcripts cannot be interleaved chronologically; at five-minute granularity
+they don't need to be, and each segment appends as two labelled entries.
+
 
 ### 3. The note exists from the first second
 
@@ -119,8 +128,8 @@ outside them is never read or rewritten.
 
 Rotation every 5 minutes: a closed segment is transcribed, appended,
 summarized, appended. That *is* the "summary every 5 minutes" behavior — no
-second timer, no partial-transcript machinery. The cost is ~12 transcriptions
-and ~12 summaries per hour, which is free against a local model and noticeable
+second timer, no partial-transcript machinery. The cost is ~24 transcriptions
+(two tracks) and ~12 summaries per hour, which is free against a local model and noticeable
 against a metered one. The existing 20-minute constant exists for provider
 size limits; 5 minutes sits far under all of them.
 
@@ -150,7 +159,8 @@ size limits; 5 minutes sits far under all of them.
 | E9 | Two overlapping events | One recording at a time; the second offer declines with a reason rather than stealing the stream. |
 | E10 | Output device changes mid-meeting (headphones in) | The stream must survive a device switch — verify explicitly, it is the most common mid-meeting event. |
 | E11 | `private: true` | Recording stays allowed (the audio-memo posture: no *existing* note content is sent). The summary prompt carries the new transcript only — never the user's typed notes, which would leak note content to a provider. |
-| E12 | Two-hour meeting | 24 segments, 24 appends. Long but correct; no cap needed. |
+| E12 | Two-hour meeting | 24 segments per track. Long but correct; no cap needed. |
+| E13 | No headphones | The microphone track picks up the speakers, so both tracks carry the other side and the transcript duplicates it. bitácora filters this at the text level (similarity, containment, sentence); port that only if it actually bites — on headphones it never happens. |
 
 ## Phases
 
@@ -187,14 +197,15 @@ without opening the transcript.
 
 ## Open decisions
 
-- **D1 — mic capture.** `SCStream`'s microphone capture (macOS 15+) versus
-  mixing the mic in with `AVAudioEngine`. Confirm the API surface before
-  committing; the first is dramatically less code.
+- ~~**D1 — mic capture.**~~ Resolved against the SDK headers: the microphone
+  is a separate output type and `mixesAudioWithMicrophone` is macOS 27+, so
+  the capture writes two tracks (contract 2).
 - **D2 — what the summary sees.** Only the latest segment, or the whole
   meeting so far. Proposal: the latest segment plus the bullets already
   written, so context stays coherent and cost stays flat.
-- **D3 — one track or two.** One mixed track forecloses diarization. Proposal:
-  one; revisit only if speaker labels become a real need rather than a
-  temptation.
+- **D3 — labelling the two tracks.** `sistema` and `mic` are "them" and "you"
+  only by convention. Proposal: label them that way in the note and accept the
+  edge (a shared room microphone carries everyone) rather than inferring
+  anything.
 - **D4 — where the note lives.** Proposal: `notes/`, backlinked from the daily
   note — exactly what audio memos do. No new convention.
