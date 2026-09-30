@@ -13,7 +13,7 @@ describe('AI_PROVIDERS', () => {
         id: 'openai',
         models: [
           'gpt-6-astra',
-          'gpt-6-sol',
+          'gpt-6.1-sol',
           'gpt-6-luna',
           'gpt-5.6-sol',
           'gpt-5.6-terra',
@@ -32,7 +32,7 @@ describe('AI_PROVIDERS', () => {
           'claude-fable-5',
           'claude-opus-5',
           'claude-opus-4-8',
-          'claude-sonnet-5',
+          'claude-sonnet-5-5',
           'claude-sonnet-4-6',
           'claude-haiku-4-5',
         ],
