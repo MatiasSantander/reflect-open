@@ -237,6 +237,14 @@ export {
   type RecordingSegment,
   type RecordingStarted,
 } from '../recording/commands.ts'
+export { summariseMeetingSegment, type MeetingSummaryRequest } from '../ai/meeting-summary.ts'
+export {
+  openMeetingNote,
+  appendTranscript,
+  appendSummary,
+  SUMMARY_HEADING,
+  TRANSCRIPT_HEADING,
+} from '../actions/meeting-note.ts'
 export {
   startMeetingSession,
   MEETING_SEGMENT_MS,

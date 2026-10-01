@@ -1,4 +1,6 @@
-import { deleteAudioMemo, importAudioMemo } from '../graph/commands.ts'
+import { deleteAudioMemo, importAudioMemo, readAsset, readAssetBinary } from '../graph/commands.ts'
+import { hasBinaryIpc } from '../ipc/bridge.ts'
+import { base64ToBytes } from '../lib/base64.ts'
 import { errorMessage } from '../errors.ts'
 import {
   startMeetingRecording,
@@ -10,6 +12,7 @@ import {
 } from '../recording/commands.ts'
 import type { Unlisten } from '../ipc/bridge.ts'
 import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './audio-memo.ts'
+import { appendSummary, appendTranscript, openMeetingNote } from './meeting-note.ts'
 
 /**
  * A meeting recording session: the capture runs in Rust, and this is the
@@ -67,6 +70,25 @@ export interface MeetingSession {
 export interface StartMeetingSessionInput {
   /** How long each segment runs. The summary cadence follows from this. */
   segmentMs: number
+  /**
+   * What to call the note. Detection reads it off the call's window; without
+   * one the note is named for its time and renamed later from what was said.
+   */
+  title?: string | undefined
+  /**
+   * Transcribe each segment as it lands and append it to the note. Omitted,
+   * the session only records — useful when no provider is configured, and the
+   * audio is still on disk for a later pass.
+   */
+  transcribeSegment?:
+    | ((segment: RecordingSegment, audio: Uint8Array) => Promise<string>)
+    | undefined
+  /**
+   * Summarise a stretch of transcript into the points worth noting. Called
+   * once per rotation, after both tracks of that segment have landed, so the
+   * model sees the whole exchange rather than one side of it.
+   */
+  summarise?: ((segment: string, soFar: readonly string[]) => Promise<string[]>) | undefined
   /** `GraphInfo.generation` — pins every write to the issuing graph. */
   generation: number
   /** Called once a segment is in the graph, with its stored path. */
@@ -90,6 +112,9 @@ export async function startMeetingSession(
   input: StartMeetingSessionInput,
 ): Promise<MeetingSession> {
   const memo = audioMemoIdentity(new Date(), 'audio/wav')
+  // The note opens before the first second is recorded: its whole reason for
+  // existing early is that the user types into it *during* the meeting.
+  await openMeetingNote(memo, input.title?.trim() || memo.title, input.generation)
   let unlisten: Unlisten | null = null
   let stopped = false
 
@@ -103,6 +128,11 @@ export async function startMeetingSession(
   // session nobody else spoke in can be taken back out again.
   let heardFromThem = 0
   const imported: string[] = []
+  // Both sides of the segment being assembled, and the points already in the
+  // note — the summary runs once per rotation, not once per track, because
+  // half a conversation summarises badly.
+  let pendingSegment: { part: number; lines: string[] } | null = null
+  const summarySoFar: string[] = []
   let sessionEnded: () => void = () => {}
   const ended = new Promise<void>((resolve) => {
     sessionEnded = resolve
@@ -113,7 +143,7 @@ export async function startMeetingSession(
   unlisten = await subscribeRecordingSegments((segment) => {
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
     void importAudioMemo(segment.path, path, input.generation).then(
-      () => {
+      async () => {
         imported.push(path)
         if (segment.track === 'system') {
           heardFromThem += segment.loud
@@ -122,6 +152,30 @@ export async function startMeetingSession(
           `core: imported part=${segment.part} ${segment.track} loud=${segment.loud} → ${path}`,
         )
         input.onSegment?.(segment, path)
+        if (input.transcribeSegment === undefined) {
+          return
+        }
+        try {
+          // Core reads the bytes: the caller supplies a provider and a key,
+          // not a way into the graph.
+          const audio = hasBinaryIpc()
+            ? await readAssetBinary(path, input.generation)
+            : base64ToBytes(await readAsset(path, input.generation))
+          const text = await input.transcribeSegment(segment, audio)
+          await appendTranscript(
+            memo,
+            { track: segment.track, at: new Date(), text },
+            input.generation,
+          )
+          void traceRecording(
+            `core: transcribed part=${segment.part} ${segment.track} ${text.length} chars`,
+          )
+          await summariseWhenBothTracksLanded(segment, text)
+        } catch (cause) {
+          void traceRecording(
+            `core: TRANSCRIBE FAILED part=${segment.part} ${segment.track} — ${errorMessage(cause)}`,
+          )
+        }
       },
       (cause: unknown) => {
         const message = errorMessage(cause)
@@ -138,6 +192,35 @@ export async function startMeetingSession(
       }
     }
   })
+
+  /**
+   * A rotation closes both tracks, so the summary waits for the second one.
+   * Whichever arrives last carries the pair.
+   */
+  async function summariseWhenBothTracksLanded(
+    segment: RecordingSegment,
+    text: string,
+  ): Promise<void> {
+    if (input.summarise === undefined) {
+      return
+    }
+    const label = segment.track === 'system' ? 'Them' : 'You'
+    if (pendingSegment?.part !== segment.part) {
+      pendingSegment = { part: segment.part, lines: [] }
+    }
+    pendingSegment.lines.push(`${label}: ${text}`)
+    if (pendingSegment.lines.length < TRACKS_PER_SESSION) {
+      return
+    }
+    const joined = pendingSegment.lines.join('\n\n')
+    pendingSegment = null
+    const points = await input.summarise(joined, summarySoFar)
+    for (const point of points) {
+      summarySoFar.push(point)
+      await appendSummary(memo, { at: new Date(), text: point }, input.generation)
+    }
+    void traceRecording(`core: summarised part=${segment.part} into ${points.length} points`)
+  }
 
   void traceRecording(`core: session ${memo.base} starting, generation ${input.generation}`)
   let started: RecordingStarted

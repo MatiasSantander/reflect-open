@@ -9,13 +9,19 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  aiApiKeyForConfig,
   candidateTitle,
   errorMessage,
   MEETING_SEGMENT_MS,
+  pickTranscriptionConfig,
   startMeetingSession,
+  summariseMeetingSegment,
+  transcribeAudio,
   type GraphInfo,
   type MeetingSession,
 } from '@reflect/core'
+import { providerFetch } from '@/lib/provider-fetch.ts'
+import { useSettings } from '@/providers/settings-provider.tsx'
 import { useCallWatch } from '@/providers/call-watch.ts'
 
 /**
@@ -60,6 +66,11 @@ export function MeetingRecordingProvider({
   graph,
   children,
 }: MeetingRecordingProviderProps): ReactElement {
+  const { settings } = useSettings()
+  const settingsRef = useRef(settings)
+  useEffect(() => {
+    settingsRef.current = settings
+  })
   const [recording, setRecording] = useState(false)
   const [detectedAs, setDetectedAs] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +82,8 @@ export function MeetingRecordingProvider({
   // call ending means this recording should stop.
   const [recordingPid, setRecordingPid] = useState<number | null>(null)
   const detectedPidRef = useRef<number | null>(null)
+  // Read at start time: the detector sets it a tick before the session opens.
+  const detectedAsRef = useRef<string | null>(null)
   // Read at toggle time rather than captured: a graph switch mid-session must
   // not write the next segment into the graph the user just left.
   const generationRef = useRef(graph.generation)
@@ -116,9 +129,61 @@ export function MeetingRecordingProvider({
     statusRef.current = 'starting'
     setError(null)
     setRecording(true)
+    const generation = generationRef.current
     void startMeetingSession({
       segmentMs: MEETING_SEGMENT_MS,
-      generation: generationRef.current,
+      generation,
+      ...(detectedAsRef.current === null ? {} : { title: detectedAsRef.current }),
+
+      // Transcription and summarising are passed in rather than reached for,
+      // so the session stays testable and a graph with no provider configured
+      // still records — the audio is the durable part either way.
+      transcribeSegment: async (_segment, audio) => {
+        const state = {
+          providers: settingsRef.current.aiProviders,
+          defaultProviderId: settingsRef.current.defaultAiProviderId,
+        }
+        const config = pickTranscriptionConfig(state)
+        if (config === null) {
+          return ''
+        }
+        const apiKey = await aiApiKeyForConfig(config)
+        if (apiKey === null) {
+          return ''
+        }
+        if (audio.length === 0) {
+          return ''
+        }
+        return await transcribeAudio({
+          provider: config.provider,
+          apiKey,
+          prompt: settingsRef.current.transcriptionPrompt,
+          audio: new Blob([audio.slice().buffer], { type: 'audio/wav' }),
+          mimeType: 'audio/wav',
+          fetchFn: providerFetch,
+          isStale: () => false,
+        })
+      },
+
+      summarise: async (segment, soFar) => {
+        const config = settingsRef.current.aiProviders.find(
+          (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
+        )
+        if (config === undefined) {
+          return []
+        }
+        const apiKey = await aiApiKeyForConfig(config)
+        if (apiKey === null) {
+          return []
+        }
+        return await summariseMeetingSegment({
+          config,
+          apiKey,
+          segment,
+          soFar,
+          fetchFn: providerFetch,
+        })
+      },
       onSegment: (segment, path) => {
         console.debug('[meeting] segment imported', segment.part, segment.track, path)
       },
@@ -153,7 +218,8 @@ export function MeetingRecordingProvider({
     ignorePid: stoppedPid,
     onCall: (candidate) => {
       detectedPidRef.current = candidate.pid
-      setDetectedAs(candidateTitle(candidate))
+      detectedAsRef.current = candidateTitle(candidate)
+      setDetectedAs(detectedAsRef.current)
       setStoppedPid(null)
       setRecordingPid(candidate.pid)
       toggle()
