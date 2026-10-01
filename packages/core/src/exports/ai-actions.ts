@@ -229,9 +229,6 @@ export {
   appendTranscript,
   appendSummary,
   appendTask,
-  SUMMARY_HEADING,
-  TASKS_HEADING,
-  TRANSCRIPT_HEADING,
 } from '../actions/meeting-note.ts'
 export {
   startMeetingSession,

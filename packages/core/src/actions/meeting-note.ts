@@ -24,13 +24,13 @@ import { trackLabel } from './audio-memo-session.ts'
  */
 
 /** Where the running summary accumulates. */
-export const SUMMARY_HEADING = 'Resumen'
+const SUMMARY_HEADING = 'Resumen'
 
 /** Where each segment's transcript lands. */
-export const TRANSCRIPT_HEADING = 'Transcript'
+const TRANSCRIPT_HEADING = 'Transcript'
 
 /** Where commitments made out loud become checkboxes. */
-export const TASKS_HEADING = 'Tareas'
+const TASKS_HEADING = 'Tareas'
 
 /** The heading a day's meetings are backlinked under. */
 export const MEETINGS_NOTE_TITLE = 'Meetings'
