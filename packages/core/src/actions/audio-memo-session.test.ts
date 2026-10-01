@@ -23,6 +23,7 @@ function part(overrides: Partial<AudioMemoPart>): AudioMemoPart {
     path: audioMemoPartPath(MEMO, partNumber, end),
     part: partNumber,
     end,
+    track: null,
     placeholder: false,
     sizeBytes: 1024,
     modifiedMs: 1_000_000,
@@ -143,5 +144,37 @@ describe('stitchSessionTranscript', () => {
     expect(stitchSessionTranscript([{ text: 'first' }, { text: '' }, { text: 'third' }])).toBe(
       'first\n\nthird',
     )
+  })
+})
+
+describe('a meeting session is judged per track', () => {
+  function track(partNumber: number, end: boolean, name: 'system' | 'mic'): AudioMemoPart {
+    return {
+      ...part({ part: partNumber, end }),
+      path: audioMemoPartPath(MEMO, partNumber, end, name),
+      track: name,
+    }
+  }
+
+  it('is ready when both tracks run 1..N', () => {
+    const session = groupAudioMemoSessions([
+      track(1, false, 'system'),
+      track(1, false, 'mic'),
+      track(2, true, 'system'),
+      track(2, true, 'mic'),
+    ])[0]!
+    expect(isSessionReady(session, 2_000_000)).toBe(true)
+  })
+
+  it('is not ready when one track is missing a segment', () => {
+    // A flat index check would pass this — four parts numbered 1, 1, 2, 2 —
+    // which is exactly the hole this guard exists to catch.
+    const session = groupAudioMemoSessions([
+      track(1, false, 'system'),
+      track(1, false, 'mic'),
+      track(2, true, 'system'),
+      track(3, true, 'mic'),
+    ])[0]!
+    expect(isSessionReady(session, 2_000_000)).toBe(false)
   })
 })

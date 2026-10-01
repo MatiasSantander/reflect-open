@@ -14,7 +14,7 @@ import {
   writeTranscriptCache,
 } from '../graph/commands.ts'
 import { hasBinaryIpc } from '../ipc/bridge.ts'
-import type { AudioMemoIdentity } from './audio-memo.ts'
+import type { AudioMemoIdentity, AudioMemoTrack } from './audio-memo.ts'
 
 /**
  * Session semantics for segmented audio memos. One recording session rotates
@@ -67,6 +67,11 @@ export interface AudioMemoPart {
   part: number
   /** True on the final segment of a cleanly stopped session. */
   end: boolean
+  /**
+   * Which track this segment is, or `null` on a single-track memo. A meeting
+   * records two files per position, so completeness is judged per track.
+   */
+  track: AudioMemoTrack | null
   /** iCloud eviction placeholder — the bytes are not local (Plan 21). */
   placeholder: boolean
   /** Listing size, for the transcription size guard. */
@@ -118,9 +123,27 @@ export function isSessionClosed(session: AudioMemoSession, nowMs: number): boole
  * silent hole), and every segment's bytes locally readable.
  */
 export function isSessionReady(session: AudioMemoSession, nowMs: number): boolean {
-  return (
-    isSessionClosed(session, nowMs) &&
-    session.parts.every((part, index) => part.part === index + 1 && !part.placeholder)
+  if (!isSessionClosed(session, nowMs)) {
+    return false
+  }
+  if (session.parts.some((part) => part.placeholder)) {
+    return false
+  }
+  // A meeting writes one file per track per position, so the run from 1 to N
+  // has to be complete *within* a track: interleaving the two would read as
+  // 1, 1, 2, 2 and fail a flat index check that single-track memos pass.
+  const byTrack = new Map<string, number[]>()
+  for (const part of session.parts) {
+    const key = part.track ?? ''
+    const positions = byTrack.get(key)
+    if (positions === undefined) {
+      byTrack.set(key, [part.part])
+    } else {
+      positions.push(part.part)
+    }
+  }
+  return [...byTrack.values()].every((positions) =>
+    positions.sort((first, second) => first - second).every((part, index) => part === index + 1),
   )
 }
 
