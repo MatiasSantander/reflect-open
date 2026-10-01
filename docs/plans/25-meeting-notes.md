@@ -121,22 +121,42 @@ Finding what to tap and noticing that a call started are the *same query*: the
 process list is `kAudioHardwarePropertyProcessObjectList`, and each entry
 carries `kAudioProcessPropertyBundleID`,
 `kAudioProcessPropertyIsRunningInput` and
-`kAudioProcessPropertyIsRunningOutput`. A property listener turns that into
-callbacks instead of a poll loop.
+`kAudioProcessPropertyIsRunningOutput`.
 
-**Rust reports the fact; TypeScript decides what it means.** Rust says "this
-bundle id started capturing input and playing output". TypeScript owns the
-policy:
+**Measured, not assumed.** A probe sampling every 500 ms over a 10-second
+window, run against real calls:
 
-- A **known conferencing app** (Slack, Zoom, Teams) with two-way audio →
-  offer immediately.
-- **Any other process**, browsers included → require two-way audio sustained
-  for a debounce window. A notification sound is not a meeting; a video is
-  output-only; dictation is input-only. Only a conversation is both, sustained.
+| Observed | Reading |
+|---|---|
+| A dictation app held input 100%, output 0% | input alone is never a conversation — the cheapest rejection there is |
+| Output sat at 100% for anything making sound | output does not discriminate; **the signal is the input percentage** |
+| A live call held input 95–100%; playback sat at 0–50% | the threshold has daylight on both sides |
+| Instantaneous flags flapped between both/input/output within seconds of each other | sampling the instant is unusable; the rolling window is what makes the signal legible |
+| Two processes reported a conversation **at the same time** — the native Slack app and a browser | overlapping calls are real, not hypothetical |
 
-This replaces window-title sniffing entirely, works for apps we have never
-heard of, and needs no new permission — the capture already requires the one
-it uses.
+So: a conversation is one process holding **both** input and output above ~80%
+across the window. Rust reports the measurement; TypeScript owns the
+thresholds and what they mean.
+
+The concurrency observation has teeth: with two calls live at once, a global
+tap records both mixed together, which is precisely the failure this plan
+exists to avoid. The capture must scope to the conversation's process —
+`CATapDescription`'s `initStereoMixdownOfProcesses:` rather than the global
+variant the probe used.
+
+Window titles are the other half, and they carry what audio cannot: the
+Slack huddle window is titled with the person on the other end, and a Meet
+tab's URL carries the meeting code that matches a calendar event's
+`hangoutLink` **exactly** — binding by code rather than by "what is scheduled
+right now", which is the binding that mis-attributes a call that interrupts a
+meeting. `CGWindowListCopyWindowInfo` supplies both, but only to a process
+holding the screen-recording permission: the same probe read 9 titles of 68
+windows from a terminal, and the rest came back redacted. The app has that
+permission for the capture already; nothing else needs to change.
+
+One caveat the probe surfaced and did not settle: a browser plays call audio
+from a *helper* process whose windows belong to its parent, so matching a
+title to a conversation has to group by the containing `.app`, not by PID.
 
 ### 4. The note is live, and the user owns it
 
