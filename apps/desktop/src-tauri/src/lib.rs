@@ -362,6 +362,8 @@ pub fn run() {
             recording::recording_request_system_audio_access,
             recording::recording_system_audio_preflight,
             recording::recording_call_candidates,
+            recording::recording_trace,
+            recording::recording_trace_path,
             recording::recording_start,
             recording::recording_stop,
             contacts::contacts_authorization_status,

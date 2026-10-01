@@ -2,6 +2,7 @@ import { importAudioMemo } from '../graph/commands.ts'
 import { errorMessage } from '../errors.ts'
 import {
   startMeetingRecording,
+  traceRecording,
   stopMeetingRecording,
   subscribeRecordingSegments,
   type RecordingSegment,
@@ -97,8 +98,17 @@ export async function startMeetingSession(
   unlisten = await subscribeRecordingSegments((segment) => {
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
     void importAudioMemo(segment.path, path, input.generation).then(
-      () => input.onSegment?.(segment, path),
-      (cause: unknown) => input.onError?.(errorMessage(cause)),
+      () => {
+        void traceRecording(`core: imported part=${segment.part} ${segment.track} → ${path}`)
+        input.onSegment?.(segment, path)
+      },
+      (cause: unknown) => {
+        const message = errorMessage(cause)
+        void traceRecording(
+          `core: IMPORT FAILED part=${segment.part} ${segment.track} gen=${input.generation} — ${message}`,
+        )
+        input.onError?.(message)
+      },
     )
     if (segment.end) {
       endedTracks.add(segment.track)
@@ -108,6 +118,7 @@ export async function startMeetingSession(
     }
   })
 
+  void traceRecording(`core: session ${memo.base} starting, generation ${input.generation}`)
   let started: RecordingStarted
   try {
     started = await startMeetingRecording(input.segmentMs)

@@ -161,6 +161,24 @@ pub struct CallCandidate {
     pub windows: Vec<String>,
 }
 
+/// Append a line to the meeting trace, the one place this feature explains
+/// itself. A capture that runs for an hour inside an app with no console is
+/// otherwise unobservable, and the first question about any recording is
+/// "did it import?" — which needs an answer that outlives the devtools window.
+#[tauri::command]
+pub fn recording_trace(app: tauri::AppHandle, line: String) -> AppResult<()> {
+    platform::trace(&app, &line);
+    Ok(())
+}
+
+/// Where the trace lives, so a human (or a terminal) can read it.
+#[tauri::command]
+pub fn recording_trace_path(app: tauri::AppHandle) -> AppResult<String> {
+    Ok(platform::trace_path(&app)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default())
+}
+
 /// Every process holding the microphone open right now. Cheap enough to poll:
 /// one property read per audio process, plus one window list.
 #[tauri::command]
@@ -773,6 +791,7 @@ mod platform {
         // never lets go, and start() only waits to hear that it worked.
         let (ready, started) = channel::<Result<u32, String>>();
         let (stop, stopped) = channel::<()>();
+        let app_for_trace = app.clone();
         let thread_system = system_track.clone();
         let thread_mic = mic_track.clone();
         std::thread::spawn(move || {
@@ -811,6 +830,14 @@ mod platform {
                 for track in [&thread_system, &thread_mic] {
                     match track.rotate(ending) {
                         Ok((part, frames, path)) => {
+                            trace(
+                                &app,
+                                &format!(
+                                    "rust: segment part={part} track={} end={ending} frames={frames} {}",
+                                    track.name,
+                                    path.display()
+                                ),
+                            );
                             let _ = app.emit(
                                 "recording:segment",
                                 RecordingSegment {
@@ -824,6 +851,7 @@ mod platform {
                             );
                         }
                         Err(message) => {
+                            trace(&app, &format!("rust: rotate failed — {message}"));
                             let _ = app.emit("recording:error", message);
                         }
                     }
@@ -844,6 +872,10 @@ mod platform {
             })?
             .map_err(|message| AppError::Unknown { message })?;
 
+        trace(
+            &app_for_trace,
+            &format!("rust: started, staging {}", staging.display()),
+        );
         *slot = Some(Session { stop });
         Ok(RecordingStarted {
             staging_dir: staging.to_string_lossy().into_owned(),
@@ -918,6 +950,37 @@ mod platform {
         Ok(stream)
     }
 
+
+    // ---- the trace file ----
+
+    pub fn trace_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+        use tauri::Manager;
+        app.path().app_cache_dir().ok().map(|dir| dir.join("meeting.log"))
+    }
+
+    /// Best-effort by design: losing a trace line must never disturb a
+    /// recording, which is the thing actually worth protecting.
+    pub fn trace(app: &tauri::AppHandle, line: &str) {
+        use std::io::Write;
+        let Some(path) = trace_path(app) else { return };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        let day = (stamp as i64 - 3 * 3600).rem_euclid(86_400);
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(
+                file,
+                "{:02}:{:02}:{:02}  {line}",
+                day / 3600,
+                (day % 3600) / 60,
+                day % 60
+            );
+        }
+    }
 
     // ---- who has the microphone open, and what are their windows called ----
 
@@ -1069,5 +1132,11 @@ mod platform {
 
     pub fn call_candidates() -> Vec<super::CallCandidate> {
         Vec::new()
+    }
+
+    pub fn trace(_app: &tauri::AppHandle, _line: &str) {}
+
+    pub fn trace_path(_app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+        None
     }
 }

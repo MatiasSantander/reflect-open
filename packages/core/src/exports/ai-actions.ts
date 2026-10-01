@@ -216,6 +216,8 @@ export {
   stopMeetingRecording,
   subscribeRecordingSegments,
   callCandidates,
+  traceRecording,
+  recordingTracePath,
   callCandidateSchema,
   type CallCandidate,
 } from '../recording/commands.ts'

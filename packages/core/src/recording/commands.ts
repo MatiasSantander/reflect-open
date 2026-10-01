@@ -170,3 +170,24 @@ export type CallCandidate = z.infer<typeof callCandidateSchema>
 export async function callCandidates(): Promise<CallCandidate[]> {
   return await call('recording_call_candidates', {}, z.array(callCandidateSchema))
 }
+
+/**
+ * Append a line to the meeting trace.
+ *
+ * A capture runs for an hour inside an app with no console, so without this
+ * the only honest answer to "did it import?" is a shrug. Best-effort: a
+ * failed trace is swallowed, because losing a log line must never disturb a
+ * recording.
+ */
+export async function traceRecording(line: string): Promise<void> {
+  try {
+    await call('recording_trace', { line }, z.void())
+  } catch {
+    // Deliberately silent — see above.
+  }
+}
+
+/** Where the trace file lives, for a human or a terminal to read. */
+export async function recordingTracePath(): Promise<string> {
+  return await call('recording_trace_path', {}, z.string())
+}
