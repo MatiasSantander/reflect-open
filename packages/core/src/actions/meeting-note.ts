@@ -1,4 +1,4 @@
-import { readNote, writeNote } from '../graph/commands.ts'
+import { deleteNote, readNote, writeNote } from '../graph/commands.ts'
 import { isAppError } from '../errors.ts'
 import { dailyPath, notePath } from '../graph/paths.ts'
 import {
@@ -133,6 +133,31 @@ export async function appendTask(
     return
   }
   await appendUnder(memo, TASKS_HEADING, `[ ] ${task}`, generation)
+}
+
+/**
+ * Take a meeting note back out: the note itself and the line that links it
+ * from its day.
+ *
+ * Discarding only the audio would leave the shape of a meeting behind — an
+ * empty note and a daily-note entry pointing at nothing — which is worse
+ * than the recording it was trying to undo.
+ */
+export async function discardMeetingNote(
+  memo: AudioMemoIdentity,
+  generation: number,
+): Promise<void> {
+  const daily = await noteSource(dailyPath(memo.date), generation)
+  if (daily !== '') {
+    const withoutEntry = daily
+      .split('\n')
+      .filter((line) => !line.includes(`[[${memo.base}`))
+      .join('\n')
+    if (withoutEntry !== daily) {
+      await writeNote(dailyPath(memo.date), withoutEntry, generation)
+    }
+  }
+  await deleteNote(notePath(memo.base), generation)
 }
 
 function clockOf(at: Date): string {

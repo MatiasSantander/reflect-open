@@ -11,7 +11,13 @@ import {
 } from '../recording/commands.ts'
 import type { Unlisten } from '../ipc/bridge.ts'
 import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './audio-memo.ts'
-import { appendSummary, appendTask, appendTranscript, openMeetingNote } from './meeting-note.ts'
+import {
+  appendSummary,
+  appendTask,
+  appendTranscript,
+  discardMeetingNote,
+  openMeetingNote,
+} from './meeting-note.ts'
 
 /**
  * A meeting recording session: the capture runs in Rust, and this is the
@@ -128,10 +134,12 @@ export async function startMeetingSession(
   // session nobody else spoke in can be taken back out again.
   let heardFromThem = 0
   const imported: string[] = []
-  // Imports in flight. The discard decision reads what the far end produced,
-  // and that count is only complete once every segment has landed — a short
-  // call whose only segment is still importing would otherwise look like a
-  // call nobody answered and delete itself.
+  // Imports in flight — the copy into the graph only, never the
+  // transcription chained onto it. The discard decision needs every segment
+  // to have landed, because a short call whose only segment was still
+  // importing reads as a call nobody answered and deletes itself. It must
+  // *not* need the transcription: an hour-long meeting still being
+  // transcribed cannot be the reason the next one goes unrecorded.
   const landing = new Set<Promise<void>>()
   // Both sides of the segment being assembled, and the points already in the
   // note — the summary runs once per rotation, not once per track, because
@@ -147,7 +155,10 @@ export async function startMeetingSession(
   // would otherwise be lost, and with it a minute of the meeting.
   unlisten = await subscribeRecordingSegments((segment) => {
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
-    const landed = importAudioMemo(segment.path, path, input.generation).then(
+    const landed = importAudioMemo(segment.path, path, input.generation)
+    landing.add(landed)
+    void landed.finally(() => landing.delete(landed))
+    void landed.then(
       async () => {
         imported.push(path)
         if (segment.track === 'system') {
@@ -190,8 +201,6 @@ export async function startMeetingSession(
         input.onError?.(message)
       },
     )
-    landing.add(landed)
-    void landed.finally(() => landing.delete(landed))
     if (segment.end) {
       endedTracks.add(segment.track)
       if (endedTracks.size >= TRACKS_PER_SESSION) {
@@ -278,6 +287,7 @@ export async function startMeetingSession(
             }),
           ),
         )
+        await discardMeetingNote(memo, input.generation)
         input.onDiscarded?.()
       }
     },

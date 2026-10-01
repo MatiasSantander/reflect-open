@@ -142,9 +142,14 @@ export function isSessionReady(session: AudioMemoSession, nowMs: number): boolea
       positions.push(part.part)
     }
   }
-  return [...byTrack.values()].every((positions) =>
-    positions.sort((first, second) => first - second).every((part, index) => part === index + 1),
+  const runs = [...byTrack.values()].map((positions) =>
+    positions.sort((first, second) => first - second),
   )
+  const complete = runs.every((positions) => positions.every((part, index) => part === index + 1))
+  // And the same length: a system track of [1, 2] beside a mic of [1] runs
+  // 1..N on both sides and is still missing half of the last segment, which
+  // would publish a transcript with one voice silently absent.
+  return complete && runs.every((positions) => positions.length === runs[0]!.length)
 }
 
 /** A segment's terminal transcription result, as cached and as stitched. */

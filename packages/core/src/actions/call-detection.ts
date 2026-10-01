@@ -87,7 +87,13 @@ export function candidateTitle(candidate: CallCandidate): string | null {
   if (window === null) {
     return null
   }
-  const trimmed = window.replace(/^[\s–—-]+/u, '').trim()
+  // `- ADIPA - Slack` is the dialog before anyone answers: the separator sits
+  // where the person's name will go, so there is no name to take and the
+  // transcript supplies one instead, as it already does for audio memos.
+  if (/^[\s–—-]/u.test(window)) {
+    return null
+  }
+  const trimmed = window.trim()
   return trimmed === '' ? null : trimmed
 }
 

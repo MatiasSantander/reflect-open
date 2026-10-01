@@ -37,9 +37,10 @@ describe('candidateTitle', () => {
   })
 
   it('declines to name a note after the pre-join dialog', () => {
-    // `- ADIPA - Slack` is the dialog before anyone answers: no name yet, so
-    // the transcript names the note instead.
-    expect(candidateTitle(candidate({ windows: ['- ADIPA - Slack'] }))).toBe('ADIPA - Slack')
+    // `- ADIPA - Slack` is the dialog before anyone answers: the separator
+    // sits where the name will go, so there is nothing to take and the
+    // transcript names the note instead.
+    expect(candidateTitle(candidate({ windows: ['- ADIPA - Slack'] }))).toBeNull()
   })
 })
 
