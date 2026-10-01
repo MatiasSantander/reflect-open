@@ -40,13 +40,70 @@ export interface CallWatchOptions {
   ignorePid?: number | null
   /** Fired once a call has settled, with the app that is carrying it. */
   onCall: (candidate: CallCandidate) => void
+  /**
+   * The process a recording is following. While set, the watcher looks for
+   * that call *ending* instead of a new one starting.
+   */
+  recordingPid?: number | null
+  /** Fired when the followed call has been gone long enough to be over. */
+  onCallEnded?: (() => void) | undefined
 }
 
-export function useCallWatch({ enabled, ignorePid, onCall }: CallWatchOptions): void {
+/**
+ * Polls the followed call must be absent for before the recording stops.
+ *
+ * Not caution for its own sake: the same probe that measured this watched a
+ * microphone close and reopen inside one call, when someone muted and when
+ * headphones were plugged in. Stopping on the first absent poll would cut a
+ * meeting into pieces.
+ */
+const END_POLLS = 4
+
+export function useCallWatch({
+  enabled,
+  ignorePid,
+  onCall,
+  recordingPid,
+  onCallEnded,
+}: CallWatchOptions): void {
   const onCallRef = useRef(onCall)
+  const onEndedRef = useRef(onCallEnded)
   useEffect(() => {
     onCallRef.current = onCall
+    onEndedRef.current = onCallEnded
   })
+
+  // Following a recording: watch for its call to end.
+  useEffect(() => {
+    if (recordingPid === null || recordingPid === undefined) {
+      return
+    }
+    let disposed = false
+    let absent = 0
+    const timer = setInterval(() => {
+      void callCandidates()
+        .then((candidates) => {
+          if (disposed) {
+            return
+          }
+          const live = candidates.some(
+            (candidate) => candidate.pid === recordingPid && isCallCandidate(candidate),
+          )
+          absent = live ? 0 : absent + 1
+          if (absent >= END_POLLS) {
+            absent = 0
+            onEndedRef.current?.()
+          }
+        })
+        .catch(() => {
+          // A failed poll is not evidence the call ended; try again.
+        })
+    }, POLL_MS)
+    return () => {
+      disposed = true
+      clearInterval(timer)
+    }
+  }, [recordingPid])
 
   useEffect(() => {
     if (!enabled) {

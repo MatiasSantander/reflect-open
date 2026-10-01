@@ -1,4 +1,4 @@
-import { importAudioMemo } from '../graph/commands.ts'
+import { deleteAudioMemo, importAudioMemo } from '../graph/commands.ts'
 import { errorMessage } from '../errors.ts'
 import {
   startMeetingRecording,
@@ -40,6 +40,15 @@ const TRACKS_PER_SESSION = 2
 /** How long `stop` waits for the final segments before giving up on them. */
 const END_SEGMENT_GRACE_MS = 5_000
 
+/**
+ * Below this many audible samples across the whole session, the `system`
+ * track heard nobody: a join dialog opened and closed, a call that never
+ * connected, a detector that fired on the wrong thing. A tenth of a second of
+ * sound at 16 kHz, which room tone does not reach because the count only
+ * includes samples well above it.
+ */
+const SOMEONE_ELSE_WAS_THERE = 1_600
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -64,6 +73,8 @@ export interface StartMeetingSessionInput {
   onSegment?: ((segment: RecordingSegment, path: string) => void) | undefined
   /** Called when a segment could not be imported; the file stays in staging. */
   onError?: ((message: string) => void) | undefined
+  /** Called when the session was dropped because nobody else was heard. */
+  onDiscarded?: (() => void) | undefined
 }
 
 /**
@@ -88,6 +99,10 @@ export async function startMeetingSession(
   // end-marked segments — and with them the marker the pipeline reads as
   // "this session ended cleanly" rather than "it crashed".
   const endedTracks = new Set<RecordingSegment['track']>()
+  // What the far end actually produced, and where every segment landed, so a
+  // session nobody else spoke in can be taken back out again.
+  let heardFromThem = 0
+  const imported: string[] = []
   let sessionEnded: () => void = () => {}
   const ended = new Promise<void>((resolve) => {
     sessionEnded = resolve
@@ -99,7 +114,13 @@ export async function startMeetingSession(
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
     void importAudioMemo(segment.path, path, input.generation).then(
       () => {
-        void traceRecording(`core: imported part=${segment.part} ${segment.track} → ${path}`)
+        imported.push(path)
+        if (segment.track === 'system') {
+          heardFromThem += segment.loud
+        }
+        void traceRecording(
+          `core: imported part=${segment.part} ${segment.track} loud=${segment.loud} → ${path}`,
+        )
         input.onSegment?.(segment, path)
       },
       (cause: unknown) => {
@@ -144,6 +165,24 @@ export async function startMeetingSession(
       await Promise.race([ended, delay(END_SEGMENT_GRACE_MS)])
       unlisten?.()
       unlisten = null
+
+      // Nobody on the other end: take it back out before the transcription
+      // pipeline ever sees it. This is what lets detection stay loose — a
+      // wrong guess costs disk for a minute and nothing else.
+      if (heardFromThem < SOMEONE_ELSE_WAS_THERE) {
+        void traceRecording(
+          `core: discarding ${memo.base} — system track heard ${heardFromThem} audible samples`,
+        )
+        await Promise.all(
+          imported.map((path) =>
+            deleteAudioMemo(path, input.generation).catch(() => {
+              // A leftover file is harmless; a thrown error here would
+              // swallow the stop the caller is waiting on.
+            }),
+          ),
+        )
+        input.onDiscarded?.()
+      }
     },
   }
 }

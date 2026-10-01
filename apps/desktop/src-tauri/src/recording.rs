@@ -99,6 +99,11 @@ pub struct RecordingSegment {
     /// Absolute path of the finished file, in the staging directory.
     pub path: String,
     pub frames: u64,
+    /// Samples above room tone. On the `system` track this is the evidence
+    /// that somebody else was in the conversation at all: a segment whose
+    /// system side is silent had nobody on the other end, and is not worth
+    /// sending anywhere.
+    pub loud: u64,
     pub rate: u32,
 }
 
@@ -630,6 +635,9 @@ mod platform {
         writer: Option<WavWriter<BufWriter<File>>>,
         part: u32,
         frames: u64,
+        /// Samples loud enough to be something rather than room tone. The
+        /// system track's count is the evidence that anyone else was there.
+        loud: u64,
         /// Carried across callbacks so decimation never drops a remainder.
         pending: Vec<i16>,
     }
@@ -644,6 +652,7 @@ mod platform {
                     writer: None,
                     part: 0,
                     frames: 0,
+                    loud: 0,
                     pending: Vec::new(),
                 }),
             };
@@ -670,6 +679,7 @@ mod platform {
             inner.writer = Some(writer);
             inner.part = part;
             inner.frames = 0;
+            inner.loud = 0;
             inner.pending.clear();
             Ok(())
         }
@@ -691,12 +701,16 @@ mod platform {
                 })
                 .collect();
             inner.pending.drain(..usable);
+            // Well above dither and room tone, well below speech.
+            const AUDIBLE: i16 = 300;
+            let loud = decimated.iter().filter(|sample| sample.abs() > AUDIBLE).count() as u64;
             if let Some(writer) = inner.writer.as_mut() {
                 for sample in &decimated {
                     let _ = writer.write_sample(*sample);
                 }
             }
             inner.frames += decimated.len() as u64;
+            inner.loud += loud;
         }
 
         /// Fill the gap between what arrived and how long the segment has
@@ -719,18 +733,18 @@ mod platform {
 
         /// Close the current segment and open the next unless this was the
         /// last. Returns what the caller needs to announce it.
-        fn rotate(&self, end: bool) -> Result<(u32, u64, PathBuf), String> {
-            let (part, frames) = {
+        fn rotate(&self, end: bool) -> Result<(u32, u64, u64, PathBuf), String> {
+            let (part, frames, loud) = {
                 let mut inner = self.inner.lock().unwrap();
                 if let Some(writer) = inner.writer.take() {
                     writer.finalize().map_err(|err| err.to_string())?;
                 }
-                (inner.part, inner.frames)
+                (inner.part, inner.frames, inner.loud)
             };
             if !end {
                 self.open(part + 1)?;
             }
-            Ok((part, frames, self.path(part)))
+            Ok((part, frames, loud, self.path(part)))
         }
     }
 
@@ -829,11 +843,11 @@ mod platform {
                 }
                 for track in [&thread_system, &thread_mic] {
                     match track.rotate(ending) {
-                        Ok((part, frames, path)) => {
+                        Ok((part, frames, loud, path)) => {
                             trace(
                                 &app,
                                 &format!(
-                                    "rust: segment part={part} track={} end={ending} frames={frames} {}",
+                                    "rust: segment part={part} track={} end={ending} frames={frames} loud={loud} {}",
                                     track.name,
                                     path.display()
                                 ),
@@ -846,6 +860,7 @@ mod platform {
                                     track: track.name,
                                     path: path.to_string_lossy().into_owned(),
                                     frames,
+                                    loud,
                                     rate: TARGET_RATE,
                                 },
                             );

@@ -94,6 +94,12 @@ export const recordingSegmentSchema = z.object({
   /** Absolute staging path of the finished file. */
   path: z.string(),
   frames: z.number().int().nonnegative(),
+  /**
+   * Samples above room tone. On the `system` track this is the evidence that
+   * anyone else was in the conversation: a session whose system side stayed
+   * silent had nobody on the other end.
+   */
+  loud: z.number().int().nonnegative(),
   rate: z.number().int().positive(),
 })
 

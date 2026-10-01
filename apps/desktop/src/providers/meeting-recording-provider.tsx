@@ -67,6 +67,9 @@ export function MeetingRecordingProvider({
   // The process a hand-stopped recording was following, left alone until its
   // call actually ends.
   const [stoppedPid, setStoppedPid] = useState<number | null>(null)
+  // The process the live recording is following, so the watcher knows which
+  // call ending means this recording should stop.
+  const [recordingPid, setRecordingPid] = useState<number | null>(null)
   const detectedPidRef = useRef<number | null>(null)
   // Read at toggle time rather than captured: a graph switch mid-session must
   // not write the next segment into the graph the user just left.
@@ -98,6 +101,7 @@ export function MeetingRecordingProvider({
       statusRef.current = 'idle'
       setRecording(false)
       setDetectedAs(null)
+      setRecordingPid(null)
       setStoppedPid(detectedPidRef.current)
       void live?.stop().catch((cause: unknown) => setError(errorMessage(cause)))
       return
@@ -151,6 +155,14 @@ export function MeetingRecordingProvider({
       detectedPidRef.current = candidate.pid
       setDetectedAs(candidateTitle(candidate))
       setStoppedPid(null)
+      setRecordingPid(candidate.pid)
+      toggle()
+    },
+    recordingPid,
+    // The call ended on its own, so the recording was never the user's to
+    // stop — nothing to leave alone afterwards.
+    onCallEnded: () => {
+      detectedPidRef.current = null
       toggle()
     },
   })
