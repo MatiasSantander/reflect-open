@@ -132,17 +132,30 @@ window, run against real calls:
 | Output sat at 100% for anything making sound | output does not discriminate; **the signal is the input percentage** |
 | A live call held input 95–100%; playback sat at 0–50% | the threshold has daylight on both sides |
 | Instantaneous flags flapped between both/input/output within seconds of each other | sampling the instant is unusable; the rolling window is what makes the signal legible |
-| Two processes reported a conversation **at the same time** — the native Slack app and a browser | overlapping calls are real, not hypothetical |
+| Two processes reported a conversation at once — a browser carrying the call, and the native Slack app ringing beside it | **a false positive, not concurrency.** One person holds one conversation at a time, so a second candidate is noise: a ringtone, a notification, another app playing. Only one session runs. |
 
 So: a conversation is one process holding **both** input and output above ~80%
 across the window. Rust reports the measurement; TypeScript owns the
 thresholds and what they mean.
 
-The concurrency observation has teeth: with two calls live at once, a global
-tap records both mixed together, which is precisely the failure this plan
-exists to avoid. The capture must scope to the conversation's process —
-`CATapDescription`'s `initStereoMixdownOfProcesses:` rather than the global
-variant the probe used.
+That ringing app is also why the capture must scope to the conversation's
+process — `CATapDescription`'s `initStereoMixdownOfProcesses:` rather than the
+global variant the probe used. A global tap records the notification over the
+meeting.
+
+**The boundary between consecutive calls is the harder problem, and audio
+cannot solve it.** The same probe watched input fall to 50% and climb back
+inside one call, which is why a session needs a grace period before it closes
+— and that grace is exactly what merges one call into the next when they run
+back to back. The failure is not hypothetical: it is the one this plan's
+author hit in the system this is ported from, where a finished call was
+absorbed into the previous session.
+
+The window title settles it. `Felipe Villagrán - ADIPA - Slack` becoming
+`Constanza Simon - ADIPA - Slack` is a new conversation even though the audio
+never stopped, while a dip under an unchanged title is the same call
+breathing. So: audio opens and closes a session, and **a title change splits
+one**.
 
 Window titles are the other half, and they carry what audio cannot: the
 Slack huddle window is titled with the person on the other end, and a Meet
