@@ -745,7 +745,17 @@ mod platform {
             .path()
             .app_cache_dir()
             .map_err(|err| AppError::io(err.to_string()))?
-            .join(format!("recording-{}", std::process::id()));
+            // Per session, not per process: two recordings in one app run
+            // would otherwise share a directory and the second would
+            // overwrite the first's segments, which both start at part 1.
+            .join(format!(
+                "recording-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|since| since.as_millis())
+                    .unwrap_or(0)
+            ));
         std::fs::create_dir_all(&staging).map_err(AppError::from)?;
 
         let (mic_rate, mic_device) = default_input().unwrap_or((48_000, "(unknown)".into()));

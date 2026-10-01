@@ -32,11 +32,17 @@ const SETTLE_MS = 8_000
 export interface CallWatchOptions {
   /** Off when a recording is already running: one conversation at a time. */
   enabled: boolean
+  /**
+   * A process to leave alone until it goes away. Stopping a recording by hand
+   * while the call is still up would otherwise be undone within seconds, the
+   * watcher seeing the same open microphone and starting over.
+   */
+  ignorePid?: number | null
   /** Fired once a call has settled, with the app that is carrying it. */
   onCall: (candidate: CallCandidate) => void
 }
 
-export function useCallWatch({ enabled, onCall }: CallWatchOptions): void {
+export function useCallWatch({ enabled, ignorePid, onCall }: CallWatchOptions): void {
   const onCallRef = useRef(onCall)
   useEffect(() => {
     onCallRef.current = onCall
@@ -53,7 +59,9 @@ export function useCallWatch({ enabled, onCall }: CallWatchOptions): void {
     let settlingSince = 0
 
     const tick = async (): Promise<void> => {
-      const candidates = (await callCandidates()).filter(isCallCandidate)
+      const candidates = (await callCandidates()).filter(
+        (candidate) => isCallCandidate(candidate) && candidate.pid !== ignorePid,
+      )
       if (disposed) {
         return
       }
@@ -86,5 +94,5 @@ export function useCallWatch({ enabled, onCall }: CallWatchOptions): void {
       disposed = true
       clearInterval(timer)
     }
-  }, [enabled])
+  }, [enabled, ignorePid])
 }

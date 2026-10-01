@@ -64,6 +64,10 @@ export function MeetingRecordingProvider({
   const [detectedAs, setDetectedAs] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sessionRef = useRef<MeetingSession | null>(null)
+  // The process a hand-stopped recording was following, left alone until its
+  // call actually ends.
+  const [stoppedPid, setStoppedPid] = useState<number | null>(null)
+  const detectedPidRef = useRef<number | null>(null)
   // Read at toggle time rather than captured: a graph switch mid-session must
   // not write the next segment into the graph the user just left.
   const generationRef = useRef(graph.generation)
@@ -94,6 +98,7 @@ export function MeetingRecordingProvider({
       statusRef.current = 'idle'
       setRecording(false)
       setDetectedAs(null)
+      setStoppedPid(detectedPidRef.current)
       void live?.stop().catch((cause: unknown) => setError(errorMessage(cause)))
       return
     }
@@ -110,7 +115,13 @@ export function MeetingRecordingProvider({
     void startMeetingSession({
       segmentMs: MEETING_SEGMENT_MS,
       generation: generationRef.current,
-      onError: setError,
+      onSegment: (segment, path) => {
+        console.debug('[meeting] segment imported', segment.part, segment.track, path)
+      },
+      onError: (message) => {
+        console.debug('[meeting] segment import failed:', message)
+        setError(message)
+      },
     }).then(
       (session) => {
         if (tokenRef.current !== token) {
@@ -135,8 +146,11 @@ export function MeetingRecordingProvider({
   // second candidate during a live session is a ringing app, not a meeting.
   useCallWatch({
     enabled: !recording,
+    ignorePid: stoppedPid,
     onCall: (candidate) => {
+      detectedPidRef.current = candidate.pid
       setDetectedAs(candidateTitle(candidate))
+      setStoppedPid(null)
       toggle()
     },
   })
