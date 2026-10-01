@@ -223,6 +223,11 @@ export {
   type RecordingStarted,
 } from '../recording/commands.ts'
 export {
+  startMeetingSession,
+  type MeetingSession,
+  type StartMeetingSessionInput,
+} from '../actions/meeting-recording.ts'
+export {
   addMeetingToDaily,
   meetingLine,
   MEETINGS_HEADING,
