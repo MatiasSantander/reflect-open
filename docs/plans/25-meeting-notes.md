@@ -115,61 +115,63 @@ so the two transcripts can't be interleaved chronologically — at five-minute
 granularity they don't need to be, and each segment appends as two labelled
 entries.
 
-### 3. Detection and capture are one subsystem
+### 3. Detection: a call app with the microphone open
 
-Finding what to tap and noticing that a call started are the *same query*: the
-process list is `kAudioHardwarePropertyProcessObjectList`, and each entry
-carries `kAudioProcessPropertyBundleID`,
-`kAudioProcessPropertyIsRunningInput` and
-`kAudioProcessPropertyIsRunningOutput`.
+Finding what to tap and noticing a call started are the same CoreAudio query:
+the process list is `kAudioHardwarePropertyProcessObjectList`, and each entry
+carries `kAudioProcessPropertyBundleID` and
+`kAudioProcessPropertyIsRunningInput`.
 
-**Measured, not assumed.** A probe sampling every 500 ms over a 10-second
-window, run against real calls:
+An earlier draft scored input and output percentages over a rolling window.
+Measurement killed it: the flags flap within a single call, the thresholds
+needed calibrating, and none of it separated a call from talking to a
+voice assistant, which opens the microphone and answers out loud exactly like
+a person does. What separates them is **which app**, so that is the whole
+rule:
 
-| Observed | Reading |
+| Candidate | Test |
 |---|---|
-| A dictation app held input 100%, output 0% | input alone is never a conversation — the cheapest rejection there is |
-| Output sat at 100% for anything making sound | output does not discriminate; **the signal is the input percentage** |
-| A live call held input 95–100%; playback sat at 0–50% | the threshold has daylight on both sides |
-| Instantaneous flags flapped between both/input/output within seconds of each other | sampling the instant is unusable; the rolling window is what makes the signal legible |
-| Two processes reported a conversation at once — a browser carrying the call, and the native Slack app ringing beside it | **a false positive, not concurrency.** One person holds one conversation at a time, so a second candidate is noise: a ringtone, a notification, another app playing. Only one session runs. |
+| Slack, Zoom, Teams (native) | the microphone is open. These apps do not open it for anything but a call. |
+| A browser | the microphone is open **and** a window matches a call pattern — `meet.google.com`, a title ending `- Slack`, `zoom.us`, `teams.microsoft.com` |
+| Anything else | never |
 
-So: a conversation is one process holding **both** input and output above ~80%
-across the window. Rust reports the measurement; TypeScript owns the
-thresholds and what they mean.
+The browser is the only one needing a window, because it is the only one that
+does everything: a voice assistant, a web messenger, dictation. Reading the
+title is free — the capture already requires the screen-recording permission
+that makes titles legible, and without it macOS redacts them (a probe read 9
+of 68 from a terminal lacking it).
 
-That ringing app is also why the capture must scope to the conversation's
-process — `CATapDescription`'s `initStereoMixdownOfProcesses:` rather than the
-global variant the probe used. A global tap records the notification over the
-meeting.
+**One call arrives through several doors.** A Slack call rings in the desktop
+app *and* the browser at once, and the probe caught exactly that: two
+processes with the microphone open, one of them merely ringing. Attaching to
+whichever crossed first would record a ringtone and then silence. So the
+countdown card does double duty — it is the cancel window *and* the settling
+time:
 
-**The boundary between consecutive calls is the harder problem, and audio
-cannot solve it.** The same probe watched input fall to 50% and climb back
-inside one call, which is why a session needs a grace period before it closes
-— and that grace is exactly what merges one call into the next when they run
-back to back. The failure is not hypothetical: it is the one this plan's
-author hit in the system this is ported from, where a finished call was
-absorbed into the previous session.
+1. A candidate appears → the card shows, cancelable.
+2. A few seconds pass. The ringing door closes; the join dialog someone opened
+   and did not enter closes too.
+3. Recording attaches to **whichever candidate is still live**, not the first
+   one seen.
 
-The window title settles it. `Felipe Villagrán - ADIPA - Slack` becoming
-`Constanza Simon - ADIPA - Slack` is a new conversation even though the audio
-never stopped, while a dip under an unchanged title is the same call
-breathing. So: audio opens and closes a session, and **a title change splits
-one**.
+The cost is the opening seconds of a call, which is where "can you hear me?"
+lives. Recording every candidate from zero and discarding the losers would
+avoid even that, at the price of concurrent captures and a cleanup pass — a
+later refinement if the lost seconds ever matter.
 
-Window titles are the other half, and they carry what audio cannot: the
-Slack huddle window is titled with the person on the other end, and a Meet
-tab's URL carries the meeting code that matches a calendar event's
-`hangoutLink` **exactly** — binding by code rather than by "what is scheduled
-right now", which is the binding that mis-attributes a call that interrupts a
-meeting. `CGWindowListCopyWindowInfo` supplies both, but only to a process
-holding the screen-recording permission: the same probe read 9 titles of 68
-windows from a terminal, and the rest came back redacted. The app has that
-permission for the capture already; nothing else needs to change.
+Only one session runs at a time: one person holds one conversation, so a
+second candidate during a live session is noise, not a second meeting.
 
-One caveat the probe surfaced and did not settle: a browser plays call audio
-from a *helper* process whose windows belong to its parent, so matching a
-title to a conversation has to group by the containing `.app`, not by PID.
+The session ends when the microphone closes, the window goes, the process
+exits, or the user stops it. A **title change splits** it — `Felipe
+Villagrán - ADIPA - Slack` becoming `Constanza Simon - ADIPA - Slack` is the
+next call even though audio never stopped, which is the boundary a grace
+period alone would merge.
+
+Over-triggering is deliberately cheap, which is what licenses a loose rule:
+a session whose **system track is digital silence** had nobody on the other
+end, and is discarded before anything is sent for transcription. Nothing is
+billed for a dialog someone opened and closed.
 
 ### 4. The note is live, and the user owns it
 
