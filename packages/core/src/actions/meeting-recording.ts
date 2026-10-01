@@ -128,6 +128,11 @@ export async function startMeetingSession(
   // session nobody else spoke in can be taken back out again.
   let heardFromThem = 0
   const imported: string[] = []
+  // Imports in flight. The discard decision reads what the far end produced,
+  // and that count is only complete once every segment has landed — a short
+  // call whose only segment is still importing would otherwise look like a
+  // call nobody answered and delete itself.
+  const landing = new Set<Promise<void>>()
   // Both sides of the segment being assembled, and the points already in the
   // note — the summary runs once per rotation, not once per track, because
   // half a conversation summarises badly.
@@ -142,7 +147,7 @@ export async function startMeetingSession(
   // would otherwise be lost, and with it a minute of the meeting.
   unlisten = await subscribeRecordingSegments((segment) => {
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
-    void importAudioMemo(segment.path, path, input.generation).then(
+    const landed = importAudioMemo(segment.path, path, input.generation).then(
       async () => {
         imported.push(path)
         if (segment.track === 'system') {
@@ -185,6 +190,8 @@ export async function startMeetingSession(
         input.onError?.(message)
       },
     )
+    landing.add(landed)
+    void landed.finally(() => landing.delete(landed))
     if (segment.end) {
       endedTracks.add(segment.track)
       if (endedTracks.size >= TRACKS_PER_SESSION) {
@@ -250,6 +257,11 @@ export async function startMeetingSession(
       await Promise.race([ended, delay(END_SEGMENT_GRACE_MS)])
       unlisten?.()
       unlisten = null
+      // Everything announced has to finish landing before the far end's
+      // contribution can be judged. Transcribing and summarising are *not*
+      // waited on: they run for as long as they need, writing into this
+      // note, while the next meeting is free to start.
+      await Promise.all(landing)
 
       // Nobody on the other end: take it back out before the transcription
       // pipeline ever sees it. This is what lets detection stay loose — a
