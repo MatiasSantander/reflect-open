@@ -178,3 +178,21 @@ describe('a meeting session is judged per track', () => {
     expect(isSessionReady(session, 2_000_000)).toBe(false)
   })
 })
+
+describe('a two-track transcript says who spoke', () => {
+  it('labels each track', () => {
+    expect(stitchSessionTranscript([{ text: 'hola' }, { text: 'hi' }], ['system', 'mic'])).toBe(
+      '**Them**\n\nhola\n\n**You**\n\nhi',
+    )
+  })
+
+  it('leaves a single-track session exactly as it was', () => {
+    expect(stitchSessionTranscript([{ text: 'one' }, { text: 'two' }])).toBe('one\n\ntwo')
+  })
+
+  it('names the track in a failure instead of a position', () => {
+    expect(
+      stitchSessionTranscript([{ text: 'hola' }, { rejected: 'too big' }], ['system', 'mic']),
+    ).toBe('**Them**\n\nhola\n\nYou transcription failed: too big')
+  })
+})

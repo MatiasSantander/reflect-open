@@ -185,19 +185,40 @@ export function encodePartResult(result: AudioMemoPartResult): string {
  * line so a single bad container never sinks the rest of the meeting. The
  * single-part wording matches the pre-segmentation notes byte for byte.
  */
-export function stitchSessionTranscript(results: AudioMemoPartResult[]): string {
+export function stitchSessionTranscript(
+  results: AudioMemoPartResult[],
+  tracks: readonly (AudioMemoTrack | null)[] = [],
+): string {
   if (results.length === 1) {
     const only = results[0]!
     return 'rejected' in only ? `Transcription failed: ${only.rejected}` : only.text
   }
   return results
-    .map((result, index) =>
-      'rejected' in result
-        ? `Part ${index + 1} transcription failed: ${result.rejected}`
-        : result.text,
-    )
+    .map((result, index) => {
+      const label = trackLabel(tracks[index])
+      if ('rejected' in result) {
+        return `${label ?? `Part ${index + 1}`} transcription failed: ${result.rejected}`
+      }
+      // Two tracks are the whole reason the capture records separately: a
+      // transcript that merges them back into one voice throws away who was
+      // speaking, which no amount of later processing recovers.
+      return label === null || result.text === '' ? result.text : `**${label}**\n\n${result.text}`
+    })
     .filter((section) => section !== '')
     .join('\n\n')
+}
+
+/**
+ * How a track reads in a note. `system` is everyone on the far end of the
+ * call and `mic` is the person at this machine — true by convention, and the
+ * convention breaks in a shared room, where one microphone carries several
+ * people. Labelling it anyway beats inferring, which would be guessing.
+ */
+export function trackLabel(track: AudioMemoTrack | null | undefined): string | null {
+  if (track === 'system') {
+    return 'Them'
+  }
+  return track === 'mic' ? 'You' : null
 }
 
 /** Read a segment's cached result, or `null` when none is stored yet. */

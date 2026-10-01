@@ -28,6 +28,7 @@ import {
   groupAudioMemoSessions,
   isSessionReady,
   stitchSessionTranscript,
+  trackLabel,
   transcribeSessionParts,
   type AudioMemoPart,
   type AudioMemoSession,
@@ -404,12 +405,25 @@ function transcriptionNote(
   return `---\naliases: [${memo.base}]\n---\n\n# ${title}\n\n${recordings}\n\n${body}\n`
 }
 
-/** The note's link line: every segment stays reachable from the transcript. */
+/**
+ * The note's link line: every segment stays reachable from the transcript.
+ * A meeting's segments are labelled by track rather than by position, which
+ * is the only labelling that survives a second track being added — `Part 2`
+ * would otherwise mean "the microphone" on one note and "the second five
+ * minutes" on another.
+ */
 function recordingLinks(session: AudioMemoSession): string {
+  const positions = new Set(session.parts.map((part) => part.part))
   return session.parts
-    .map((part, index) =>
-      index === 0 ? `[Recording](${part.path})` : `[Part ${index + 1}](${part.path})`,
-    )
+    .map((part, index) => {
+      const label = trackLabel(part.track)
+      if (label === null) {
+        return index === 0 ? `[Recording](${part.path})` : `[Part ${index + 1}](${part.path})`
+      }
+      return positions.size > 1
+        ? `[${label} ${part.part}](${part.path})`
+        : `[${label}](${part.path})`
+    })
     .join(' · ')
 }
 
@@ -641,7 +655,10 @@ export async function reconcileAudioMemos(
       if (stale()) return stalled()
       const anyRejected = parts.results.some((result) => 'rejected' in result)
       const allRejected = parts.results.every((result) => 'rejected' in result)
-      const stitched = stitchSessionTranscript(parts.results)
+      const stitched = stitchSessionTranscript(
+        parts.results,
+        session.parts.map((part) => part.track),
+      )
       let title = memo.title
       let body = stitched
       if (!anyRejected) {
