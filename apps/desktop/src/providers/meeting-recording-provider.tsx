@@ -9,12 +9,14 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  candidateTitle,
   errorMessage,
   MEETING_SEGMENT_MS,
   startMeetingSession,
   type GraphInfo,
   type MeetingSession,
 } from '@reflect/core'
+import { useCallWatch } from '@/providers/call-watch.ts'
 
 /**
  * The meeting recorder's React surface: one session at a time, started and
@@ -27,6 +29,12 @@ import {
 export interface MeetingRecordingValue {
   /** True while a meeting is being captured. */
   recording: boolean
+  /**
+   * What the detector called the conversation, when it started itself. Null
+   * for a recording the user began, and for a call whose window carried no
+   * name yet — the transcript names those.
+   */
+  detectedAs: string | null
   /** Why the last attempt failed. Cleared when a new one starts. */
   error: string | null
   /** Start a session, or stop the running one. */
@@ -53,6 +61,7 @@ export function MeetingRecordingProvider({
   children,
 }: MeetingRecordingProviderProps): ReactElement {
   const [recording, setRecording] = useState(false)
+  const [detectedAs, setDetectedAs] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sessionRef = useRef<MeetingSession | null>(null)
   // Read at toggle time rather than captured: a graph switch mid-session must
@@ -84,6 +93,7 @@ export function MeetingRecordingProvider({
       sessionRef.current = null
       statusRef.current = 'idle'
       setRecording(false)
+      setDetectedAs(null)
       void live?.stop().catch((cause: unknown) => setError(errorMessage(cause)))
       return
     }
@@ -121,8 +131,18 @@ export function MeetingRecordingProvider({
     )
   }, [])
 
+  // Only while nothing is recording: one person holds one conversation, so a
+  // second candidate during a live session is a ringing app, not a meeting.
+  useCallWatch({
+    enabled: !recording,
+    onCall: (candidate) => {
+      setDetectedAs(candidateTitle(candidate))
+      toggle()
+    },
+  })
+
   return (
-    <MeetingRecordingContext value={{ recording, error, toggle }}>
+    <MeetingRecordingContext value={{ recording, detectedAs, error, toggle }}>
       {children}
     </MeetingRecordingContext>
   )

@@ -218,6 +218,16 @@ export {
   callCandidates,
   callCandidateSchema,
   type CallCandidate,
+} from '../recording/commands.ts'
+export {
+  isCallCandidate,
+  candidateTitle,
+  settledCandidate,
+  callWindow,
+  CALL_APPS,
+  BROWSER_APPS,
+} from '../actions/call-detection.ts'
+export {
   systemAudioPreflightSchema,
   recordingSegmentSchema,
   recordingStartedSchema,
