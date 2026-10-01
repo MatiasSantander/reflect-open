@@ -146,6 +146,7 @@ pub fn recording_call_candidates() -> AppResult<Vec<CallCandidate>> {
 mod platform {
     use std::ffi::c_void;
     use std::ptr::NonNull;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
 
     use block2::RcBlock;
@@ -530,7 +531,9 @@ mod platform {
     /// of alignment with the microphone.
     struct Track {
         name: &'static str,
-        rate: u32,
+        /// The source rate, learned from the device rather than assumed. A
+        /// tap reports it only once it exists, so this is set just after.
+        rate: AtomicU32,
         dir: PathBuf,
         inner: Mutex<TrackInner>,
     }
@@ -542,15 +545,17 @@ mod platform {
         /// Samples loud enough to be something rather than room tone. The
         /// system track's count is the evidence that anyone else was there.
         loud: u64,
-        /// Carried across callbacks so decimation never drops a remainder.
+        /// Carried across callbacks so resampling never drops a remainder.
         pending: Vec<i16>,
+        /// Where the next output sample falls in `pending`, in input samples.
+        cursor: f64,
     }
 
     impl Track {
         fn new(name: &'static str, rate: u32, dir: &Path) -> Result<Self, String> {
             let track = Self {
                 name,
-                rate,
+                rate: AtomicU32::new(rate),
                 dir: dir.to_path_buf(),
                 inner: Mutex::new(TrackInner {
                     writer: None,
@@ -558,6 +563,7 @@ mod platform {
                     frames: 0,
                     loud: 0,
                     pending: Vec::new(),
+                    cursor: 0.0,
                 }),
             };
             track.open(1)?;
@@ -585,26 +591,47 @@ mod platform {
             inner.frames = 0;
             inner.loud = 0;
             inner.pending.clear();
+            inner.cursor = 0.0;
             Ok(())
         }
 
-        /// Append mono samples at the source rate, decimating to
+        /// Append mono samples at the source rate, resampled to
         /// {@link TARGET_RATE} on the way in.
+        ///
+        /// Linear interpolation rather than dropping every nth sample,
+        /// because the ratio is rarely a whole number: a 44.1 kHz microphone
+        /// decimated by `44100 / 16000 = 2` would be written at 22 050 Hz
+        /// under a 16 kHz header and play back a third too slow — and drift
+        /// away from the other track, which is the one thing two tracks must
+        /// never do.
         fn write(&self, samples: &[i16]) {
-            let step = (self.rate / TARGET_RATE).max(1) as usize;
-            let mut inner = self.inner.lock().unwrap();
-            inner.pending.extend_from_slice(samples);
-            let usable = inner.pending.len() / step * step;
-            if usable == 0 {
+            if samples.is_empty() {
                 return;
             }
-            let decimated: Vec<i16> = inner.pending[..usable]
-                .chunks(step)
-                .map(|group| {
-                    (group.iter().map(|sample| *sample as i32).sum::<i32>() / step as i32) as i16
-                })
-                .collect();
-            inner.pending.drain(..usable);
+            let ratio = self.rate.load(Ordering::Relaxed) as f64 / TARGET_RATE as f64;
+            let mut inner = self.inner.lock().unwrap();
+            inner.pending.extend_from_slice(samples);
+            let mut resampled: Vec<i16> = Vec::new();
+            // `cursor` is where the next output sample falls in input space,
+            // carried across calls so a block boundary is not a glitch.
+            while (inner.cursor.ceil() as usize) < inner.pending.len() {
+                let at = inner.cursor;
+                let left = at.floor() as usize;
+                let right = at.ceil() as usize;
+                let fraction = at - at.floor();
+                let value = inner.pending[left] as f64 * (1.0 - fraction)
+                    + inner.pending[right] as f64 * fraction;
+                resampled.push(value.round() as i16);
+                inner.cursor += ratio;
+            }
+            // Keep one sample before the cursor: interpolation needs the pair
+            // that straddles it.
+            let consumed = (inner.cursor.floor() as usize).saturating_sub(1);
+            if consumed > 0 {
+                inner.pending.drain(..consumed);
+                inner.cursor -= consumed as f64;
+            }
+            let decimated = resampled;
             // Well above dither and room tone, well below speech.
             const AUDIBLE: i16 = 300;
             let loud = decimated.iter().filter(|sample| sample.abs() > AUDIBLE).count() as u64;
@@ -615,6 +642,12 @@ mod platform {
             }
             inner.frames += decimated.len() as u64;
             inner.loud += loud;
+        }
+
+        fn set_rate(&self, rate: u32) {
+            if rate > 0 {
+                self.rate.store(rate, Ordering::Relaxed);
+            }
         }
 
         /// Fill the gap between what arrived and how long the segment has
@@ -646,6 +679,11 @@ mod platform {
                 (inner.part, inner.frames, inner.loud)
             };
             if !end {
+                // Advance regardless: a failed open leaves no writer, and a
+                // track that kept its old number would re-emit a part the
+                // graph already has while recording nothing into it. Moving
+                // on costs one segment; standing still costs the rest.
+                self.inner.lock().unwrap().part = part + 1;
                 self.open(part + 1)?;
             }
             Ok((part, frames, loud, self.path(part)))
@@ -699,10 +737,12 @@ mod platform {
         let mic_track = Arc::new(
             Track::new("mic", mic_rate, &staging).map_err(|message| AppError::Unknown { message })?,
         );
+        // Provisional: corrected from the tap the moment it reports its own.
         let system_track = Arc::new(
             Track::new("system", 48_000, &staging)
                 .map_err(|message| AppError::Unknown { message })?,
         );
+
 
         // Neither capture can cross a thread boundary: the tap owns an
         // Objective-C block and cpal's stream owns a platform callback, both
@@ -731,6 +771,11 @@ mod platform {
                     return;
                 }
             };
+            // The tap only reports the rate it delivers at once it exists, so
+            // the track is told now rather than built on an assumption: an
+            // output running at 44.1 or 96 kHz would otherwise be written
+            // under a header that lies about its speed.
+            thread_system.set_rate(tap.rate);
             let _ = ready.send(Ok(tap.rate));
 
             let mut part_started = Instant::now();
@@ -784,12 +829,13 @@ mod platform {
             }
             drop(tap);
             drop(microphone);
-            // The graph has the segments by now; staging is a landing strip,
-            // not an archive. Leaving it full is how a week of meetings
-            // quietly becomes gigabytes in a cache nobody looks at.
-            if std::fs::remove_dir_all(&staging_for_thread).is_ok() {
-                trace(&app, "rust: staging cleared");
-            }
+            // Deliberately *not* cleared here. The final segments were
+            // announced moments ago and the import runs in the webview; a
+            // capture thread that deletes on its way out can take the last
+            // five minutes with it. The sweep at the next session's start is
+            // late enough to be safe, and nothing accumulates in between but
+            // one session's audio.
+            let _ = &staging_for_thread;
         });
 
         let system_rate = started
@@ -1061,6 +1107,8 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
+    use crate::error::{AppError, AppResult};
+
     pub fn supported() -> bool {
         false
     }
@@ -1078,5 +1126,21 @@ mod platform {
     }
 
     pub fn trace(_app: &tauri::AppHandle, _line: &str) {}
+
+    /// No session type exists off macOS, but the command surface is identical
+    /// on every platform — the same contract the `calendar` module keeps.
+    pub struct Session;
+
+    pub fn start(
+        _app: tauri::AppHandle,
+        _segment_ms: u64,
+        _state: tauri::State<'_, super::RecordingState>,
+    ) -> AppResult<super::RecordingStarted> {
+        Err(AppError::Unknown {
+            message: "meeting recording is only available on macOS".into(),
+        })
+    }
+
+    pub fn stop(_state: tauri::State<'_, super::RecordingState>) {}
 
 }
