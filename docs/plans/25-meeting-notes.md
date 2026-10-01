@@ -75,6 +75,17 @@ project, ships its capture as a **Swift sidecar**; this repo has decided
 against Swift (*"the codebase is pure Rust today and stays that way"*), so the
 API that is friendly to non-Objective-C callers is the right one.
 
+**Verified, not assumed.** A standalone Rust spike (`.context/tap-spike`,
+~300 lines against `objc2-core-audio` 0.3.2) builds the full chain — tap →
+aggregate device → `IOProc` → WAV — and captured 7.0 s of real system audio on
+macOS 26.6.2 on the first run: 653 `IOProc` callbacks, 334 336 frames,
+152 470 non-silent samples. The crates the repo already pins at 0.3.x cover
+every call; no hand-written FFI was needed anywhere.
+
+One caveat on that run: it inherited the launching terminal's TCC context, so
+it proves the **code** is right, not that an app bundle gets consent for free.
+T1 stays open until the same chain runs inside the signed app.
+
 Tapping also beats whole-system capture on the merits: `CATapDescription`'s
 `initStereoMixdownOfProcesses:` records **only the meeting app**, so music and
 other apps' notifications never enter the recording, and
@@ -196,9 +207,10 @@ contracts above:
 
 | | Trap | Handling |
 |---|---|---|
-| T1 | **An ad-hoc-signed build gets silence, not an error**, from the tap | Sign development bundles with the existing Developer ID rather than ad-hoc. Verify a recording contains audio before trusting any other result — a silent file looks exactly like a working one. |
+| T1 | **A denied or unsigned tap returns `noErr` and delivers digital silence** — there is no error path at all | Fly on the Wall's phrasing: *"macOS only delivers real audio to that tap if the app has a stable code-signing identity."* The spike did capture audio unsigned, but under the terminal's TCC context, so this is unresolved for the bundle. The defence is theirs and is not optional: a **consent probe** (run a throwaway tap, then classify) plus a live health counter. Zero samples while `kAudioDevicePropertyDeviceIsRunningSomewhere` is true on the default output is the only observable signature of denial — and it must surface *during* the meeting, not after. Note this machine currently has **no code-signing identity at all** (`security find-identity` is empty), so a self-signed certificate may be needed for development. |
 | T2 | A tap is not read directly | The sequence is: create the tap, create an aggregate device that includes it (`kAudioAggregateDeviceTapListKey`), then install the `IOProc`. All C, but a choreography worth knowing before starting. |
 | T3 | **Two tracks do not fit the existing part naming** | `audio-memos/…\.part-NNN(-end)?\.<ext>` has one slot per segment and none for the track. Phase 1 therefore *does* touch TypeScript: an optional track group in the parser, a `track` field on `AudioMemoPart`, and labelled stitching. Small and additive, but not zero. |
+| T5 | **A tap goes quiet when nothing is playing** — it delivers no callbacks rather than silence, so the system track ends up shorter than wall time and drifts out of alignment with the mic track | Pad the system track to the clock: compare frames written against elapsed time and insert silence when it falls behind. Fly on the Wall does this explicitly ("pad-to-clock: taps go quiet with the render pipeline"). |
 | T4 | Permission | Requested with `CGRequestScreenCaptureAccess` on first use, never at launch, after `CGPreflightScreenCaptureAccess`. Confirm whether the hardened runtime needs an entitlement and the bundle a usage string — the calendar integration needed both. |
 
 ## Edge cases
