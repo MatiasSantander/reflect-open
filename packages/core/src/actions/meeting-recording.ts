@@ -25,6 +25,14 @@ import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './
  * on disk is the only copy of a minute of someone's meeting.
  */
 
+/**
+ * How long each segment runs. Five minutes is the cadence the summary
+ * follows — a closed segment is transcribed, appended, summarised, appended —
+ * and at 16 kHz mono it keeps a segment near 10 MB, inside every
+ * transcription provider's request cap with room to spare.
+ */
+export const MEETING_SEGMENT_MS = 5 * 60_000
+
 /** The capture writes one file per track per position: system, then mic. */
 const TRACKS_PER_SESSION = 2
 

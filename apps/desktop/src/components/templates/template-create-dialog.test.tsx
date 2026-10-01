@@ -36,6 +36,7 @@ async function renderDialog(): Promise<CommandContext> {
     findPreviousInNote: vi.fn(),
     switchGraph: vi.fn(),
     toggleAudioMemo: vi.fn(),
+    toggleMeetingRecording: vi.fn(),
     generation: () => 1,
     graphRoot: () => '/notes',
     openPalette: vi.fn(),

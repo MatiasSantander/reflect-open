@@ -96,6 +96,7 @@ async function renderPalette(query: string, context?: Partial<CommandContext>) {
     findPreviousInNote: vi.fn(),
     switchGraph: vi.fn(),
     toggleAudioMemo: vi.fn(),
+    toggleMeetingRecording: vi.fn(),
     generation: () => 1,
     graphRoot: () => '/g',
     openPalette: vi.fn(),

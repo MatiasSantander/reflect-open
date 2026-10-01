@@ -284,6 +284,12 @@ const APP_COMMANDS: AppCommand[] = [
     run: (context) => context.toggleAudioMemo(),
   },
   {
+    id: 'meeting.toggle',
+    title: 'Record meeting',
+    keywords: ['meeting', 'call', 'zoom', 'slack', 'huddle', 'transcribe', 'system audio'],
+    run: (context) => context.toggleMeetingRecording(),
+  },
+  {
     id: 'theme.toggle',
     title: 'Toggle theme',
     keywords: ['dark', 'light', 'appearance'],

@@ -28,6 +28,7 @@ function contextFor(notePath: string | null, generation: number | null): Command
     findPreviousInNote: vi.fn(),
     switchGraph: vi.fn(),
     toggleAudioMemo: vi.fn(),
+    toggleMeetingRecording: vi.fn(),
     generation: () => generation,
     graphRoot: () => '/g',
     openPalette: vi.fn(),
