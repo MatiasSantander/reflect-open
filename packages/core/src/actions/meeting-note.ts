@@ -24,7 +24,10 @@ import { trackLabel } from './audio-memo-session.ts'
  */
 
 /** Where the running summary accumulates. */
-const SUMMARY_HEADING = 'Resumen'
+const SUMMARY_HEADING = 'Puntos clave'
+
+/** Where what was actually settled goes, separate from what was discussed. */
+const DECISIONS_HEADING = 'Decisiones'
 
 /** Where each segment's transcript lands. */
 const TRANSCRIPT_HEADING = 'Transcript'
@@ -58,6 +61,8 @@ export async function openMeetingNote(
     ``,
     ``,
     `## ${SUMMARY_HEADING}`,
+    ``,
+    `## ${DECISIONS_HEADING}`,
     ``,
     `## ${TASKS_HEADING}`,
     ``,
@@ -106,6 +111,19 @@ export async function appendTranscript(
   await appendUnder(memo, TRANSCRIPT_HEADING, line, generation)
 }
 
+/** Append one decision. Settled things only — the discussion is above. */
+export async function appendDecision(
+  memo: AudioMemoIdentity,
+  entry: { at: Date; text: string },
+  generation: number,
+): Promise<void> {
+  const text = entry.text.trim()
+  if (text === '') {
+    return
+  }
+  await appendUnder(memo, DECISIONS_HEADING, `**${clockOf(entry.at)}** ${text}`, generation)
+}
+
 /** Append one bullet to the running summary. */
 export async function appendSummary(
   memo: AudioMemoIdentity,
@@ -133,6 +151,47 @@ export async function appendTask(
     return
   }
   await appendUnder(memo, TASKS_HEADING, `[ ] ${task}`, generation)
+}
+
+/**
+ * Rename the note once the meeting is over and there is something to name it
+ * after.
+ *
+ * A meeting opens named for its clock and its app, because that is all that
+ * is known in the first second. What it was *about* only exists afterwards,
+ * and a day of `Personal: Meet - Follow-…` repeated eight times is a day
+ * nobody can read — the window title names the window, not the conversation.
+ *
+ * The file keeps its path: identity is the frontmatter alias, so renaming is
+ * a heading and a link label, and every backlink survives.
+ */
+export async function renameMeetingNote(
+  memo: AudioMemoIdentity,
+  title: string,
+  generation: number,
+): Promise<void> {
+  const next = title.trim()
+  if (next === '') {
+    return
+  }
+  const path = notePath(memo.base)
+  const source = await noteSource(path, generation)
+  if (source === '') {
+    return
+  }
+  const renamed = source.replace(/^# .*$/mu, `# ${next}`)
+  if (renamed !== source) {
+    await writeNote(path, renamed, generation)
+  }
+  const daily = await noteSource(dailyPath(memo.date), generation)
+  const entry = new RegExp(String.raw`\[\[${memo.base}(\|[^\]]*)?\]\]`, 'u')
+  if (entry.test(daily)) {
+    await writeNote(
+      dailyPath(memo.date),
+      daily.replace(entry, `[[${memo.base}|${wikiLinkSafe(next) || next}]]`),
+      generation,
+    )
+  }
 }
 
 /**

@@ -220,6 +220,7 @@ export {
 export { isCallCandidate, candidateTitle, settledCandidate } from '../actions/call-detection.ts'
 export { recordingSegmentSchema, type RecordingSegment } from '../recording/commands.ts'
 export {
+  nameMeeting,
   summariseMeetingSegment,
   type MeetingSummary,
   type MeetingSummaryRequest,
@@ -227,8 +228,10 @@ export {
 export {
   openMeetingNote,
   appendTranscript,
+  appendDecision,
   appendSummary,
   appendTask,
+  renameMeetingNote,
 } from '../actions/meeting-note.ts'
 export {
   startMeetingSession,

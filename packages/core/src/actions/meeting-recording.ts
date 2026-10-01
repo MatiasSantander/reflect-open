@@ -12,11 +12,13 @@ import {
 import type { Unlisten } from '../ipc/bridge.ts'
 import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './audio-memo.ts'
 import {
+  appendDecision,
   appendSummary,
   appendTask,
   appendTranscript,
   discardMeetingNote,
   openMeetingNote,
+  renameMeetingNote,
 } from './meeting-note.ts'
 
 /**
@@ -57,6 +59,10 @@ const END_SEGMENT_GRACE_MS = 5_000
  */
 const SOMEONE_ELSE_WAS_THERE = 1_600
 
+function clockOf(at: Date): string {
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -72,10 +78,10 @@ export interface StartMeetingSessionInput {
   /** How long each segment runs. The summary cadence follows from this. */
   segmentMs: number
   /**
-   * What to call the note. Detection reads it off the call's window; without
-   * one the note is named for its time and renamed later from what was said.
+   * Where the call is happening — `Slack`, `Meet`, `Zoom`. Part of the note's
+   * name from the first second, when the topic is not knowable yet.
    */
-  title?: string | undefined
+  source?: string | undefined
   /**
    * Transcribe each segment as it lands and append it to the note. Omitted,
    * the session only records — useful when no provider is configured, and the
@@ -92,9 +98,18 @@ export interface StartMeetingSessionInput {
   summarise?:
     | ((
         segment: string,
-        soFar: readonly string[],
-      ) => Promise<{ points: string[]; tasks: string[] }>)
+        soFar: {
+          points: readonly string[]
+          decisions: readonly string[]
+          tasks: readonly string[]
+        },
+      ) => Promise<{ points: string[]; decisions: string[]; tasks: string[] }>)
     | undefined
+  /**
+   * Name the meeting from what was said, once it is over. Without one the
+   * note keeps the clock-and-app name it opened with.
+   */
+  nameFromTranscript?: ((transcript: string) => Promise<string>) | undefined
   /** `GraphInfo.generation` — pins every write to the issuing graph. */
   generation: number
   /** Called once a segment is in the graph, with its stored path. */
@@ -118,9 +133,10 @@ export async function startMeetingSession(
   input: StartMeetingSessionInput,
 ): Promise<MeetingSession> {
   const memo = audioMemoIdentity(new Date(), 'audio/wav')
-  // The note opens before the first second is recorded: its whole reason for
-  // existing early is that the user types into it *during* the meeting.
-  await openMeetingNote(memo, input.title?.trim() || memo.title, input.generation)
+  // `14:32 · Slack` — the clock and the app are all that is knowable before
+  // anyone has spoken. The topic joins them when the meeting ends.
+  const openedAt = clockOf(new Date())
+  await openMeetingNote(memo, `${openedAt} · ${input.source ?? 'Reunión'}`, input.generation)
   let unlisten: Unlisten | null = null
   let stopped = false
 
@@ -146,6 +162,11 @@ export async function startMeetingSession(
   // half a conversation summarises badly.
   let pendingSegment: { part: number; lines: string[] } | null = null
   const summarySoFar: string[] = []
+  const decisionsSoFar: string[] = []
+  const tasksSoFar: string[] = []
+  // Kept for the closing rename: the note is named for its clock until the
+  // meeting is over and there is something to name it after.
+  const everythingSaid: string[] = []
   let sessionEnded: () => void = () => {}
   const ended = new Promise<void>((resolve) => {
     sessionEnded = resolve
@@ -230,16 +251,26 @@ export async function startMeetingSession(
     }
     const joined = pendingSegment.lines.join('\n\n')
     pendingSegment = null
-    const summary = await input.summarise(joined, summarySoFar)
+    everythingSaid.push(joined)
+    const summary = await input.summarise(joined, {
+      points: summarySoFar,
+      decisions: decisionsSoFar,
+      tasks: tasksSoFar,
+    })
     for (const point of summary.points) {
       summarySoFar.push(point)
       await appendSummary(memo, { at: new Date(), text: point }, input.generation)
     }
+    for (const decision of summary.decisions) {
+      decisionsSoFar.push(decision)
+      await appendDecision(memo, { at: new Date(), text: decision }, input.generation)
+    }
     for (const task of summary.tasks) {
+      tasksSoFar.push(task)
       await appendTask(memo, task, input.generation)
     }
     void traceRecording(
-      `core: summarised part=${segment.part} into ${summary.points.length} points, ${summary.tasks.length} tasks`,
+      `core: summarised part=${segment.part} into ${summary.points.length} points, ${summary.decisions.length} decisions, ${summary.tasks.length} tasks`,
     )
   }
 
@@ -289,6 +320,25 @@ export async function startMeetingSession(
         )
         await discardMeetingNote(memo, input.generation)
         input.onDiscarded?.()
+        return
+      }
+
+      // Named last, from what was actually said. Renaming runs after the
+      // discard check so a session being thrown away never costs a model call.
+      if (input.nameFromTranscript !== undefined && everythingSaid.length > 0) {
+        try {
+          const topic = await input.nameFromTranscript(everythingSaid.join('\n\n'))
+          if (topic !== '') {
+            await renameMeetingNote(
+              memo,
+              `${openedAt} · ${input.source ?? 'Reunión'} · ${topic}`,
+              input.generation,
+            )
+            void traceRecording(`core: renamed ${memo.base} to ${topic}`)
+          }
+        } catch (cause) {
+          void traceRecording(`core: naming failed — ${errorMessage(cause)}`)
+        }
       }
     },
   }

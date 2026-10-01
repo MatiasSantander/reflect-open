@@ -17,6 +17,7 @@ import {
   requestSystemAudioAccess,
   startMeetingSession,
   systemAudioAccessGranted,
+  nameMeeting,
   summariseMeetingSegment,
   transcribeAudio,
   type GraphInfo,
@@ -211,19 +212,37 @@ export function MeetingRecordingProvider({
               (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
             )
             if (config === undefined) {
-              return { points: [], tasks: [] }
+              return { points: [], decisions: [], tasks: [] }
             }
             const apiKey = await aiApiKeyForConfig(config)
             if (apiKey === null) {
-              return { points: [], tasks: [] }
+              return { points: [], decisions: [], tasks: [] }
             }
             return await summariseMeetingSegment({
               config,
               apiKey,
               segment,
-              soFar,
+              soFar: soFar.points,
+              decisionsSoFar: soFar.decisions,
+              tasksSoFar: soFar.tasks,
               fetchFn: providerFetch,
             })
+          },
+
+          // Named last, from what was said. Until then the note carries its
+          // clock and its app, which is at least true.
+          nameFromTranscript: async (transcript) => {
+            const config = settingsRef.current.aiProviders.find(
+              (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
+            )
+            if (config === undefined) {
+              return ''
+            }
+            const apiKey = await aiApiKeyForConfig(config)
+            if (apiKey === null) {
+              return ''
+            }
+            return await nameMeeting({ config, apiKey, transcript, fetchFn: providerFetch })
           },
           onSegment: (segment, path) => {
             console.debug('[meeting] segment imported', segment.part, segment.track, path)
