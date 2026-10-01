@@ -8,7 +8,6 @@ import {
   stopMeetingRecording,
   subscribeRecordingSegments,
   type RecordingSegment,
-  type RecordingStarted,
 } from '../recording/commands.ts'
 import type { Unlisten } from '../ipc/bridge.ts'
 import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './audio-memo.ts'
@@ -59,10 +58,6 @@ function delay(ms: number): Promise<void> {
 export interface MeetingSession {
   /** The identity every segment of this meeting is stored under. */
   memo: AudioMemoIdentity
-  /** Where the capture is writing before import, for diagnostics. */
-  stagingDir: string
-  /** The input the microphone half opened. */
-  micDevice: string
   /** Stop the capture and release the subscription. Safe to call twice. */
   stop: () => Promise<void>
 }
@@ -233,9 +228,8 @@ export async function startMeetingSession(
   }
 
   void traceRecording(`core: session ${memo.base} starting, generation ${input.generation}`)
-  let started: RecordingStarted
   try {
-    started = await startMeetingRecording(input.segmentMs)
+    await startMeetingRecording(input.segmentMs)
   } catch (cause) {
     unlisten()
     throw cause
@@ -243,8 +237,6 @@ export async function startMeetingSession(
 
   return {
     memo,
-    stagingDir: started.stagingDir,
-    micDevice: started.micDevice,
     stop: async () => {
       if (stopped) {
         return

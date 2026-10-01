@@ -14,7 +14,9 @@ import {
   errorMessage,
   MEETING_SEGMENT_MS,
   pickTranscriptionConfig,
+  requestSystemAudioAccess,
   startMeetingSession,
+  systemAudioAccessGranted,
   summariseMeetingSegment,
   transcribeAudio,
   type GraphInfo,
@@ -67,6 +69,20 @@ export function useMeetingRecording(): MeetingRecordingValue {
 export interface MeetingRecordingProviderProps {
   graph: GraphInfo
   children: ReactNode
+}
+
+/**
+ * Grant screen-and-system-audio recording if it has not been granted.
+ *
+ * macOS prompts once ever per app, so a refusal here is permanent until the
+ * user visits System Settings — which is why this asks rather than assuming,
+ * and why a `false` is reported instead of recorded over.
+ */
+async function ensureSystemAudio(): Promise<boolean> {
+  if (await systemAudioAccessGranted()) {
+    return true
+  }
+  return await requestSystemAudioAccess()
 }
 
 export function MeetingRecordingProvider({
@@ -140,85 +156,101 @@ export function MeetingRecordingProvider({
     setError(null)
     setRecording(true)
     const generation = generationRef.current
-    void startMeetingSession({
-      segmentMs: MEETING_SEGMENT_MS,
-      generation,
-      ...(detectedAsRef.current === null ? {} : { title: detectedAsRef.current }),
+    // Ask before recording, never after. A tap created without this
+    // permission is created happily and delivers digital silence, so a
+    // recording that never asked is a recording of nothing.
+    void ensureSystemAudio()
+      .then((allowed) => {
+        if (!allowed) {
+          statusRef.current = 'idle'
+          setRecording(false)
+          setError('Reflect needs permission to record system audio.')
+          return null
+        }
+        return startMeetingSession({
+          segmentMs: MEETING_SEGMENT_MS,
+          generation,
+          ...(detectedAsRef.current === null ? {} : { title: detectedAsRef.current }),
 
-      // Transcription and summarising are passed in rather than reached for,
-      // so the session stays testable and a graph with no provider configured
-      // still records — the audio is the durable part either way.
-      transcribeSegment: async (_segment, audio) => {
-        const state = {
-          providers: settingsRef.current.aiProviders,
-          defaultProviderId: settingsRef.current.defaultAiProviderId,
-        }
-        const config = pickTranscriptionConfig(state)
-        if (config === null) {
-          return ''
-        }
-        const apiKey = await aiApiKeyForConfig(config)
-        if (apiKey === null) {
-          return ''
-        }
-        if (audio.length === 0) {
-          return ''
-        }
-        return await transcribeAudio({
-          provider: config.provider,
-          apiKey,
-          prompt: settingsRef.current.transcriptionPrompt,
-          audio: new Blob([audio.slice().buffer], { type: 'audio/wav' }),
-          mimeType: 'audio/wav',
-          fetchFn: providerFetch,
-          isStale: () => false,
-        })
-      },
+          // Transcription and summarising are passed in rather than reached for,
+          // so the session stays testable and a graph with no provider configured
+          // still records — the audio is the durable part either way.
+          transcribeSegment: async (_segment, audio) => {
+            const state = {
+              providers: settingsRef.current.aiProviders,
+              defaultProviderId: settingsRef.current.defaultAiProviderId,
+            }
+            const config = pickTranscriptionConfig(state)
+            if (config === null) {
+              return ''
+            }
+            const apiKey = await aiApiKeyForConfig(config)
+            if (apiKey === null) {
+              return ''
+            }
+            if (audio.length === 0) {
+              return ''
+            }
+            return await transcribeAudio({
+              provider: config.provider,
+              apiKey,
+              prompt: settingsRef.current.transcriptionPrompt,
+              audio: new Blob([audio.slice().buffer], { type: 'audio/wav' }),
+              mimeType: 'audio/wav',
+              fetchFn: providerFetch,
+              isStale: () => false,
+            })
+          },
 
-      summarise: async (segment, soFar) => {
-        const config = settingsRef.current.aiProviders.find(
-          (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
-        )
-        if (config === undefined) {
-          return { points: [], tasks: [] }
-        }
-        const apiKey = await aiApiKeyForConfig(config)
-        if (apiKey === null) {
-          return { points: [], tasks: [] }
-        }
-        return await summariseMeetingSegment({
-          config,
-          apiKey,
-          segment,
-          soFar,
-          fetchFn: providerFetch,
+          summarise: async (segment, soFar) => {
+            const config = settingsRef.current.aiProviders.find(
+              (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
+            )
+            if (config === undefined) {
+              return { points: [], tasks: [] }
+            }
+            const apiKey = await aiApiKeyForConfig(config)
+            if (apiKey === null) {
+              return { points: [], tasks: [] }
+            }
+            return await summariseMeetingSegment({
+              config,
+              apiKey,
+              segment,
+              soFar,
+              fetchFn: providerFetch,
+            })
+          },
+          onSegment: (segment, path) => {
+            console.debug('[meeting] segment imported', segment.part, segment.track, path)
+          },
+          onError: (message) => {
+            console.debug('[meeting] segment import failed:', message)
+            setError(message)
+          },
         })
-      },
-      onSegment: (segment, path) => {
-        console.debug('[meeting] segment imported', segment.part, segment.track, path)
-      },
-      onError: (message) => {
-        console.debug('[meeting] segment import failed:', message)
-        setError(message)
-      },
-    }).then(
-      (session) => {
-        if (tokenRef.current !== token) {
-          void session.stop()
-          return
-        }
-        sessionRef.current = session
-        statusRef.current = 'recording'
-      },
-      (cause: unknown) => {
-        if (tokenRef.current !== token) {
-          return
-        }
-        statusRef.current = 'idle'
-        setRecording(false)
-        setError(errorMessage(cause))
-      },
-    )
+      })
+      .then(
+        (session) => {
+          if (session === null) {
+            return
+          }
+          if (tokenRef.current !== token) {
+            void session.stop()
+            return
+          }
+          sessionRef.current = session
+          statusRef.current = 'recording'
+        },
+        (cause: unknown) => {
+          if (tokenRef.current !== token) {
+            return
+          }
+          statusRef.current = 'idle'
+          setRecording(false)
+          setError(errorMessage(cause))
+        },
+      )
   }, [])
 
   // Only while nothing is recording: one person holds one conversation, so a

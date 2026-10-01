@@ -11,30 +11,6 @@ import { call } from '../ipc/invoke.ts'
  */
 
 /**
- * What a throwaway tap observed.
- *
- * The distinction that matters is `silentWhilePlaying`: every tap API returns
- * success even when the user denied "Screen & System Audio Recording", and a
- * denied tap delivers digital silence rather than an error. Silence *while
- * the default output device is rendering for someone* is the only evidence a
- * denial ever produces, so it must never be reported as "the room was quiet".
- */
-export const systemAudioPreflightSchema = z.discriminatedUnion('kind', [
-  /** Non-silent samples arrived: system audio works. */
-  z.object({ kind: z.literal('granted') }),
-  /** Consent is missing, or the binary has no stable code-signing identity. */
-  z.object({ kind: z.literal('silentWhilePlaying') }),
-  /** Nothing was playing, so silence proved nothing — ask again with audio. */
-  z.object({ kind: z.literal('inconclusive') }),
-  /** This OS has no process taps (before macOS 14.2), or isn't macOS. */
-  z.object({ kind: z.literal('unsupported') }),
-  /** A Core Audio call refused outright — the rare honest failure. */
-  z.object({ kind: z.literal('failed'), message: z.string() }),
-])
-
-export type SystemAudioPreflight = z.infer<typeof systemAudioPreflightSchema>
-
-/**
  * Has the user granted "Screen & System Audio Recording"? Never prompts.
  *
  * Worth checking even though {@link probeSystemAudio} would also catch a
@@ -53,27 +29,6 @@ export async function systemAudioAccessGranted(): Promise<boolean> {
  */
 export async function requestSystemAudioAccess(): Promise<boolean> {
   return await call('recording_request_system_audio_access', {}, z.boolean())
-}
-
-/** Can system audio be captured at all here? Never prompts, never records. */
-export async function systemAudioSupported(): Promise<boolean> {
-  return await call('recording_system_audio_supported', {}, z.boolean())
-}
-
-/**
- * Listen for `durationMs` and classify what arrived. Clamped by Rust to a
- * sane window; a second or two is enough once something is playing.
- */
-export async function probeSystemAudio(durationMs: number): Promise<SystemAudioPreflight> {
-  return await call('recording_system_audio_preflight', { durationMs }, systemAudioPreflightSchema)
-}
-
-/**
- * Is this outcome one the user can fix by granting the permission? Separates
- * the actionable denial from "we couldn't tell" and "this Mac can't".
- */
-export function needsSystemAudioPermission(preflight: SystemAudioPreflight): boolean {
-  return preflight.kind === 'silentWhilePlaying'
 }
 
 /**
@@ -105,7 +60,7 @@ export const recordingSegmentSchema = z.object({
 
 export type RecordingSegment = z.infer<typeof recordingSegmentSchema>
 
-export const recordingStartedSchema = z.object({
+const recordingStartedSchema = z.object({
   stagingDir: z.string(),
   /** What the tap delivers at, before the capture resamples for transcription. */
   systemRate: z.number().int().nonnegative(),
@@ -191,9 +146,4 @@ export async function traceRecording(line: string): Promise<void> {
   } catch {
     // Deliberately silent — see above.
   }
-}
-
-/** Where the trace file lives, for a human or a terminal to read. */
-export async function recordingTracePath(): Promise<string> {
-  return await call('recording_trace_path', {}, z.string())
 }

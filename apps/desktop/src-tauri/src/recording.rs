@@ -11,42 +11,14 @@
 //! processes in a call instead of mixing in every other sound on the machine.
 //!
 //! **The whole surface lies on failure.** Every tap call returns `noErr` even
-//! when the user denied "Screen & System Audio Recording" or the binary has
-//! no stable code-signing identity; the tap is created, the `IOProc` fires,
-//! and every delivered sample is digital zero. Silence is therefore not
-//! evidence of a quiet room, which is why {@link recording_system_audio_preflight}
-//! exists: it runs a throwaway tap and reports whether the samples were
-//! silent *while the default output device was rendering for someone* — the
-//! only observable signature of a denial.
+//! when the user denied "Screen & System Audio Recording"; the tap is
+//! created, the `IOProc` fires, and every delivered sample is digital zero.
+//! Nothing downstream can tell that from a quiet room, so the permission is
+//! asked for before a recording starts rather than discovered afterwards.
 
 use serde::Serialize;
 
 use crate::error::AppResult;
-
-/// What a throwaway tap observed. A discriminated union so the TypeScript
-/// side branches on `kind` rather than parsing prose.
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum SystemAudioPreflight {
-    /// Non-silent samples arrived: system audio works on this machine.
-    Granted,
-    /// Every sample was zero while the default output device was rendering
-    /// for some process — consent is missing or the signature is unstable.
-    SilentWhilePlaying,
-    /// Nothing was playing, so silence proves nothing. Ask again with audio.
-    Inconclusive,
-    /// This macOS predates process taps (14.2), or the platform has none.
-    Unsupported,
-    /// A Core Audio call refused outright — the rare honest failure.
-    Failed { message: String },
-}
-
-/// Whether this machine can tap system audio at all. Cheap and side-effect
-/// free: it only checks that the API exists, never that it is permitted.
-#[tauri::command]
-pub fn recording_system_audio_supported() -> AppResult<bool> {
-    Ok(platform::supported())
-}
 
 /// Has the user already granted "Screen & System Audio Recording"? Never
 /// prompts — this is the state to render, not the ask.
@@ -67,19 +39,6 @@ pub async fn recording_request_system_audio_access() -> AppResult<bool> {
             .await
             .unwrap_or(false),
     )
-}
-
-/// Run a tap for `duration_ms` and classify what it delivered. Caller-facing
-/// guidance belongs to the UI: `silentWhilePlaying` means "grant the
-/// permission", `inconclusive` means "play something and try again".
-#[tauri::command]
-pub async fn recording_system_audio_preflight(duration_ms: u64) -> AppResult<SystemAudioPreflight> {
-    let clamped = duration_ms.clamp(200, 10_000);
-    Ok(tauri::async_runtime::spawn_blocking(move || platform::preflight(clamped))
-        .await
-        .unwrap_or_else(|err| SystemAudioPreflight::Failed {
-            message: format!("preflight task failed: {err}"),
-        }))
 }
 
 /// One finished segment, announced as `recording:segment` the moment its file
@@ -176,14 +135,6 @@ pub fn recording_trace(app: tauri::AppHandle, line: String) -> AppResult<()> {
     Ok(())
 }
 
-/// Where the trace lives, so a human (or a terminal) can read it.
-#[tauri::command]
-pub fn recording_trace_path(app: tauri::AppHandle) -> AppResult<String> {
-    Ok(platform::trace_path(&app)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_default())
-}
-
 /// Every process holding the microphone open right now. Cheap enough to poll:
 /// one property read per audio process, plus one window list.
 #[tauri::command]
@@ -195,7 +146,6 @@ pub fn recording_call_candidates() -> AppResult<Vec<CallCandidate>> {
 mod platform {
     use std::ffi::c_void;
     use std::ptr::NonNull;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
     use block2::RcBlock;
@@ -207,7 +157,7 @@ mod platform {
     use objc2::runtime::AnyClass;
     use objc2::AnyThread;
     use objc2_core_audio::{
-        kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioDevicePropertyDeviceUID,
+        kAudioDevicePropertyDeviceUID,
         kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
         kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, kAudioTapPropertyFormat,
         AudioDeviceCreateIOProcIDWithBlock, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID,
@@ -218,8 +168,6 @@ mod platform {
     };
     use objc2_core_audio_types::{AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp};
     use objc2_foundation::NSArray;
-
-    use super::SystemAudioPreflight;
 
     // Screen-recording consent, the gate the tap itself never reports: a tap
     // created without it is created happily and delivers digital silence.
@@ -313,7 +261,6 @@ mod platform {
         aggregate_id: AudioObjectID,
         proc_id: AudioDeviceIOProcID,
         destroy_tap: DestroyTapFn,
-        default_output: AudioObjectID,
         _io_block: IoBlock,
         _queue: dispatch2::DispatchRetained<dispatch2::DispatchQueue>,
     }
@@ -537,22 +484,9 @@ mod platform {
                 aggregate_id,
                 proc_id,
                 destroy_tap,
-                default_output,
                 _io_block: io_block,
                 _queue: queue,
             })
-        }
-
-        /// Is the default output rendering for *any* process right now? Half
-        /// the preflight verdict: silence only accuses when something played.
-        fn output_is_rendering(&self) -> bool {
-            unsafe {
-                property::<u32>(
-                    self.default_output,
-                    kAudioDevicePropertyDeviceIsRunningSomewhere,
-                )
-            }
-            .is_ok_and(|running| running != 0)
         }
     }
 
@@ -564,36 +498,6 @@ mod platform {
                 let _ = AudioHardwareDestroyAggregateDevice(self.aggregate_id);
                 let _ = (self.destroy_tap)(self.tap_id);
             }
-        }
-    }
-
-    pub fn preflight(duration_ms: u64) -> SystemAudioPreflight {
-        if !supported() {
-            return SystemAudioPreflight::Unsupported;
-        }
-        let nonzero = Arc::new(AtomicU64::new(0));
-        let counter = nonzero.clone();
-        let tap = match Tap::start(move |samples| {
-            let loud = samples.iter().filter(|sample| **sample != 0).count() as u64;
-            if loud > 0 {
-                counter.fetch_add(loud, Ordering::Relaxed);
-            }
-        }) {
-            Ok(tap) => tap,
-            Err(message) => return SystemAudioPreflight::Failed { message },
-        };
-        std::thread::sleep(std::time::Duration::from_millis(duration_ms));
-        // Read the output's state before the tap goes away: tearing the
-        // aggregate device down can stop the render we are asking about.
-        let rendering = tap.output_is_rendering();
-        drop(tap);
-
-        if nonzero.load(Ordering::Relaxed) > 0 {
-            SystemAudioPreflight::Granted
-        } else if rendering {
-            SystemAudioPreflight::SilentWhilePlaying
-        } else {
-            SystemAudioPreflight::Inconclusive
         }
     }
 
@@ -1157,8 +1061,6 @@ mod platform {
 
 #[cfg(not(target_os = "macos"))]
 mod platform {
-    use super::SystemAudioPreflight;
-
     pub fn supported() -> bool {
         false
     }
@@ -1171,17 +1073,10 @@ mod platform {
         false
     }
 
-    pub fn preflight(_duration_ms: u64) -> SystemAudioPreflight {
-        SystemAudioPreflight::Unsupported
-    }
-
     pub fn call_candidates() -> Vec<super::CallCandidate> {
         Vec::new()
     }
 
     pub fn trace(_app: &tauri::AppHandle, _line: &str) {}
 
-    pub fn trace_path(_app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-        None
-    }
 }

@@ -207,36 +207,18 @@ export {
 } from '../calendar/commands.ts'
 export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
 export {
-  systemAudioSupported,
   systemAudioAccessGranted,
   requestSystemAudioAccess,
-  probeSystemAudio,
-  needsSystemAudioPermission,
   startMeetingRecording,
   stopMeetingRecording,
   subscribeRecordingSegments,
   callCandidates,
   traceRecording,
-  recordingTracePath,
   callCandidateSchema,
   type CallCandidate,
 } from '../recording/commands.ts'
-export {
-  isCallCandidate,
-  candidateTitle,
-  settledCandidate,
-  callWindow,
-  CALL_APPS,
-  BROWSER_APPS,
-} from '../actions/call-detection.ts'
-export {
-  systemAudioPreflightSchema,
-  recordingSegmentSchema,
-  recordingStartedSchema,
-  type SystemAudioPreflight,
-  type RecordingSegment,
-  type RecordingStarted,
-} from '../recording/commands.ts'
+export { isCallCandidate, candidateTitle, settledCandidate } from '../actions/call-detection.ts'
+export { recordingSegmentSchema, type RecordingSegment } from '../recording/commands.ts'
 export {
   summariseMeetingSegment,
   type MeetingSummary,
