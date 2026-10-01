@@ -207,6 +207,13 @@ export {
 } from '../calendar/commands.ts'
 export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
 export {
+  systemAudioSupported,
+  probeSystemAudio,
+  needsSystemAudioPermission,
+  systemAudioPreflightSchema,
+  type SystemAudioPreflight,
+} from '../recording/commands.ts'
+export {
   addMeetingToDaily,
   meetingLine,
   MEETINGS_HEADING,

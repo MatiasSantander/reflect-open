@@ -98,8 +98,29 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
   "NSObject",
   "NSOperation",
   "NSString",
+  "NSUUID",
   "block2",
 ] }
+# System-audio process taps (`src/recording.rs`): macOS 14.2+, with the entry
+# points resolved at runtime so older systems still launch. `core-foundation`
+# builds the aggregate-device description dictionary the tap has to ride.
+objc2-core-audio = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "AudioHardware",
+  "block2",
+  "dispatch2",
+  "objc2",
+  "objc2-core-audio-types",
+  "objc2-foundation",
+] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "CoreAudioBaseTypes",
+  "objc2",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFDictionary"] }
+dispatch2 = "0.3.1"
+core-foundation = "0.10.1"
 objc2-event-kit = { version = "0.3.2", default-features = false, features = [
   "std",
   "EKCalendar",
