@@ -29,8 +29,27 @@ const SUMMARY_HEADING = 'Puntos clave'
 /** Where what was actually settled goes, separate from what was discussed. */
 const DECISIONS_HEADING = 'Decisiones'
 
-/** Where each segment's transcript lands. */
-const TRANSCRIPT_HEADING = 'Transcript'
+/**
+ * The transcript lives in its own note, named the same way with one more
+ * segment on the end.
+ *
+ * It is the longest thing a meeting produces and the least often read: the
+ * points and the decisions are what gets opened, and the transcript is what
+ * they are checked against when one of them looks wrong. Keeping it beside
+ * the meeting rather than inside it leaves the note that matters short
+ * enough to read in one screen.
+ */
+const TRANSCRIPT_SUFFIX = 'transcript'
+
+/** The transcript note's path for a session. */
+function transcriptPath(memo: AudioMemoIdentity): string {
+  return notePath(`${memo.base}-${TRANSCRIPT_SUFFIX}`)
+}
+
+/** The transcript note's title, from the meeting's. */
+function transcriptTitle(title: string): string {
+  return `${title} · ${TRANSCRIPT_SUFFIX}`
+}
 
 /** Where commitments made out loud become checkboxes. */
 const TASKS_HEADING = 'Tareas'
@@ -52,24 +71,42 @@ export async function openMeetingNote(
   generation: number,
 ): Promise<string> {
   const path = notePath(memo.base)
-  const body = [
-    `---`,
-    `aliases: [${memo.base}]`,
-    `---`,
-    ``,
-    `# ${title}`,
-    ``,
-    ``,
-    `## ${SUMMARY_HEADING}`,
-    ``,
-    `## ${DECISIONS_HEADING}`,
-    ``,
-    `## ${TASKS_HEADING}`,
-    ``,
-    `## ${TRANSCRIPT_HEADING}`,
-    ``,
-  ].join('\n')
-  await writeNote(path, body, generation)
+  const transcript = `${memo.base}-${TRANSCRIPT_SUFFIX}`
+  await writeNote(
+    path,
+    [
+      `---`,
+      `aliases: [${memo.base}]`,
+      `---`,
+      ``,
+      `# ${title}`,
+      ``,
+      `[[${transcript}|${TRANSCRIPT_SUFFIX}]]`,
+      ``,
+      ``,
+      `## ${SUMMARY_HEADING}`,
+      ``,
+      `## ${DECISIONS_HEADING}`,
+      ``,
+      `## ${TASKS_HEADING}`,
+      ``,
+    ].join('\n'),
+    generation,
+  )
+  await writeNote(
+    transcriptPath(memo),
+    [
+      `---`,
+      `aliases: [${transcript}]`,
+      `---`,
+      ``,
+      `# ${transcriptTitle(title)}`,
+      ``,
+      `[[${memo.base}|${title}]]`,
+      ``,
+    ].join('\n'),
+    generation,
+  )
   await backlinkFromDaily(memo, title, generation)
   return path
 }
@@ -108,7 +145,14 @@ export async function appendTranscript(
   const label = trackLabel(entry.track)
   const stamp = clockOf(entry.at)
   const line = label === null ? `**${stamp}** — ${text}` : `**${stamp} · ${label}** — ${text}`
-  await appendUnder(memo, TRANSCRIPT_HEADING, line, generation)
+  // Straight onto the end of the transcript note: it has no sections, being
+  // one long thing in the order it was said.
+  const path = transcriptPath(memo)
+  const source = await noteSource(path, generation)
+  if (source === '') {
+    return
+  }
+  await writeNote(path, `${source.trimEnd()}\n\n- ${line}\n`, generation)
 }
 
 /** Append one decision. Settled things only — the discussion is above. */
@@ -174,14 +218,18 @@ export async function renameMeetingNote(
   if (next === '') {
     return
   }
-  const path = notePath(memo.base)
-  const source = await noteSource(path, generation)
-  if (source === '') {
-    return
-  }
-  const renamed = source.replace(/^# .*$/mu, `# ${next}`)
-  if (renamed !== source) {
-    await writeNote(path, renamed, generation)
+  await retitle(notePath(memo.base), next, generation)
+  await retitle(transcriptPath(memo), transcriptTitle(next), generation)
+  // The transcript note points back at the meeting by name, so that label
+  // goes stale too.
+  const transcript = await noteSource(transcriptPath(memo), generation)
+  const backLink = new RegExp(String.raw`\[\[${memo.base}(\|[^\]]*)?\]\]`, 'u')
+  if (backLink.test(transcript)) {
+    await writeNote(
+      transcriptPath(memo),
+      transcript.replace(backLink, `[[${memo.base}|${wikiLinkSafe(next) || next}]]`),
+      generation,
+    )
   }
   const daily = await noteSource(dailyPath(memo.date), generation)
   const entry = new RegExp(String.raw`\[\[${memo.base}(\|[^\]]*)?\]\]`, 'u')
@@ -191,6 +239,18 @@ export async function renameMeetingNote(
       daily.replace(entry, `[[${memo.base}|${wikiLinkSafe(next) || next}]]`),
       generation,
     )
+  }
+}
+
+/** Replace a note's `# ` heading, leaving everything else alone. */
+async function retitle(path: string, title: string, generation: number): Promise<void> {
+  const source = await noteSource(path, generation)
+  if (source === '') {
+    return
+  }
+  const renamed = source.replace(/^# .*$/mu, `# ${title}`)
+  if (renamed !== source) {
+    await writeNote(path, renamed, generation)
   }
 }
 
@@ -217,6 +277,7 @@ export async function discardMeetingNote(
     }
   }
   await deleteNote(notePath(memo.base), generation)
+  await deleteNote(transcriptPath(memo), generation)
 }
 
 function clockOf(at: Date): string {
