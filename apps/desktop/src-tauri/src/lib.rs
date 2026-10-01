@@ -269,6 +269,7 @@ pub fn run() {
         .manage(fs::ImportCancel::default())
         .manage(fs::assets::AssetUploads::default())
         .manage(db::IndexState::default())
+        .manage(recording::RecordingState::default())
         .manage(watcher::WatcherState::default())
         .manage(quit::QuitState::default())
         .manage(windows::WindowInit::default())
@@ -360,6 +361,8 @@ pub fn run() {
             recording::recording_system_audio_access_granted,
             recording::recording_request_system_audio_access,
             recording::recording_system_audio_preflight,
+            recording::recording_start,
+            recording::recording_stop,
             contacts::contacts_authorization_status,
             contacts::contacts_request_access,
             contacts::contacts_lookup_by_email,

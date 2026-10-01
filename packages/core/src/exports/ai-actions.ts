@@ -212,8 +212,15 @@ export {
   requestSystemAudioAccess,
   probeSystemAudio,
   needsSystemAudioPermission,
+  startMeetingRecording,
+  stopMeetingRecording,
+  subscribeRecordingSegments,
   systemAudioPreflightSchema,
+  recordingSegmentSchema,
+  recordingStartedSchema,
   type SystemAudioPreflight,
+  type RecordingSegment,
+  type RecordingStarted,
 } from '../recording/commands.ts'
 export {
   addMeetingToDaily,

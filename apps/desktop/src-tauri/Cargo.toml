@@ -121,6 +121,10 @@ objc2-core-audio-types = { version = "0.3.2", default-features = false, features
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFDictionary"] }
 dispatch2 = "0.3.1"
 core-foundation = "0.10.1"
+# Microphone capture for the meeting recorder: the tap above is the system
+# half, cpal is the microphone half, hound writes the segment files.
+cpal = "0.16.0"
+hound = "3.5.1"
 objc2-event-kit = { version = "0.3.2", default-features = false, features = [
   "std",
   "EKCalendar",

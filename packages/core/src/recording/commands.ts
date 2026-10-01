@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { getBridge, type Unlisten } from '../ipc/bridge.ts'
 import { call } from '../ipc/invoke.ts'
 
 /**
@@ -73,4 +74,67 @@ export async function probeSystemAudio(durationMs: number): Promise<SystemAudioP
  */
 export function needsSystemAudioPermission(preflight: SystemAudioPreflight): boolean {
   return preflight.kind === 'silentWhilePlaying'
+}
+
+/**
+ * One finished recording segment, announced the moment its file is closed.
+ *
+ * The payload is deliberately placeless: Rust writes into a staging directory
+ * and reports what it wrote, leaving where it belongs in the graph to core —
+ * the same split `audio_memo_import` already serves for the iOS recorder. So
+ * the track-aware naming lives here, never in the capture.
+ */
+export const recordingSegmentSchema = z.object({
+  /** 1-based position in the session. */
+  part: z.number().int().positive(),
+  /** The last segment of a cleanly stopped session. */
+  end: z.boolean(),
+  /** `system` is what the meeting played, `mic` is what the user said. */
+  track: z.enum(['system', 'mic']),
+  /** Absolute staging path of the finished file. */
+  path: z.string(),
+  frames: z.number().int().nonnegative(),
+  rate: z.number().int().positive(),
+})
+
+export type RecordingSegment = z.infer<typeof recordingSegmentSchema>
+
+export const recordingStartedSchema = z.object({
+  stagingDir: z.string(),
+  /** What the tap delivers at, before the capture resamples for transcription. */
+  systemRate: z.number().int().nonnegative(),
+  micRate: z.number().int().nonnegative(),
+  /** The input the microphone half opened, for a "recording from…" line. */
+  micDevice: z.string(),
+})
+
+export type RecordingStarted = z.infer<typeof recordingStartedSchema>
+
+/**
+ * Start capturing system audio and the microphone as two tracks, rotating
+ * every `segmentMs`. Rejects when a session is already running — a second
+ * recorder would fight the first for the device.
+ *
+ * Nothing lands in the graph from this call: segments arrive as
+ * `recording:segment` events and it is the caller that imports them.
+ */
+export async function startMeetingRecording(segmentMs: number): Promise<RecordingStarted> {
+  return await call('recording_start', { segmentMs }, recordingStartedSchema)
+}
+
+/**
+ * Stop the session, closing the final segment with `end: true`. Idempotent,
+ * because the user pressing stop and a meeting ending can race.
+ */
+export async function stopMeetingRecording(): Promise<void> {
+  await call('recording_stop', {}, z.void())
+}
+
+/** Subscribe to finished segments. Returns the unsubscribe. */
+export function subscribeRecordingSegments(
+  handler: (segment: RecordingSegment) => void,
+): Promise<Unlisten> {
+  return getBridge().listen('recording:segment', (payload) => {
+    handler(recordingSegmentSchema.parse(payload))
+  })
 }
