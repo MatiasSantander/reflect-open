@@ -101,6 +101,12 @@ macOS 27+, unavailable to the versions this app runs on; and both open-source
 implementations surveyed chose two tracks independently, for the reason that
 matters here — the user's voice stays distinct from everyone else's.
 
+**Verified end to end.** The spike now records both tracks segmented: three
+parts per track rotating on a timer, the last marked `-end`, named on the
+audio-memo convention (`audio-memo-<date>-<hhmmss>-<ms>.part-NNN[-end].<track>.wav`),
+with both tracks carrying signal. Drift between them stayed at 0.00–0.09 s per
+part. `cpal` covers the microphone, so that half needs no Objective-C at all.
+
 Mixing by hand would mean format conversion, resampling and a sample-buffer
 mixer. Two `ExtAudioFile` writers mean none of that. The cost is a second
 transcription call per segment; the gain is **who said it**, with no
@@ -210,7 +216,7 @@ contracts above:
 | T1 | **A denied or unsigned tap returns `noErr` and delivers digital silence** — there is no error path at all | Fly on the Wall's phrasing: *"macOS only delivers real audio to that tap if the app has a stable code-signing identity."* The spike did capture audio unsigned, but under the terminal's TCC context, so this is unresolved for the bundle. The defence is theirs and is not optional: a **consent probe** (run a throwaway tap, then classify) plus a live health counter. Zero samples while `kAudioDevicePropertyDeviceIsRunningSomewhere` is true on the default output is the only observable signature of denial — and it must surface *during* the meeting, not after. Note this machine currently has **no code-signing identity at all** (`security find-identity` is empty), so a self-signed certificate may be needed for development. |
 | T2 | A tap is not read directly | The sequence is: create the tap, create an aggregate device that includes it (`kAudioAggregateDeviceTapListKey`), then install the `IOProc`. All C, but a choreography worth knowing before starting. |
 | T3 | **Two tracks do not fit the existing part naming** | `audio-memos/…\.part-NNN(-end)?\.<ext>` has one slot per segment and none for the track. Phase 1 therefore *does* touch TypeScript: an optional track group in the parser, a `track` field on `AudioMemoPart`, and labelled stitching. Small and additive, but not zero. |
-| T5 | **A tap goes quiet when nothing is playing** — it delivers no callbacks rather than silence, so the system track ends up shorter than wall time and drifts out of alignment with the mic track | Pad the system track to the clock: compare frames written against elapsed time and insert silence when it falls behind. Fly on the Wall does this explicitly ("pad-to-clock: taps go quiet with the render pipeline"). |
+| T5 | **Confirmed, and handled.** A tap goes quiet when nothing is playing — it delivers no callbacks rather than silence, so the system track ends up shorter than wall time and drifts out of alignment with the mic track | Pad the system track to the clock: compare frames written against elapsed time and insert silence when it falls behind. Fly on the Wall does this explicitly ("pad-to-clock: taps go quiet with the render pipeline"); the spike reproduced the failure and the fix — in true silence the system track still measured 3.0 s per part, aligned with the microphone to 0.00 s. |
 | T4 | Permission | Requested with `CGRequestScreenCaptureAccess` on first use, never at launch, after `CGPreflightScreenCaptureAccess`. Confirm whether the hardened runtime needs an entitlement and the bundle a usage string — the calendar integration needed both. |
 
 ## Edge cases
