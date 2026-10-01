@@ -23,6 +23,18 @@ const commitNoteFrontmatter = vi.hoisted(() => vi.fn(async () => {}))
 const graphState = vi.hoisted((): { graph: GraphInfo | null } => ({
   graph: { root: '/g', name: 'g', generation: 1 },
 }))
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/lib/note-frontmatter.ts', () => ({
   commitNoteFrontmatter,
   readNoteSource: async () => '# A\n',

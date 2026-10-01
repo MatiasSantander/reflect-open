@@ -9,6 +9,18 @@ const settingsState = vi.hoisted(() => ({
   updateSettings: vi.fn(),
 }))
 
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/providers/settings-provider.tsx', () => ({
   useSettings: () => settingsState,
 }))

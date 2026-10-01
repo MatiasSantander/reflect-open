@@ -46,6 +46,13 @@ export interface CallWatchOptions {
   onSettling?: ((candidate: CallCandidate, until: number) => void) | undefined
   /** Fired when the countdown was cancelled or the call went away first. */
   onSettlingEnded?: (() => void) | undefined
+  /**
+   * Fired once `ignorePid`'s call is actually over, so the exclusion can be
+   * lifted. Without it, declining once or stopping by hand would silence that
+   * app for the rest of the session — and the next call from it is a
+   * different conversation.
+   */
+  onIgnoredEnded?: (() => void) | undefined
   /** Fired once a call has settled, with the app that is carrying it. */
   onCall: (candidate: CallCandidate) => void
   /**
@@ -73,6 +80,7 @@ export function useCallWatch({
   onCall,
   onSettling,
   onSettlingEnded,
+  onIgnoredEnded,
   recordingPid,
   onCallEnded,
 }: CallWatchOptions): void {
@@ -80,11 +88,13 @@ export function useCallWatch({
   const onEndedRef = useRef(onCallEnded)
   const onSettlingRef = useRef(onSettling)
   const onSettlingEndedRef = useRef(onSettlingEnded)
+  const onIgnoredEndedRef = useRef(onIgnoredEnded)
   useEffect(() => {
     onCallRef.current = onCall
     onEndedRef.current = onCallEnded
     onSettlingRef.current = onSettling
     onSettlingEndedRef.current = onSettlingEnded
+    onIgnoredEndedRef.current = onIgnoredEnded
   })
 
   // Following a recording: watch for its call to end.
@@ -130,7 +140,15 @@ export function useCallWatch({
     let settlingSince = 0
 
     const tick = async (): Promise<void> => {
-      const candidates = (await callCandidates()).filter(
+      const all = await callCandidates()
+      if (
+        ignorePid !== null &&
+        ignorePid !== undefined &&
+        !all.some((candidate) => candidate.pid === ignorePid)
+      ) {
+        onIgnoredEndedRef.current?.()
+      }
+      const candidates = all.filter(
         (candidate) => isCallCandidate(candidate) && candidate.pid !== ignorePid,
       )
       if (disposed) {
@@ -146,7 +164,12 @@ export function useCallWatch({
       if (settling === null) {
         settling = candidates
         settlingSince = Date.now()
-        onSettlingRef.current?.(candidates[0]!, settlingSince + SETTLE_MS)
+        // The same pick the countdown will make, so declining suppresses the
+        // process that was actually going to be recorded.
+        onSettlingRef.current?.(
+          settledCandidate(candidates, candidates) ?? candidates[0]!,
+          settlingSince + SETTLE_MS,
+        )
         return
       }
       if (Date.now() - settlingSince < SETTLE_MS) {

@@ -39,6 +39,18 @@ const openNativeContextMenu = vi.hoisted(() =>
 )
 const operationFail = vi.hoisted(() => vi.fn())
 const startOperation = vi.hoisted(() => vi.fn(() => ({ fail: operationFail })))
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/lib/operations.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/operations.ts')>()),
   startOperation,

@@ -6,6 +6,18 @@ import { SidebarWidthEffect } from './sidebar-width.tsx'
 
 const settingsState = vi.hoisted(() => ({ sidebarWidth: 260, contextSidebarWidth: 320 }))
 
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/providers/settings-provider.tsx', () => ({
   useSettings: () => ({ settings: settingsState }),
 }))

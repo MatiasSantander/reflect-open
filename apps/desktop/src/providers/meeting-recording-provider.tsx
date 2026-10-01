@@ -140,8 +140,12 @@ export function MeetingRecordingProvider({
       statusRef.current = 'idle'
       setRecording(false)
       setDetectedAs(null)
+      detectedAsRef.current = null
       setRecordingPid(null)
-      setStoppedPid(detectedPidRef.current)
+      // Null for a manual recording, and that is right: nothing was detected,
+      // so there is no call to leave alone. Guard anyway — a manual stop that
+      // set `null` here would re-arm instantly on a detected session.
+      setStoppedPid(detectedPidRef.current ?? recordingPid)
       void live?.stop().catch((cause: unknown) => setError(errorMessage(cause)))
       return
     }
@@ -255,9 +259,17 @@ export function MeetingRecordingProvider({
 
   // Only while nothing is recording: one person holds one conversation, so a
   // second candidate during a live session is a ringing app, not a meeting.
+  // An excluded process is excluded until its call ends, not forever: the
+  // next call from the same app is a different conversation, and a Slack that
+  // stays silent for the rest of the session is a feature that broke.
+  const excludedPid = stoppedPid ?? cancelledPid
   useCallWatch({
     enabled: !recording,
-    ignorePid: stoppedPid ?? cancelledPid,
+    ignorePid: excludedPid,
+    onIgnoredEnded: () => {
+      setStoppedPid(null)
+      setCancelledPid(null)
+    },
     onSettling: (candidate, until) => {
       pendingPidRef.current = candidate.pid
       setDetectedAs(candidateTitle(candidate))
@@ -267,6 +279,7 @@ export function MeetingRecordingProvider({
       pendingPidRef.current = null
       setStartingAt(null)
       setDetectedAs(null)
+      detectedAsRef.current = null
     },
     onCall: (candidate) => {
       setStartingAt(null)
