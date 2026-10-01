@@ -38,6 +38,14 @@ export interface CallWatchOptions {
    * watcher seeing the same open microphone and starting over.
    */
   ignorePid?: number | null
+  /**
+   * Fired when a call appears and the countdown begins, with the time it will
+   * end. A capture that starts without warning is the kind of surprise that
+   * costs a feature its welcome.
+   */
+  onSettling?: ((candidate: CallCandidate, until: number) => void) | undefined
+  /** Fired when the countdown was cancelled or the call went away first. */
+  onSettlingEnded?: (() => void) | undefined
   /** Fired once a call has settled, with the app that is carrying it. */
   onCall: (candidate: CallCandidate) => void
   /**
@@ -63,14 +71,20 @@ export function useCallWatch({
   enabled,
   ignorePid,
   onCall,
+  onSettling,
+  onSettlingEnded,
   recordingPid,
   onCallEnded,
 }: CallWatchOptions): void {
   const onCallRef = useRef(onCall)
   const onEndedRef = useRef(onCallEnded)
+  const onSettlingRef = useRef(onSettling)
+  const onSettlingEndedRef = useRef(onSettlingEnded)
   useEffect(() => {
     onCallRef.current = onCall
     onEndedRef.current = onCallEnded
+    onSettlingRef.current = onSettling
+    onSettlingEndedRef.current = onSettlingEnded
   })
 
   // Following a recording: watch for its call to end.
@@ -123,12 +137,16 @@ export function useCallWatch({
         return
       }
       if (candidates.length === 0) {
-        settling = null
+        if (settling !== null) {
+          settling = null
+          onSettlingEndedRef.current?.()
+        }
         return
       }
       if (settling === null) {
         settling = candidates
         settlingSince = Date.now()
+        onSettlingRef.current?.(candidates[0]!, settlingSince + SETTLE_MS)
         return
       }
       if (Date.now() - settlingSince < SETTLE_MS) {
@@ -136,9 +154,11 @@ export function useCallWatch({
       }
       const survivor = settledCandidate(settling, candidates)
       settling = null
-      if (survivor !== null) {
-        onCallRef.current(survivor)
+      if (survivor === null) {
+        onSettlingEndedRef.current?.()
+        return
       }
+      onCallRef.current(survivor)
     }
 
     const timer = setInterval(() => {

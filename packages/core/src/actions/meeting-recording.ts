@@ -12,7 +12,7 @@ import {
 } from '../recording/commands.ts'
 import type { Unlisten } from '../ipc/bridge.ts'
 import { audioMemoIdentity, audioMemoPartPath, type AudioMemoIdentity } from './audio-memo.ts'
-import { appendSummary, appendTranscript, openMeetingNote } from './meeting-note.ts'
+import { appendSummary, appendTask, appendTranscript, openMeetingNote } from './meeting-note.ts'
 
 /**
  * A meeting recording session: the capture runs in Rust, and this is the
@@ -88,7 +88,12 @@ export interface StartMeetingSessionInput {
    * once per rotation, after both tracks of that segment have landed, so the
    * model sees the whole exchange rather than one side of it.
    */
-  summarise?: ((segment: string, soFar: readonly string[]) => Promise<string[]>) | undefined
+  summarise?:
+    | ((
+        segment: string,
+        soFar: readonly string[],
+      ) => Promise<{ points: string[]; tasks: string[] }>)
+    | undefined
   /** `GraphInfo.generation` — pins every write to the issuing graph. */
   generation: number
   /** Called once a segment is in the graph, with its stored path. */
@@ -214,12 +219,17 @@ export async function startMeetingSession(
     }
     const joined = pendingSegment.lines.join('\n\n')
     pendingSegment = null
-    const points = await input.summarise(joined, summarySoFar)
-    for (const point of points) {
+    const summary = await input.summarise(joined, summarySoFar)
+    for (const point of summary.points) {
       summarySoFar.push(point)
       await appendSummary(memo, { at: new Date(), text: point }, input.generation)
     }
-    void traceRecording(`core: summarised part=${segment.part} into ${points.length} points`)
+    for (const task of summary.tasks) {
+      await appendTask(memo, task, input.generation)
+    }
+    void traceRecording(
+      `core: summarised part=${segment.part} into ${summary.points.length} points, ${summary.tasks.length} tasks`,
+    )
   }
 
   void traceRecording(`core: session ${memo.base} starting, generation ${input.generation}`)

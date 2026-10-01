@@ -789,6 +789,7 @@ mod platform {
                     .unwrap_or(0)
             ));
         std::fs::create_dir_all(&staging).map_err(AppError::from)?;
+        sweep_abandoned_staging(&staging, &app);
 
         let (mic_rate, mic_device) = default_input().unwrap_or((48_000, "(unknown)".into()));
         let mic_track = Arc::new(
@@ -806,6 +807,7 @@ mod platform {
         let (ready, started) = channel::<Result<u32, String>>();
         let (stop, stopped) = channel::<()>();
         let app_for_trace = app.clone();
+        let staging_for_thread = staging.clone();
         let thread_system = system_track.clone();
         let thread_mic = mic_track.clone();
         std::thread::spawn(move || {
@@ -878,6 +880,12 @@ mod platform {
             }
             drop(tap);
             drop(microphone);
+            // The graph has the segments by now; staging is a landing strip,
+            // not an archive. Leaving it full is how a week of meetings
+            // quietly becomes gigabytes in a cache nobody looks at.
+            if std::fs::remove_dir_all(&staging_for_thread).is_ok() {
+                trace(&app, "rust: staging cleared");
+            }
         });
 
         let system_rate = started
@@ -904,6 +912,28 @@ mod platform {
         let Ok(mut slot) = state.0.lock() else { return };
         if let Some(session) = slot.take() {
             let _ = session.stop.send(());
+        }
+    }
+
+    /// Remove staging directories a previous run left behind. A crash mid
+    /// recording cannot clean up after itself, so the next session does it —
+    /// anything whose segments mattered was imported as it was written, and
+    /// what is left is the open segment nobody will ever transcribe.
+    fn sweep_abandoned_staging(current: &Path, app: &tauri::AppHandle) {
+        let Some(parent) = current.parent() else { return };
+        let Ok(entries) = std::fs::read_dir(parent) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path == current || !path.is_dir() {
+                continue;
+            }
+            let is_staging = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("recording-"));
+            if is_staging && std::fs::remove_dir_all(&path).is_ok() {
+                trace(app, &format!("rust: swept abandoned staging {}", path.display()));
+            }
         }
     }
 

@@ -29,6 +29,9 @@ export const SUMMARY_HEADING = 'Resumen'
 /** Where each segment's transcript lands. */
 export const TRANSCRIPT_HEADING = 'Transcript'
 
+/** Where commitments made out loud become checkboxes. */
+export const TASKS_HEADING = 'Tareas'
+
 /** The heading a day's meetings are backlinked under. */
 export const MEETINGS_NOTE_TITLE = 'Meetings'
 
@@ -55,6 +58,8 @@ export async function openMeetingNote(
     ``,
     ``,
     `## ${SUMMARY_HEADING}`,
+    ``,
+    `## ${TASKS_HEADING}`,
     ``,
     `## ${TRANSCRIPT_HEADING}`,
     ``,
@@ -112,6 +117,22 @@ export async function appendSummary(
     return
   }
   await appendUnder(memo, SUMMARY_HEADING, `**${clockOf(entry.at)}** ${text}`, generation)
+}
+
+/**
+ * Append one task as an unticked checkbox — ordinary markdown, so it is a
+ * task everywhere in the app and not a thing this feature invented.
+ */
+export async function appendTask(
+  memo: AudioMemoIdentity,
+  text: string,
+  generation: number,
+): Promise<void> {
+  const task = text.trim()
+  if (task === '') {
+    return
+  }
+  await appendUnder(memo, TASKS_HEADING, `[ ] ${task}`, generation)
 }
 
 function clockOf(at: Date): string {

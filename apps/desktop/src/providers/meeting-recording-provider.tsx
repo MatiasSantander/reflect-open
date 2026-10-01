@@ -41,6 +41,13 @@ export interface MeetingRecordingValue {
    * name yet — the transcript names those.
    */
   detectedAs: string | null
+  /**
+   * A call was spotted and recording begins at this epoch unless cancelled.
+   * Null when nothing is pending.
+   */
+  startingAt: number | null
+  /** Call off a pending start. The call itself is left alone. */
+  cancelStart: () => void
   /** Why the last attempt failed. Cleared when a new one starts. */
   error: string | null
   /** Start a session, or stop the running one. */
@@ -73,6 +80,9 @@ export function MeetingRecordingProvider({
   })
   const [recording, setRecording] = useState(false)
   const [detectedAs, setDetectedAs] = useState<string | null>(null)
+  const [startingAt, setStartingAt] = useState<number | null>(null)
+  const [cancelledPid, setCancelledPid] = useState<number | null>(null)
+  const pendingPidRef = useRef<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const sessionRef = useRef<MeetingSession | null>(null)
   // The process a hand-stopped recording was following, left alone until its
@@ -170,11 +180,11 @@ export function MeetingRecordingProvider({
           (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
         )
         if (config === undefined) {
-          return []
+          return { points: [], tasks: [] }
         }
         const apiKey = await aiApiKeyForConfig(config)
         if (apiKey === null) {
-          return []
+          return { points: [], tasks: [] }
         }
         return await summariseMeetingSegment({
           config,
@@ -215,8 +225,19 @@ export function MeetingRecordingProvider({
   // second candidate during a live session is a ringing app, not a meeting.
   useCallWatch({
     enabled: !recording,
-    ignorePid: stoppedPid,
+    ignorePid: stoppedPid ?? cancelledPid,
+    onSettling: (candidate, until) => {
+      pendingPidRef.current = candidate.pid
+      setDetectedAs(candidateTitle(candidate))
+      setStartingAt(until)
+    },
+    onSettlingEnded: () => {
+      pendingPidRef.current = null
+      setStartingAt(null)
+      setDetectedAs(null)
+    },
     onCall: (candidate) => {
+      setStartingAt(null)
       detectedPidRef.current = candidate.pid
       detectedAsRef.current = candidateTitle(candidate)
       setDetectedAs(detectedAsRef.current)
@@ -233,8 +254,19 @@ export function MeetingRecordingProvider({
     },
   })
 
+  const cancelStart = useCallback((): void => {
+    // Leave the call alone until it ends, rather than offering again in eight
+    // seconds — someone who declined once meant it.
+    setCancelledPid(pendingPidRef.current)
+    pendingPidRef.current = null
+    setStartingAt(null)
+    setDetectedAs(null)
+  }, [])
+
   return (
-    <MeetingRecordingContext value={{ recording, detectedAs, error, toggle }}>
+    <MeetingRecordingContext
+      value={{ recording, detectedAs, startingAt, cancelStart, error, toggle }}
+    >
       {children}
     </MeetingRecordingContext>
   )

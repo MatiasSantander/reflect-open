@@ -237,12 +237,18 @@ export {
   type RecordingSegment,
   type RecordingStarted,
 } from '../recording/commands.ts'
-export { summariseMeetingSegment, type MeetingSummaryRequest } from '../ai/meeting-summary.ts'
+export {
+  summariseMeetingSegment,
+  type MeetingSummary,
+  type MeetingSummaryRequest,
+} from '../ai/meeting-summary.ts'
 export {
   openMeetingNote,
   appendTranscript,
   appendSummary,
+  appendTask,
   SUMMARY_HEADING,
+  TASKS_HEADING,
   TRANSCRIPT_HEADING,
 } from '../actions/meeting-note.ts'
 export {
