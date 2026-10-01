@@ -48,6 +48,27 @@ pub fn recording_system_audio_supported() -> AppResult<bool> {
     Ok(platform::supported())
 }
 
+/// Has the user already granted "Screen & System Audio Recording"? Never
+/// prompts — this is the state to render, not the ask.
+#[tauri::command]
+pub fn recording_system_audio_access_granted() -> AppResult<bool> {
+    Ok(platform::access_granted())
+}
+
+/// Trigger the macOS permission prompt and resolve with whether capture is
+/// now allowed. The OS prompts **once ever** per app identity: after a
+/// refusal this returns `false` immediately and the only way back is
+/// System Settings → Privacy & Security → Screen & System Audio Recording.
+/// Same posture as the calendar's `calendar_request_access`.
+#[tauri::command]
+pub async fn recording_request_system_audio_access() -> AppResult<bool> {
+    Ok(
+        tauri::async_runtime::spawn_blocking(platform::request_access)
+            .await
+            .unwrap_or(false),
+    )
+}
+
 /// Run a tap for `duration_ms` and classify what it delivered. Caller-facing
 /// guidance belongs to the UI: `silentWhilePlaying` means "grant the
 /// permission", `inconclusive` means "play something and try again".
@@ -90,6 +111,22 @@ mod platform {
     use objc2_foundation::NSArray;
 
     use super::SystemAudioPreflight;
+
+    // Screen-recording consent, the gate the tap itself never reports: a tap
+    // created without it is created happily and delivers digital silence.
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    pub fn access_granted() -> bool {
+        unsafe { CGPreflightScreenCaptureAccess() }
+    }
+
+    pub fn request_access() -> bool {
+        unsafe { CGRequestScreenCaptureAccess() }
+    }
 
     /// `kAudioFormatFlagIsFloat` (CoreAudioBaseTypes.h) — a tap always hands
     /// over Float32 LPCM, and anything else means we misread the format.
@@ -380,6 +417,14 @@ mod platform {
     use super::SystemAudioPreflight;
 
     pub fn supported() -> bool {
+        false
+    }
+
+    pub fn access_granted() -> bool {
+        false
+    }
+
+    pub fn request_access() -> bool {
         false
     }
 

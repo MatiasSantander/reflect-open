@@ -33,6 +33,27 @@ export const systemAudioPreflightSchema = z.discriminatedUnion('kind', [
 
 export type SystemAudioPreflight = z.infer<typeof systemAudioPreflightSchema>
 
+/**
+ * Has the user granted "Screen & System Audio Recording"? Never prompts.
+ *
+ * Worth checking even though {@link probeSystemAudio} would also catch a
+ * denial: this answers instantly and without making noise, so a settings row
+ * can render the real state before anyone plays anything.
+ */
+export async function systemAudioAccessGranted(): Promise<boolean> {
+  return await call('recording_system_audio_access_granted', {}, z.boolean())
+}
+
+/**
+ * Trigger the macOS prompt, resolving with whether capture is now allowed.
+ * The OS asks **once ever** per app identity, so a `false` here can mean
+ * "they just said no" or "they said no months ago" — either way the only
+ * route back is System Settings, never a second prompt.
+ */
+export async function requestSystemAudioAccess(): Promise<boolean> {
+  return await call('recording_request_system_audio_access', {}, z.boolean())
+}
+
 /** Can system audio be captured at all here? Never prompts, never records. */
 export async function systemAudioSupported(): Promise<boolean> {
   return await call('recording_system_audio_supported', {}, z.boolean())

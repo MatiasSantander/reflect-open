@@ -357,6 +357,8 @@ pub fn run() {
             calendar::calendar_list_calendars,
             calendar::calendar_list_events,
             recording::recording_system_audio_supported,
+            recording::recording_system_audio_access_granted,
+            recording::recording_request_system_audio_access,
             recording::recording_system_audio_preflight,
             contacts::contacts_authorization_status,
             contacts::contacts_request_access,

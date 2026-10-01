@@ -208,6 +208,8 @@ export {
 export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
 export {
   systemAudioSupported,
+  systemAudioAccessGranted,
+  requestSystemAudioAccess,
   probeSystemAudio,
   needsSystemAudioPermission,
   systemAudioPreflightSchema,
