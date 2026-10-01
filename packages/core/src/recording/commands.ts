@@ -138,3 +138,35 @@ export function subscribeRecordingSegments(
     handler(recordingSegmentSchema.parse(payload))
   })
 }
+
+/**
+ * One process holding the microphone open, with the windows of the app that
+ * contains it.
+ *
+ * Rust reports the measurement and nothing more. Whether this adds up to a
+ * call — which apps count, which window titles look like a conversation, how
+ * long to let the situation settle — is policy here (Plan 25, contract 3).
+ */
+export const callCandidateSchema = z.object({
+  /** e.g. `com.tinyspeck.slackmacgap.helper`. */
+  bundleId: z.string(),
+  pid: z.number().int(),
+  /**
+   * The `.app` containing the process. A browser plays call audio from a
+   * helper whose windows belong to its parent, so this is what groups them.
+   */
+  app: z.string(),
+  /**
+   * That app's on-screen window titles. Empty when macOS redacted them, which
+   * it does for any process without the screen-recording permission — so an
+   * empty list means "cannot see", never "no windows".
+   */
+  windows: z.array(z.string()),
+})
+
+export type CallCandidate = z.infer<typeof callCandidateSchema>
+
+/** Everything with the microphone open right now. Cheap enough to poll. */
+export async function callCandidates(): Promise<CallCandidate[]> {
+  return await call('recording_call_candidates', {}, z.array(callCandidateSchema))
+}

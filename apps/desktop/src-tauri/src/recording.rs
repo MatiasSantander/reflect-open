@@ -140,6 +140,34 @@ pub async fn recording_stop(state: tauri::State<'_, RecordingState>) -> AppResul
 #[derive(Default)]
 pub struct RecordingState(std::sync::Mutex<Option<platform::Session>>);
 
+/// One process that currently has the microphone open, with the windows of
+/// the app that contains it.
+///
+/// Rust reports the measurement and nothing more: which app, whether its
+/// microphone is open, and what its windows are called. Whether that adds up
+/// to a call — the app list, the window patterns, the settling delay — is
+/// policy in `@reflect/core`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallCandidate {
+    /// The audio process's bundle id, e.g. `com.tinyspeck.slackmacgap.helper`.
+    pub bundle_id: String,
+    pub pid: i64,
+    /// The `.app` containing the process. A browser plays call audio from a
+    /// helper whose windows belong to its parent, so this is what groups them.
+    pub app: String,
+    /// Titles of that app's on-screen windows. Empty when macOS redacted them,
+    /// which it does for any process without the screen-recording permission.
+    pub windows: Vec<String>,
+}
+
+/// Every process holding the microphone open right now. Cheap enough to poll:
+/// one property read per audio process, plus one window list.
+#[tauri::command]
+pub fn recording_call_candidates() -> AppResult<Vec<CallCandidate>> {
+    Ok(platform::call_candidates())
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::ffi::c_void;
@@ -161,7 +189,8 @@ mod platform {
         kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, kAudioTapPropertyFormat,
         AudioDeviceCreateIOProcIDWithBlock, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID,
         AudioDeviceStart, AudioDeviceStop, AudioHardwareCreateAggregateDevice,
-        AudioHardwareDestroyAggregateDevice, AudioObjectGetPropertyData, AudioObjectID,
+        AudioHardwareDestroyAggregateDevice, AudioObjectGetPropertyData,
+        AudioObjectGetPropertyDataSize, AudioObjectID,
         AudioObjectPropertyAddress, CATapDescription,
     };
     use objc2_core_audio_types::{AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp};
@@ -879,6 +908,133 @@ mod platform {
         Ok(stream)
     }
 
+
+    // ---- who has the microphone open, and what are their windows called ----
+
+    use super::CallCandidate;
+
+    const PROCESS_LIST: u32 = u32::from_be_bytes(*b"prs#");
+    const PROCESS_BUNDLE_ID: u32 = u32::from_be_bytes(*b"pbid");
+    const PROCESS_PID: u32 = u32::from_be_bytes(*b"ppid");
+    const PROCESS_RUNNING_INPUT: u32 = u32::from_be_bytes(*b"piri");
+
+    /// The `.app` bundle containing a process. A browser plays a call from a
+    /// helper process whose windows belong to the parent, so matching a window
+    /// to a conversation has to group by this rather than by pid.
+    fn app_of(pid: i64) -> String {
+        extern "C" {
+            fn proc_pidpath(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
+        }
+        let mut buffer = vec![0u8; 4096];
+        let written =
+            unsafe { proc_pidpath(pid as i32, buffer.as_mut_ptr() as *mut c_void, 4096) };
+        if written <= 0 {
+            return String::new();
+        }
+        let path = String::from_utf8_lossy(&buffer[..written as usize]).into_owned();
+        match path.find(".app/") {
+            Some(at) => path[..at + 4].rsplit('/').next().unwrap_or("").to_string(),
+            None => path.rsplit('/').next().unwrap_or("").to_string(),
+        }
+    }
+
+    /// On-screen windows as `(containing app, title)`. Titles come back empty
+    /// unless this process holds the screen-recording permission.
+    fn on_screen_windows() -> Vec<(String, String)> {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGWindowListCopyWindowInfo(
+                option: u32,
+                relative_to: u32,
+            ) -> core_foundation::array::CFArrayRef;
+        }
+        const ON_SCREEN_ONLY: u32 = 1;
+        const EXCLUDE_DESKTOP: u32 = 1 << 4;
+        let mut out = Vec::new();
+        unsafe {
+            let raw = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0);
+            if raw.is_null() {
+                return out;
+            }
+            let list: CFArray<CFDictionary<CFString, core_foundation::base::CFType>> =
+                CFArray::wrap_under_create_rule(raw);
+            for window in list.iter() {
+                let title = window
+                    .find(CFString::new("kCGWindowName"))
+                    .and_then(|value| value.downcast::<CFString>())
+                    .map(|value| value.to_string())
+                    .unwrap_or_default();
+                if title.is_empty() {
+                    continue;
+                }
+                let Some(pid) = window
+                    .find(CFString::new("kCGWindowOwnerPID"))
+                    .and_then(|value| value.downcast::<core_foundation::number::CFNumber>())
+                    .and_then(|value| value.to_i64())
+                else {
+                    continue;
+                };
+                out.push((app_of(pid), title));
+            }
+        }
+        out
+    }
+
+    fn audio_process_ids() -> Vec<AudioObjectID> {
+        let addr = address(PROCESS_LIST);
+        let mut size: u32 = 0;
+        unsafe {
+            if AudioObjectGetPropertyDataSize(
+                kAudioObjectSystemObject as AudioObjectID,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut size),
+            ) != 0
+            {
+                return Vec::new();
+            }
+            let mut ids =
+                vec![0 as AudioObjectID; size as usize / std::mem::size_of::<AudioObjectID>()];
+            if AudioObjectGetPropertyData(
+                kAudioObjectSystemObject as AudioObjectID,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut size),
+                NonNull::new_unchecked(ids.as_mut_ptr() as *mut c_void),
+            ) != 0
+            {
+                return Vec::new();
+            }
+            ids
+        }
+    }
+
+    pub fn call_candidates() -> Vec<CallCandidate> {
+        let windows = on_screen_windows();
+        audio_process_ids()
+            .into_iter()
+            .filter_map(|object| {
+                if unsafe { property::<u32>(object, PROCESS_RUNNING_INPUT) }.unwrap_or(0) == 0 {
+                    return None;
+                }
+                let bundle_id = unsafe {
+                    let raw: CFStringRef = property(object, PROCESS_BUNDLE_ID).ok()?;
+                    (!raw.is_null()).then(|| CFString::wrap_under_create_rule(raw).to_string())
+                }?;
+                let pid = unsafe { property::<i32>(object, PROCESS_PID) }.unwrap_or(0) as i64;
+                let app = app_of(pid);
+                let titles = windows
+                    .iter()
+                    .filter(|(owner, _)| !app.is_empty() && *owner == app)
+                    .map(|(_, title)| title.clone())
+                    .collect();
+                Some(CallCandidate { bundle_id, pid, app, windows: titles })
+            })
+            .collect()
+    }
+
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -899,5 +1055,9 @@ mod platform {
 
     pub fn preflight(_duration_ms: u64) -> SystemAudioPreflight {
         SystemAudioPreflight::Unsupported
+    }
+
+    pub fn call_candidates() -> Vec<super::CallCandidate> {
+        Vec::new()
     }
 }
