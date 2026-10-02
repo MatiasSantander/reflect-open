@@ -54,6 +54,14 @@ function transcriptTitle(title: string): string {
 /** Where commitments made out loud become checkboxes. */
 const TASKS_HEADING = 'Tareas'
 
+/**
+ * How a note says what it is, the way `add-meeting` and the contacts
+ * integration already do. It is what puts a recorded meeting in the same
+ * All Notes filter as one added from the calendar — two ways of arriving at
+ * the same kind of note should not land in two different places.
+ */
+const MEETING_NOTE_TYPE = '- Type: #meeting'
+
 /** The heading a day's meetings are backlinked under. */
 export const MEETINGS_NOTE_TITLE = 'Meetings'
 
@@ -81,6 +89,7 @@ export async function openMeetingNote(
       ``,
       `# ${title}`,
       ``,
+      MEETING_NOTE_TYPE,
       `[[${transcript}|${TRANSCRIPT_SUFFIX}]]`,
       ``,
       ``,
@@ -102,6 +111,7 @@ export async function openMeetingNote(
       ``,
       `# ${transcriptTitle(title)}`,
       ``,
+      MEETING_NOTE_TYPE,
       `[[${memo.base}|${title}]]`,
       ``,
     ].join('\n'),
