@@ -3,6 +3,7 @@ import { page, userEvent } from 'vitest/browser'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenTask } from '@reflect/core'
+import { markRecentlyCompleted, resetRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
 import { RouterProvider } from '@/routing/router.tsx'
 import { expectLocatorToHaveCount } from '@/test-utils/expect.ts'
 import { TasksSection } from './tasks-section.tsx'
@@ -22,8 +23,9 @@ vi.mock('@/providers/graph-provider.tsx', () => ({
 vi.mock('@/providers/settings-provider.tsx', () => ({
   useSettings: () => ({ settings: { dateFormat: 'mdy' }, updateSettings: () => {} }),
 }))
+const archive = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/tasks/use-task-actions.ts', () => ({
-  useTaskActions: () => ({ toggle }),
+  useTaskActions: () => ({ toggle, archive }),
 }))
 vi.mock('@/lib/use-today.ts', () => ({ useToday: () => '2026-10-06' }))
 
@@ -59,6 +61,7 @@ function renderSection() {
 beforeEach(() => {
   vi.clearAllMocks()
   window.sessionStorage.clear()
+  resetRecentlyCompleted()
   getOpenTasks.mockResolvedValue([])
   getCompletedTasks.mockResolvedValue([])
 })
@@ -83,6 +86,27 @@ describe('TasksSection', () => {
     await userEvent.click(page.getByRole('checkbox', { name: /complete comprar pan/i }))
 
     expect(toggle).toHaveBeenCalledWith([expect.objectContaining({ text: 'comprar pan' })])
+  })
+
+  it('shows no Archive while nothing has been ticked', async () => {
+    getOpenTasks.mockResolvedValue([task({ text: 'comprar pan' })])
+    await renderSection()
+
+    await expect.element(page.getByText('comprar pan')).toBeVisible()
+    await expectLocatorToHaveCount(page.getByRole('button', { name: /^archive/i }), 0)
+  })
+
+  it('keeps a ticked task struck in place, and offers to clear it', async () => {
+    // V1's middle state: a mis-click stays visible and reversible. Without
+    // this control it stays struck all session, and the filters get blamed —
+    // none of them is the one that hides it.
+    markRecentlyCompleted('/g', [task({ text: 'comprar pan', checked: true })])
+    await renderSection()
+
+    await expect.element(page.getByText('comprar pan')).toBeVisible()
+    await userEvent.click(page.getByRole('button', { name: /^archive 1$/i }))
+
+    expect(archive).toHaveBeenCalled()
   })
 
   it('says so when there is nothing open, rather than showing an empty box', async () => {

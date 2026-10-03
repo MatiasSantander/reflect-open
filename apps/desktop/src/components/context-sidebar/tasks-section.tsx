@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Check } from 'lucide-react'
+import { Archive, Check } from 'lucide-react'
 import { displayNoteTitle } from '@reflect/core'
 import { formatDayLabel } from '@/lib/dates.ts'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
@@ -18,6 +18,8 @@ import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 import { routeForPath } from '@/routing/route.ts'
+import { Button } from '@/components/ui/button.tsx'
+import { TaskToolbarCountBadge } from '@/components/tasks/task-toolbar-count-badge.tsx'
 import { TaskFiltersMenu } from '@/components/tasks/task-filters-menu.tsx'
 import { isModEvent } from '@meowdown/core'
 import { SidebarSection } from './sidebar-section.tsx'
@@ -79,6 +81,23 @@ export function TasksSection(): ReactElement | null {
         {/* The menu renders its own trigger — a second button beside it was
             the same control twice. */}
         <div className="flex justify-end px-1">
+          {/* A task ticked here stays struck in place — V1's middle state, so
+              a mis-click is visible and reversible. Without this button it
+              stays struck for the whole session, which reads as the filters
+              being broken: none of them is the one that hides it. */}
+          {recentlyCompleted.length > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={`Archive ${recentlyCompleted.length}`}
+              onClick={actions.archive}
+              className="text-xs font-normal text-text-muted"
+            >
+              <Archive aria-hidden className="size-3.5" />
+              Archive
+              <TaskToolbarCountBadge count={recentlyCompleted.length} />
+            </Button>
+          ) : null}
           <TaskFiltersMenu
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
