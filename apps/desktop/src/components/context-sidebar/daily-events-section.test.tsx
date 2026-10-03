@@ -20,7 +20,7 @@ vi.mock('@/providers/graph-provider.tsx', () => ({
 // dialog submits through. The attendee combobox's suggestion sources are
 // stubbed empty — the combobox itself is covered by its own test file.
 const addMeetingToDaily = vi.hoisted(() =>
-  vi.fn(async () => ({ appended: true, createdNotes: [] })),
+  vi.fn(async (_input: { date: string }) => ({ appended: true, createdNotes: [] })),
 )
 const suggestWikiTargets = vi.hoisted(() => vi.fn(async () => []))
 const contactLinkSuggestions = vi.hoisted(() => vi.fn(async () => []))
@@ -298,5 +298,61 @@ describe('DailyEventsSection', () => {
 
     await expect.element(page.getByText(/disk full/i)).toBeInTheDocument()
     await expect.element(page.getByLabelText('Meeting name')).toBeInTheDocument()
+  })
+})
+
+describe('DailyEventsSection, the days after', () => {
+  /** Same shape as `eventAt`, on a later day. */
+  function eventOn(dayOffset: number, hour: number): Record<string, unknown> {
+    return {
+      ...eventAt(hour),
+      id: `evt-${dayOffset}-${hour}`,
+      title: `Day ${dayOffset} at ${hour}`,
+      startsAt: new Date(2026, 6, 1 + dayOffset, hour, 0).getTime(),
+      endsAt: new Date(2026, 6, 1 + dayOffset, hour + 1, 0).getTime(),
+    }
+  }
+
+  it('asks the calendar for a week in one query, not a day at a time', async () => {
+    const ranges: Array<[number, number]> = []
+    setBridge({
+      invoke: async (command, args) => {
+        if (command === 'calendar_list_events') {
+          const { start, end } = args as { start: number; end: number }
+          ranges.push([start, end])
+          return []
+        }
+        return command === 'settings_load' ? stored : null
+      },
+      listen: async () => () => {},
+    })
+    await renderSection()
+
+    await vi.waitFor(() => expect(ranges).toHaveLength(1))
+    const [start, end] = ranges[0] ?? [0, 0]
+    expect((end - start) / 86_400_000).toBe(6)
+  })
+
+  it('labels the days after, and leaves the viewed day unlabelled', async () => {
+    events = [eventAt(9), eventOn(1, 10), eventOn(3, 11)]
+    await renderSection()
+
+    await expect.element(page.getByText('Meeting at 9')).toBeVisible()
+    await expect.element(page.getByText('Tomorrow')).toBeVisible()
+    // 2026-07-04 is a Saturday.
+    await expect.element(page.getByText('Saturday')).toBeVisible()
+    // The viewed day names itself by being the sidebar's subject.
+    await expectLocatorToHaveCount(page.getByText('Wednesday'), 0)
+  })
+
+  it('adds a later meeting to its own day, not the one being viewed', async () => {
+    events = [eventOn(2, 15)]
+    await renderSection()
+
+    await userEvent.click(page.getByRole('button', { name: /Day 2 at 15/ }))
+    await userEvent.click(page.getByRole('button', { name: /add to daily note/i }))
+
+    await vi.waitFor(() => expect(addMeetingToDaily).toHaveBeenCalled())
+    expect(addMeetingToDaily.mock.calls[0]?.[0]).toMatchObject({ date: '2026-07-03' })
   })
 })

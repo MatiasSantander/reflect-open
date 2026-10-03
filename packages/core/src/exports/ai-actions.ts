@@ -212,7 +212,13 @@ export {
   type CalendarAttendee,
   type CalendarEvent,
 } from '../calendar/commands.ts'
-export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
+export {
+  displayEvents,
+  isDeclinedByUser,
+  defaultAttendees,
+  dayRange,
+  daysRange,
+} from '../calendar/events.ts'
 export {
   systemAudioAccessGranted,
   requestSystemAudioAccess,

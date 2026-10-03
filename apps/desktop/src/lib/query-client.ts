@@ -141,6 +141,9 @@ export const queryKeys = {
     events(date: string, calendarIds: readonly string[]) {
       return [...this.all, 'events', date, calendarIds] as const
     },
+    eventsFrom(date: string, days: number, calendarIds: readonly string[]) {
+      return [...this.all, 'events', date, days, calendarIds] as const
+    },
   },
   contacts: {
     all: ['contacts'] as const,

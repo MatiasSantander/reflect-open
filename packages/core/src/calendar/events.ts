@@ -93,6 +93,25 @@ export function defaultAttendees(event: CalendarEvent): MeetingAttendee[] {
  * milliseconds — midnight to the following midnight, in the machine's zone
  * (EventKit predicates work in absolute time).
  */
+/**
+ * The epoch-millisecond window covering `days` days from `date`, local time.
+ *
+ * `daysRange(d, 1)` is exactly {@link dayRange}; the sidebar asks for more so
+ * "what is coming" is one query rather than one per day — six round trips to
+ * EventKit to draw one list is six chances to render half of it.
+ */
+export function daysRange(date: string, days: number): { start: number; end: number } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(date)
+  if (match === null) {
+    throw new Error(`daysRange expects an ISO YYYY-MM-DD date, got: ${date}`)
+  }
+  const [, year, month, day] = match
+  const span = Math.max(1, Math.trunc(days))
+  const start = new Date(Number(year), Number(month) - 1, Number(day))
+  const end = new Date(Number(year), Number(month) - 1, Number(day) + span)
+  return { start: start.getTime(), end: end.getTime() }
+}
+
 export function dayRange(date: string): { start: number; end: number } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
   if (match === null) {
