@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setBridge } from '@reflect/core'
 import { SettingsProvider } from '@/providers/settings-provider.tsx'
 import { expectLocatorToHaveCount } from '@/test-utils/expect.ts'
+import { RouterProvider, useRouter } from '@/routing/router.tsx'
 import { DailyEventsSection } from './daily-events-section.tsx'
 
 // The calendar queries only run in the macOS desktop webview; the test
@@ -67,6 +68,8 @@ function installFakeBridge(): void {
           return stored
         case 'settings_save':
           return null
+        case 'calendar_authorization_status':
+          return 'fullAccess'
         case 'calendar_list_events':
           return events
         case 'contacts_authorization_status':
@@ -81,12 +84,21 @@ function installFakeBridge(): void {
 
 let queryClient: QueryClient
 
+/** Surfaces the live route, so a header click can be asserted on. */
+function RouteProbe() {
+  const { route } = useRouter()
+  return <output data-testid="route">{JSON.stringify(route)}</output>
+}
+
 async function renderSection(): Promise<void> {
   await render(
     <QueryClientProvider client={queryClient}>
-      <SettingsProvider>
-        <DailyEventsSection date={DATE} />
-      </SettingsProvider>
+      <RouterProvider>
+        <SettingsProvider>
+          <DailyEventsSection date={DATE} />
+          <RouteProbe />
+        </SettingsProvider>
+      </RouterProvider>
     </QueryClientProvider>,
   )
 }
@@ -143,9 +155,11 @@ describe('DailyEventsSection', () => {
     events = [eventAt(9)]
     const { container } = await render(
       <QueryClientProvider client={queryClient}>
-        <SettingsProvider>
-          <DailyEventsSection date={DATE} />
-        </SettingsProvider>
+        <RouterProvider>
+          <SettingsProvider>
+            <DailyEventsSection date={DATE} />
+          </SettingsProvider>
+        </RouterProvider>
       </QueryClientProvider>,
     )
 
@@ -313,36 +327,78 @@ describe('DailyEventsSection, the days after', () => {
     }
   }
 
-  it('asks the calendar for a week in one query, not a day at a time', async () => {
+  function captureRanges(): Array<[number, number]> {
     const ranges: Array<[number, number]> = []
     setBridge({
       invoke: async (command, args) => {
         if (command === 'calendar_list_events') {
           const { start, end } = args as { start: number; end: number }
           ranges.push([start, end])
-          return []
+          return events
+        }
+        if (command === 'calendar_authorization_status') {
+          return 'fullAccess'
         }
         return command === 'settings_load' ? stored : null
       },
       listen: async () => () => {},
     })
+    return ranges
+  }
+
+  it('asks the calendar for the whole span in one query, not a day at a time', async () => {
+    const ranges = captureRanges()
     await renderSection()
 
     await vi.waitFor(() => expect(ranges).toHaveLength(1))
     const [start, end] = ranges[0] ?? [0, 0]
-    expect((end - start) / 86_400_000).toBe(6)
+    expect((end - start) / 86_400_000).toBe(3)
   })
 
-  it('labels the days after, and leaves the viewed day unlabelled', async () => {
-    events = [eventAt(9), eventOn(1, 10), eventOn(3, 11)]
+  it('re-asks for the span the user picks', async () => {
+    const ranges = captureRanges()
+    await renderSection()
+    await vi.waitFor(() => expect(ranges).toHaveLength(1))
+
+    await userEvent.click(page.getByRole('button', { name: /3 days/i }))
+    await userEvent.click(page.getByRole('menuitemradio', { name: /5 days/i }))
+
+    await vi.waitFor(() => expect(ranges.length).toBeGreaterThan(1))
+    const [start, end] = ranges.at(-1) ?? [0, 0]
+    expect((end - start) / 86_400_000).toBe(5)
+  })
+
+  it('names every day by weekday and date, the viewed one included', async () => {
+    events = [eventAt(9), eventOn(1, 10)]
     await renderSection()
 
-    await expect.element(page.getByText('Meeting at 9')).toBeVisible()
-    await expect.element(page.getByText('Tomorrow')).toBeVisible()
-    // 2026-07-04 is a Saturday.
-    await expect.element(page.getByText('Saturday')).toBeVisible()
-    // The viewed day names itself by being the sidebar's subject.
-    await expectLocatorToHaveCount(page.getByText('Wednesday'), 0)
+    // 2026-07-01 is a Wednesday, 2026-07-02 a Thursday.
+    await expect.element(page.getByRole('button', { name: /01\/07/ })).toBeVisible()
+    await expect.element(page.getByRole('button', { name: /02\/07/ })).toBeVisible()
+    // A relative word makes the reader count forward from a date they have
+    // to remember.
+    await expectLocatorToHaveCount(page.getByText('Tomorrow'), 0)
+  })
+
+  it('goes to that day when its header is clicked', async () => {
+    events = [eventOn(1, 10)]
+    await renderSection()
+
+    await userEvent.click(page.getByRole('button', { name: /02\/07/ }))
+
+    await expect
+      .element(page.getByTestId('route'))
+      .toHaveTextContent(JSON.stringify({ kind: 'daily', date: '2026-07-02' }))
+  })
+
+  it('keeps the span control when the span is empty, so it can be widened', async () => {
+    // Hiding the section on an empty span takes its control with it and traps
+    // the reader at a range they cannot widen.
+    events = []
+    await renderSection()
+
+    await expect.element(page.getByText('Nothing scheduled.')).toBeVisible()
+    await expect.element(page.getByRole('button', { name: /3 days/i })).toBeVisible()
   })
 
   it('adds a later meeting to its own day, not the one being viewed', async () => {

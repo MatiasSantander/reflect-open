@@ -1,10 +1,17 @@
 import { useMemo, useState, type ReactElement } from 'react'
 import { Plus } from 'lucide-react'
-import type { CalendarEvent } from '@reflect/core'
+import { canReadCalendars, type CalendarEvent } from '@reflect/core'
+import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
 import { formatTimeOfDay } from '@/lib/dates.ts'
-import { useCalendarChangeInvalidation, useUpcomingEvents } from '@/lib/use-calendar.ts'
+import { isModEvent } from '@meowdown/core'
+import {
+  useCalendarAuthorization,
+  useCalendarChangeInvalidation,
+  useUpcomingEvents,
+} from '@/lib/use-calendar.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
 import { AddMeetingDialog } from './add-meeting-dialog.tsx'
+import { EventsSpanMenu, useEventSpan } from './events-span-menu.tsx'
 import { SidebarSection } from './sidebar-section.tsx'
 
 interface DailyEventsSectionProps {
@@ -13,27 +20,27 @@ interface DailyEventsSectionProps {
 }
 
 /**
- * How far ahead the section looks. Today plus the working week after it: far
- * enough to see what is coming, short enough that the section stays a glance
- * rather than a calendar — which the month grid above it already is.
- */
-const DAYS_AHEAD = 6
-
-/**
  * The day's meetings from Apple Calendar as a context-sidebar section
  * (docs/porting/calendar-meetings-integration.md) — v1's Events sidebar,
  * extended to the days after it.
  *
  * Each row's one action opens the add-meeting dialog, which writes the
  * meeting into **that event's own** daily note, not the day being viewed: a
- * Thursday meeting added from Monday's sidebar belongs to Thursday. Renders
- * nothing when the integration is off, access is missing, or nothing is
- * scheduled — an empty box would just advertise an absent feature.
+ * Thursday meeting added from Monday's sidebar belongs to Thursday. Each day
+ * header goes to that day.
+ *
+ * Renders nothing when the integration is off, no calendars are picked, or
+ * access is missing — an empty box would advertise an absent feature. An
+ * *empty span* is different: the section stays, because hiding it would take
+ * the span control with it and trap the reader at a range they cannot widen.
  */
 export function DailyEventsSection({ date }: DailyEventsSectionProps): ReactElement | null {
   const { settings } = useSettings()
   useCalendarChangeInvalidation(settings.calendarEnabled)
-  const upcoming = useUpcomingEvents(date, DAYS_AHEAD)
+  const authorization = useCalendarAuthorization(settings.calendarEnabled)
+  const [span, setSpan] = useEventSpan()
+  const upcoming = useUpcomingEvents(date, span)
+  const navigateNoteLink = useNoteLinkNavigation()
   const [pending, setPending] = useState<{ date: string; event: CalendarEvent } | null>(null)
 
   // Grouped in start order, which `displayEvents` already guarantees, so the
@@ -51,30 +58,49 @@ export function DailyEventsSection({ date }: DailyEventsSectionProps): ReactElem
     return [...byDay]
   }, [upcoming])
 
-  if (days.length === 0) {
+  // Off, no calendars picked, or not granted: nothing to say here, and the
+  // Settings screen is where a missing permission gets explained.
+  // `undefined` is "still asking", not "denied" — a flash of the section is
+  // worse than waiting one query for the truth.
+  const configured = settings.calendarEnabled && settings.calendarIds.length > 0
+  if (!configured || authorization === undefined || !canReadCalendars(authorization)) {
     return null
   }
 
   return (
     <SidebarSection storageKey="events" title="Events">
       <div className="space-y-2">
+        <div className="flex justify-end px-1">
+          <EventsSpanMenu span={span} onSpanChange={setSpan} />
+        </div>
+        {days.length === 0 ? (
+          <p className="px-3 py-1 text-xs text-text-muted">Nothing scheduled.</p>
+        ) : null}
         {days.map(([day, events]) => (
           <div key={day}>
-            {/* The viewed day needs no label — it is the one the sidebar is
-                already about. Every other day does, or the times below read
-                as today's. */}
-            {day === date ? null : (
-              <p className="px-3 pt-1 pb-0.5 text-2xs font-medium text-text-muted">
-                {dayLabel(day, date)}
-              </p>
-            )}
+            {/* Every day names itself, including the one being viewed: a
+                relative word like "tomorrow" is one the reader has to resolve
+                against a date they have to remember. The header goes to that
+                day, which is the only thing a date in a sidebar is for. */}
+            <button
+              type="button"
+              onClick={(event) => {
+                navigateNoteLink({
+                  target: { kind: 'daily', date: day },
+                  openInNewWindow: isModEvent(event),
+                })
+              }}
+              className="block w-full px-3 pt-1 pb-0.5 text-left text-2xs font-medium text-text-muted hover:text-text"
+            >
+              {dayLabel(day)}
+            </button>
             <ul className="space-y-1">
               {events.map((event) => (
                 <li key={`${event.id}-${event.startsAt}`}>
                   <button
                     type="button"
                     onClick={() => setPending({ date: day, event })}
-                    title={day === date ? 'Add to daily note' : `Add to ${dayLabel(day, date)}`}
+                    title={day === date ? 'Add to daily note' : `Add to ${dayLabel(day)}`}
                     className="group flex w-full items-center gap-2 rounded-md px-3 py-1 leading-5 text-text-secondary hover:bg-surface-hover hover:text-text"
                   >
                     <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">
@@ -110,15 +136,16 @@ export function DailyEventsSection({ date }: DailyEventsSectionProps): ReactElem
 }
 
 /**
- * `Tomorrow`, else the weekday — `Thursday`. Nobody reads an ISO date as a
- * day of the week, and within one week the weekday alone is unambiguous.
+ * `Sábado 04/10` — the weekday for reading, the date for certainty.
+ *
+ * Both, because neither is enough on its own: an ISO date does not say which
+ * day of the week it is, and a bare weekday makes the reader count forward
+ * from a day they have to remember. Capitalised because locales that
+ * lowercase their weekdays still capitalise the start of a line.
  */
-function dayLabel(day: string, from: string): string {
+function dayLabel(day: string): string {
   const at = new Date(`${day}T00:00:00`)
-  const start = new Date(`${from}T00:00:00`)
-  const ahead = Math.round((at.getTime() - start.getTime()) / 86_400_000)
-  if (ahead === 1) {
-    return 'Tomorrow'
-  }
-  return at.toLocaleDateString(undefined, { weekday: 'long' })
+  const weekday = at.toLocaleDateString(undefined, { weekday: 'long' })
+  const stamp = `${String(at.getDate()).padStart(2, '0')}/${String(at.getMonth() + 1).padStart(2, '0')}`
+  return `${weekday.charAt(0).toLocaleUpperCase()}${weekday.slice(1)} ${stamp}`
 }

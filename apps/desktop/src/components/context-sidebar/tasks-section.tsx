@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Check, SlidersHorizontal } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { displayNoteTitle } from '@reflect/core'
 import { formatDayLabel } from '@/lib/dates.ts'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
@@ -76,15 +76,9 @@ export function TasksSection(): ReactElement | null {
   return (
     <SidebarSection storageKey="tasks" title="Tasks">
       <div className="space-y-2">
+        {/* The menu renders its own trigger — a second button beside it was
+            the same control twice. */}
         <div className="flex justify-end px-1">
-          <button
-            type="button"
-            onClick={() => setFiltersOpen(true)}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-2xs text-text-muted hover:bg-surface-hover hover:text-text"
-          >
-            <SlidersHorizontal aria-hidden className="size-3" />
-            Task filters
-          </button>
           <TaskFiltersMenu
             open={filtersOpen}
             onOpenChange={setFiltersOpen}
