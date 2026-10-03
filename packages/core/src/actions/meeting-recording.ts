@@ -186,7 +186,7 @@ export async function startMeetingSession(
           heardFromThem += segment.loud
         }
         void traceRecording(
-          `core: imported part=${segment.part} ${segment.track} loud=${segment.loud} → ${path}`,
+          `core[${memo.base.slice(-8)}]: imported part=${segment.part} ${segment.track} loud=${segment.loud} → ${path}`,
         )
         input.onSegment?.(segment, path)
         if (input.transcribeSegment === undefined) {
@@ -205,19 +205,19 @@ export async function startMeetingSession(
             input.generation,
           )
           void traceRecording(
-            `core: transcribed part=${segment.part} ${segment.track} ${text.length} chars`,
+            `core[${memo.base.slice(-8)}]: transcribed part=${segment.part} ${segment.track} ${text.length} chars`,
           )
           await summariseWhenBothTracksLanded(segment, text)
         } catch (cause) {
           void traceRecording(
-            `core: TRANSCRIBE FAILED part=${segment.part} ${segment.track} — ${errorMessage(cause)}`,
+            `core[${memo.base.slice(-8)}]: TRANSCRIBE FAILED part=${segment.part} ${segment.track} — ${errorMessage(cause)}`,
           )
         }
       },
       (cause: unknown) => {
         const message = errorMessage(cause)
         void traceRecording(
-          `core: IMPORT FAILED part=${segment.part} ${segment.track} gen=${input.generation} — ${message}`,
+          `core[${memo.base.slice(-8)}]: IMPORT FAILED part=${segment.part} ${segment.track} gen=${input.generation} — ${message}`,
         )
         input.onError?.(message)
       },
@@ -270,11 +270,13 @@ export async function startMeetingSession(
       await appendTask(memo, task, input.generation)
     }
     void traceRecording(
-      `core: summarised part=${segment.part} into ${summary.points.length} points, ${summary.decisions.length} decisions, ${summary.tasks.length} tasks`,
+      `core[${memo.base.slice(-8)}]: summarised part=${segment.part} into ${summary.points.length} points, ${summary.decisions.length} decisions, ${summary.tasks.length} tasks`,
     )
   }
 
-  void traceRecording(`core: session ${memo.base} starting, generation ${input.generation}`)
+  void traceRecording(
+    `core[${memo.base.slice(-8)}]: starting as "${openedAt} · ${input.source ?? 'Reunión'}", generation ${input.generation}`,
+  )
   try {
     await startMeetingRecording(input.segmentMs)
   } catch (cause) {
@@ -308,7 +310,7 @@ export async function startMeetingSession(
       // wrong guess costs disk for a minute and nothing else.
       if (heardFromThem < SOMEONE_ELSE_WAS_THERE) {
         void traceRecording(
-          `core: discarding ${memo.base} — system track heard ${heardFromThem} audible samples`,
+          `core[${memo.base.slice(-8)}]: discarding — system track heard ${heardFromThem} audible samples`,
         )
         await Promise.all(
           imported.map((path) =>
@@ -334,10 +336,12 @@ export async function startMeetingSession(
               `${openedAt} · ${input.source ?? 'Reunión'} · ${topic}`,
               input.generation,
             )
-            void traceRecording(`core: renamed ${memo.base} to ${topic}`)
+            void traceRecording(`core[${memo.base.slice(-8)}]: renamed to ${topic}`)
           }
         } catch (cause) {
-          void traceRecording(`core: naming failed — ${errorMessage(cause)}`)
+          void traceRecording(
+            `core[${memo.base.slice(-8)}]: naming failed — ${errorMessage(cause)}`,
+          )
         }
       }
     },

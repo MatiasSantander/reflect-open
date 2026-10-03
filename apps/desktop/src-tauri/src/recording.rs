@@ -417,7 +417,12 @@ mod platform {
                       input: NonNull<AudioBufferList>,
                       _input_time: NonNull<AudioTimeStamp>,
                       _output: NonNull<AudioBufferList>,
-                      _output_time: NonNull<AudioTimeStamp>| unsafe {
+                      _output_time: NonNull<AudioTimeStamp>| {
+                    // Last line of defence: a panic unwinding into CoreAudio's
+                    // C++ IO thread aborts the process. Losing a block of
+                    // audio is a recording with a gap; losing the process is
+                    // a recording that never existed.
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
                     let list = input.as_ref();
                     let buffers = std::slice::from_raw_parts(
                         list.mBuffers.as_ptr(),
@@ -449,6 +454,7 @@ mod platform {
                         })
                         .collect();
                     sink(&mono);
+                    }));
                 },
             );
 
@@ -525,6 +531,15 @@ mod platform {
     /// is the upgrade if music ever matters.
     const TARGET_RATE: u32 = 16_000;
 
+    /// A lock that survives a panic elsewhere.
+    ///
+    /// Once any holder panics the mutex is poisoned and every later `lock`
+    /// returns `Err`, so an `unwrap` here turns one fault into a permanent
+    /// one — on the audio thread, into an aborted app.
+    fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// One track's segmented writer. The padding is the reason this type
     /// exists: a tap delivers *no callbacks* while nothing is playing, so an
     /// unpadded system track ends up shorter than the meeting and slides out
@@ -585,7 +600,7 @@ mod platform {
                 },
             )
             .map_err(|err| err.to_string())?;
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = lock(&self.inner);
             inner.writer = Some(writer);
             inner.part = part;
             inner.frames = 0;
@@ -604,29 +619,31 @@ mod platform {
         /// under a 16 kHz header and play back a third too slow — and drift
         /// away from the other track, which is the one thing two tracks must
         /// never do.
+        ///
+        /// Every index here is bounded by the loop condition rather than by
+        /// argument: this runs on CoreAudio's IO thread, where a panic
+        /// crosses an FFI boundary and takes the whole app with it.
         fn write(&self, samples: &[i16]) {
             if samples.is_empty() {
                 return;
             }
-            let ratio = self.rate.load(Ordering::Relaxed) as f64 / TARGET_RATE as f64;
-            let mut inner = self.inner.lock().unwrap();
+            let ratio = (self.rate.load(Ordering::Relaxed) as f64 / TARGET_RATE as f64).max(0.001);
+            let mut inner = lock(&self.inner);
             inner.pending.extend_from_slice(samples);
             let mut resampled: Vec<i16> = Vec::new();
             // `cursor` is where the next output sample falls in input space,
-            // carried across calls so a block boundary is not a glitch.
-            while (inner.cursor.ceil() as usize) < inner.pending.len() {
-                let at = inner.cursor;
-                let left = at.floor() as usize;
-                let right = at.ceil() as usize;
-                let fraction = at - at.floor();
-                let value = inner.pending[left] as f64 * (1.0 - fraction)
-                    + inner.pending[right] as f64 * fraction;
-                resampled.push(value.round() as i16);
+            // carried across calls so a block boundary is not a glitch. The
+            // condition keeps `left + 1` inside `pending` by construction.
+            while inner.cursor + 1.0 < inner.pending.len() as f64 {
+                let left = inner.cursor as usize;
+                let fraction = inner.cursor - left as f64;
+                let before = inner.pending[left] as f64;
+                let after = inner.pending[left + 1] as f64;
+                resampled.push((before + (after - before) * fraction).round() as i16);
                 inner.cursor += ratio;
             }
-            // Keep one sample before the cursor: interpolation needs the pair
-            // that straddles it.
-            let consumed = (inner.cursor.floor() as usize).saturating_sub(1);
+            // Consume what the cursor has passed, never more than exists.
+            let consumed = (inner.cursor as usize).min(inner.pending.len());
             if consumed > 0 {
                 inner.pending.drain(..consumed);
                 inner.cursor -= consumed as f64;
@@ -644,6 +661,7 @@ mod platform {
             inner.loud += loud;
         }
 
+        /// Correct the source rate once the device reports its own.
         fn set_rate(&self, rate: u32) {
             if rate > 0 {
                 self.rate.store(rate, Ordering::Relaxed);
@@ -655,7 +673,7 @@ mod platform {
         /// fact that callbacks arrive in blocks.
         fn pad_to(&self, elapsed_ms: u64) {
             let expected = elapsed_ms * TARGET_RATE as u64 / 1000;
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = lock(&self.inner);
             if expected <= inner.frames + TARGET_RATE as u64 / 5 {
                 return;
             }
@@ -672,7 +690,7 @@ mod platform {
         /// last. Returns what the caller needs to announce it.
         fn rotate(&self, end: bool) -> Result<(u32, u64, u64, PathBuf), String> {
             let (part, frames, loud) = {
-                let mut inner = self.inner.lock().unwrap();
+                let mut inner = lock(&self.inner);
                 if let Some(writer) = inner.writer.take() {
                     writer.finalize().map_err(|err| err.to_string())?;
                 }
@@ -683,7 +701,7 @@ mod platform {
                 // track that kept its old number would re-emit a part the
                 // graph already has while recording nothing into it. Moving
                 // on costs one segment; standing still costs the rest.
-                self.inner.lock().unwrap().part = part + 1;
+                lock(&self.inner).part = part + 1;
                 self.open(part + 1)?;
             }
             Ok((part, frames, loud, self.path(part)))
