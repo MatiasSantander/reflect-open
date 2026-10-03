@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AiPrompt } from '../settings/schema.ts'
+import type { PromptValues } from './selection-prompts.ts'
 import {
   BUILT_IN_AI_PROMPTS,
   filterAiPrompts,
   filterSlashPrompts,
+  placeholdersFor,
+  PROMPT_PLACEHOLDERS,
   renderNotePrompt,
   renderSelectionPrompt,
 } from './selection-prompts.ts'
@@ -139,5 +142,38 @@ describe('surfaces', () => {
   it('filters the slash menu by label, case-insensitively', () => {
     expect(filterSlashPrompts([onSlash], 'DAI')).toEqual([onSlash])
     expect(filterSlashPrompts([onSlash], 'weekly')).toEqual([])
+  })
+})
+
+describe('the placeholder catalogue', () => {
+  const values: PromptValues = { today: 'T', events: 'E', tasks: 'K' }
+
+  it('documents every value a slash prompt resolves — and nothing it does not', () => {
+    // Both directions on purpose. A resolver with no entry is invisible to
+    // the user; an entry with no resolver renders as literal braces in their
+    // note, which reads as the feature being broken.
+    const documented = placeholdersFor('slash')
+      .map((placeholder) => placeholder.name)
+      .sort()
+    expect(documented).toEqual(Object.keys(values).sort())
+  })
+
+  it('substitutes every placeholder it advertises', () => {
+    const body = placeholdersFor('slash')
+      .map((placeholder) => `{{${placeholder.name}}}`)
+      .join(' ')
+
+    expect(renderNotePrompt(body, values)).toBe('T E K')
+  })
+
+  it('keeps the selection placeholder off the slash surface, and the reverse', () => {
+    expect(placeholdersFor('selection').map((entry) => entry.name)).toEqual(['selectedText'])
+    expect(placeholdersFor('slash').map((entry) => entry.name)).not.toContain('selectedText')
+  })
+
+  it('says what each one brings, not just what it is called', () => {
+    for (const placeholder of PROMPT_PLACEHOLDERS) {
+      expect(placeholder.description.length).toBeGreaterThan(20)
+    }
   })
 })

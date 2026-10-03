@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
+import { placeholdersFor } from '@reflect/core'
 import type { AiPrompt, AiPromptMode, AiPromptSurface } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
@@ -97,11 +98,21 @@ export function AiPromptForm({ prompt, onSave, onClose }: AiPromptFormProps): Re
               : 'Summarise my day.\n\nToday is {{today}}.\n\nEvents:\n{{events}}\n\nOpen tasks:\n{{tasks}}'
           }
         />
-        <span className="text-xs text-text-tertiary">
-          {runsOnSelection
-            ? 'Use {{selectedText}} where the selection should appear.'
-            : 'Available: {{today}}, {{events}}, {{tasks}}. The result is inserted at the cursor.'}
-        </span>
+        <dl className="mt-1 flex flex-col gap-1.5 text-xs text-text-tertiary">
+          {placeholdersFor(surface).map((placeholder) => (
+            <div key={placeholder.name} className="flex flex-col gap-0.5">
+              <dt>
+                <code className="font-mono text-text-secondary">{`{{${placeholder.name}}}`}</code>
+              </dt>
+              <dd>{placeholder.description}</dd>
+            </div>
+          ))}
+          <p>
+            {runsOnSelection
+              ? 'A prompt with no placeholder gets the selection added as context.'
+              : 'The result is inserted where the cursor is.'}
+          </p>
+        </dl>
       </label>
       <label className={`flex-col gap-1.5 ${runsOnSelection ? 'flex' : 'hidden'}`}>
         <span className={FIELD_LABEL_CLASS}>Result</span>

@@ -1,4 +1,4 @@
-import type { AiPrompt } from '../settings/schema.ts'
+import type { AiPrompt, AiPromptSurface } from '../settings/schema.ts'
 
 /**
  * The editor AI menu's prompt library: the user's saved prompts followed by a
@@ -207,6 +207,54 @@ export interface PromptValues {
   events: string
   /** Open tasks a cloud model may see, or a line saying there are none. */
   tasks: string
+}
+
+/**
+ * One placeholder a prompt body can use, and what it resolves to.
+ *
+ * This is the only description of the vocabulary: the settings form renders
+ * it, so a placeholder that gains a meaning here gains it in the UI too. A
+ * resolver added without an entry is caught by the drift test beside this
+ * file — documentation nobody updates is worse than none, because it is
+ * believed.
+ */
+export interface PromptPlaceholder {
+  /** What the user types, without the braces. */
+  name: keyof PromptValues | 'selectedText'
+  /** Which surface offers it. */
+  surface: AiPromptSurface
+  /** What it resolves to, said the way the user would say it. */
+  description: string
+}
+
+export const PROMPT_PLACEHOLDERS: readonly PromptPlaceholder[] = [
+  {
+    name: 'selectedText',
+    surface: 'selection',
+    description: 'The text you selected.',
+  },
+  {
+    name: 'today',
+    surface: 'slash',
+    description: 'Today’s date, written out — “Tuesday, 6 October 2026”.',
+  },
+  {
+    name: 'events',
+    surface: 'slash',
+    description:
+      'Today’s events from the calendars you chose, with their times and who is in them. Says so when calendar access is not granted.',
+  },
+  {
+    name: 'tasks',
+    surface: 'slash',
+    description:
+      'Your open tasks, grouped into overdue, due today, and undated. Tasks dated later are left out, and private notes’ tasks are never included.',
+  },
+]
+
+/** The placeholders a prompt on this surface can use. */
+export function placeholdersFor(surface: AiPromptSurface): PromptPlaceholder[] {
+  return PROMPT_PLACEHOLDERS.filter((placeholder) => placeholder.surface === surface)
 }
 
 /**

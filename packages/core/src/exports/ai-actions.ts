@@ -97,7 +97,10 @@ export {
   filterAiPrompts,
   filterSlashPrompts,
   renderNotePrompt,
+  placeholdersFor,
+  PROMPT_PLACEHOLDERS,
   renderSelectionPrompt,
+  type PromptPlaceholder,
   type PromptValues,
 } from '../ai/selection-prompts.ts'
 export { promptContext, type PromptContextInput } from '../ai/prompt-context.ts'
