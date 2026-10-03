@@ -143,7 +143,14 @@ function AiPromptSheet({
             type="button"
             disabled={saveDisabled}
             onClick={() => {
-              onSave({ label: label.trim(), body: body.trim(), mode })
+              onSave({
+                label: label.trim(),
+                body: body.trim(),
+                mode,
+                // Preserved, not edited here: moving a `/` prompt onto the
+                // selection by opening it on a phone would be a surprise.
+                surface: prompt?.surface ?? 'selection',
+              })
               onClose()
             }}
           >

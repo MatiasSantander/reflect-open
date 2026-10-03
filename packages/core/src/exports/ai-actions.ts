@@ -95,8 +95,15 @@ export { streamChat, type ChatStreamEvent, type StreamChatOptions } from '../ai/
 export {
   BUILT_IN_AI_PROMPTS,
   filterAiPrompts,
+  filterSlashPrompts,
+  renderNotePrompt,
+  placeholdersFor,
+  PROMPT_PLACEHOLDERS,
   renderSelectionPrompt,
+  type PromptPlaceholder,
+  type PromptValues,
 } from '../ai/selection-prompts.ts'
+export { promptContext, type PromptContextInput } from '../ai/prompt-context.ts'
 export {
   transformSelection,
   type TransformSelectionOptions,
@@ -205,7 +212,13 @@ export {
   type CalendarAttendee,
   type CalendarEvent,
 } from '../calendar/commands.ts'
-export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
+export {
+  displayEvents,
+  isDeclinedByUser,
+  defaultAttendees,
+  dayRange,
+  daysRange,
+} from '../calendar/events.ts'
 export {
   systemAudioAccessGranted,
   requestSystemAudioAccess,

@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import type { AiPrompt, AiPromptMode } from '@reflect/core'
+import type { AiPrompt, AiPromptMode, AiPromptSurface } from '@reflect/core'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
 /**
@@ -15,6 +15,8 @@ export interface AiPromptDraft {
   label: string
   body: string
   mode: AiPromptMode
+  /** Which menu it appears in: the AI menu on a selection, or `/`. */
+  surface: AiPromptSurface
 }
 
 interface UseAiPromptsValue {

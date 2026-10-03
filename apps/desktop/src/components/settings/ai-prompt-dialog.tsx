@@ -24,7 +24,7 @@ const AiPromptForm = lazy(async () => {
 
 /**
  * The add/edit dialog for a saved AI prompt: a label for the picker, the
- * prompt body (referencing the selection via `{{selectedText}}` — old
+ * prompt body (referencing its surface's placeholders — `{{selectedText}}` is old
  * Reflect's syntax), and whether the accepted result replaces the selection
  * or is inserted below it.
  */
@@ -44,9 +44,8 @@ export function AiPromptDialog({ prompt, onSave, onClose }: AiPromptDialogProps)
           <DialogHeader>
             <DialogTitle>{prompt === null ? 'Add prompt' : 'Edit prompt'}</DialogTitle>
             <DialogDescription>
-              The prompt runs on the text you select in a note. Use{' '}
-              <code className="font-mono text-xs">{'{{selectedText}}'}</code> where the selection
-              should appear.
+              Where it runs decides what it can see. The placeholders for the surface you pick are
+              listed under the prompt.
             </DialogDescription>
           </DialogHeader>
 

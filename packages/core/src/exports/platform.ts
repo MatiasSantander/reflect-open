@@ -279,6 +279,7 @@ export {
   type OpenAiCompatibleProviderConfig,
   type AiPrompt,
   type AiPromptMode,
+  type AiPromptSurface,
 } from '../settings/schema.ts'
 export { loadSettings, saveSettings } from '../settings/commands.ts'
 export {

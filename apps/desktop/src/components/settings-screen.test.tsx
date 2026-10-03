@@ -1310,6 +1310,7 @@ describe('SettingsScreen', () => {
               label: 'Translate to French',
               body: 'Translate to French.\n\n{{selectedText}}',
               mode: 'replace',
+              surface: 'selection',
             },
           ],
         },
@@ -1323,7 +1324,13 @@ describe('SettingsScreen', () => {
   it('removing a saved AI prompt persists the emptied list', async () => {
     stored = {
       aiPrompts: [
-        { id: 'p1', label: 'Translate to French', body: '{{selectedText}}', mode: 'replace' },
+        {
+          id: 'p1',
+          label: 'Translate to French',
+          body: '{{selectedText}}',
+          mode: 'replace',
+          surface: 'selection' as const,
+        },
       ],
     }
     await renderScreen()
@@ -1375,7 +1382,13 @@ describe('SettingsScreen', () => {
   it('editing a saved AI prompt persists the change', async () => {
     stored = {
       aiPrompts: [
-        { id: 'p1', label: 'Translate to French', body: '{{selectedText}}', mode: 'replace' },
+        {
+          id: 'p1',
+          label: 'Translate to French',
+          body: '{{selectedText}}',
+          mode: 'replace',
+          surface: 'selection' as const,
+        },
       ],
     }
     await renderScreen()
@@ -1420,7 +1433,13 @@ describe('SettingsScreen', () => {
           chatModelSelection: null,
           chatSystemPrompt: '',
           aiPrompts: [
-            { id: 'p1', label: 'Translate to German', body: '{{selectedText}}', mode: 'replace' },
+            {
+              id: 'p1',
+              label: 'Translate to German',
+              body: '{{selectedText}}',
+              mode: 'replace',
+              surface: 'selection',
+            },
           ],
         },
       ]),

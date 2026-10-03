@@ -369,10 +369,26 @@ describe('settingsSchema', () => {
       label: 'Translate to French',
       body: 'Translate the following text to French.\n\n{{selectedText}}',
       mode: 'replace',
+      surface: 'selection',
     }
 
     it('passes valid entries through', () => {
       expect(settingsSchema.parse({ aiPrompts: [valid] }).aiPrompts).toEqual([valid])
+    })
+
+    it('defaults the surface for a prompt saved before surfaces existed', () => {
+      const { surface: _surface, ...beforeSurfaces } = valid
+      expect(settingsSchema.parse({ aiPrompts: [beforeSurfaces] }).aiPrompts).toEqual([valid])
+    })
+
+    it('accepts a prompt that runs from the slash menu', () => {
+      const entry = { ...valid, surface: 'slash' }
+      expect(settingsSchema.parse({ aiPrompts: [entry] }).aiPrompts).toEqual([entry])
+    })
+
+    it('defaults an unknown surface to selection', () => {
+      const entry = { ...valid, surface: 'sideways' }
+      expect(settingsSchema.parse({ aiPrompts: [entry] }).aiPrompts).toEqual([valid])
     })
 
     it('defaults an invalid mode to replace', () => {

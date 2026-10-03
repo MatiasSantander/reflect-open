@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   calendarAuthorizationStatus,
   dayRange,
+  daysRange,
   displayEvents,
   listCalendarEvents,
   listCalendars,
@@ -95,6 +96,49 @@ export function useDayEvents(date: string): CalendarEvent[] {
   // after the integration is switched off, and stale meetings must not
   // linger in the sidebar.
   return useMemo(() => (enabled ? displayEvents(query.data ?? []) : []), [enabled, query.data])
+}
+
+/**
+ * The displayable events from `date` through the next `days - 1` days, each
+ * tagged with the local ISO day it falls on.
+ *
+ * One query, not one per day: six round trips to EventKit to draw one list is
+ * six chances to render half of it. The day is derived here rather than
+ * carried from the query, because an event's day is a property of when it
+ * starts, not of which window happened to catch it.
+ */
+export interface UpcomingEvent {
+  event: CalendarEvent
+  /** Local ISO day the event starts on — the daily note it belongs to. */
+  date: string
+}
+
+export function useUpcomingEvents(date: string, days: number): UpcomingEvent[] {
+  const { settings } = useSettings()
+  const available = useCalendarAvailable()
+  const enabled = settings.calendarEnabled && settings.calendarIds.length > 0 && available
+  const query = useQuery({
+    queryKey: queryKeys.calendar.eventsFrom(date, days, settings.calendarIds),
+    queryFn: () => {
+      const range = daysRange(date, days)
+      return listCalendarEvents(range.start, range.end, settings.calendarIds)
+    },
+    enabled,
+    staleTime: 60_000,
+  })
+  return useMemo(() => {
+    if (!enabled) {
+      return []
+    }
+    return displayEvents(query.data ?? []).map((event) => ({
+      event,
+      date: isoDay(new Date(event.startsAt)),
+    }))
+  }, [enabled, query.data])
+}
+
+function isoDay(at: Date): string {
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
 }
 
 /**

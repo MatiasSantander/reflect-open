@@ -247,7 +247,16 @@ export function useEditorAiMenu({
           label: adHoc,
           detail: 'Run as a prompt',
           onSelect: (context) =>
-            runPrompt({ id: 'ad-hoc-query', label: adHoc, body: adHoc, mode: 'replace' }, context),
+            runPrompt(
+              {
+                id: 'ad-hoc-query',
+                label: adHoc,
+                body: adHoc,
+                mode: 'replace',
+                surface: 'selection',
+              },
+              context,
+            ),
         })
       }
       return items
