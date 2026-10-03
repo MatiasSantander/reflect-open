@@ -177,8 +177,17 @@ export async function startMeetingSession(
   unlisten = await subscribeRecordingSegments((segment) => {
     const path = audioMemoPartPath(memo, segment.part, segment.end, segment.track)
     const landed = importAudioMemo(segment.path, path, input.generation)
-    landing.add(landed)
-    void landed.finally(() => landing.delete(landed))
+    // What `stop` waits on is a *settled* import, never a rejected one. A copy
+    // that failed is already reported through `onError`, and must not reject
+    // the stop that the discard check and the rename hang off — losing those
+    // to a full disk would leave exactly the empty note the discard exists to
+    // prevent.
+    const settled = landed.then(
+      () => {},
+      () => {},
+    )
+    landing.add(settled)
+    void settled.finally(() => landing.delete(settled))
     void landed.then(
       async () => {
         imported.push(path)
