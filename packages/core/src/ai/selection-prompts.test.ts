@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AiPrompt } from '../settings/schema.ts'
-import { BUILT_IN_AI_PROMPTS, filterAiPrompts, renderSelectionPrompt } from './selection-prompts.ts'
+import {
+  BUILT_IN_AI_PROMPTS,
+  filterAiPrompts,
+  filterSlashPrompts,
+  renderNotePrompt,
+  renderSelectionPrompt,
+} from './selection-prompts.ts'
 
 describe('renderSelectionPrompt', () => {
   it('substitutes the {{selectedText}} placeholder', () => {
@@ -34,7 +40,13 @@ describe('renderSelectionPrompt', () => {
 
 describe('filterAiPrompts', () => {
   const saved: AiPrompt[] = [
-    { id: 'saved-1', label: 'Translate to French', body: '{{selectedText}}', mode: 'replace' },
+    {
+      id: 'saved-1',
+      label: 'Translate to French',
+      body: '{{selectedText}}',
+      mode: 'replace',
+      surface: 'selection',
+    },
   ]
 
   it('lists saved prompts first, then built-ins, for an empty query (v1 order)', () => {
@@ -55,5 +67,77 @@ describe('filterAiPrompts', () => {
     for (const prompt of BUILT_IN_AI_PROMPTS) {
       expect(prompt.body).toContain('{{selectedText}}')
     }
+  })
+})
+
+describe('renderNotePrompt', () => {
+  const values = { today: 'Tuesday, 6 October 2026', events: '- 09:30 Standup', tasks: '- algo' }
+
+  it('substitutes every context placeholder', () => {
+    const rendered = renderNotePrompt(
+      'Hoy es {{today}}.\n\nAgenda:\n{{events}}\n\nPendiente:\n{{tasks}}',
+      values,
+    )
+
+    expect(rendered).toBe(
+      'Hoy es Tuesday, 6 October 2026.\n\nAgenda:\n- 09:30 Standup\n\nPendiente:\n- algo',
+    )
+  })
+
+  it('appends nothing to a bare instruction — there is no selection to append', () => {
+    expect(renderNotePrompt('Resume mi día.', values)).toBe('Resume mi día.')
+  })
+
+  it('leaves a value containing a placeholder alone, rather than expanding it twice', () => {
+    const rendered = renderNotePrompt('{{tasks}}', { ...values, tasks: '- escribir {{today}}' })
+
+    expect(rendered).toBe('- escribir {{today}}')
+  })
+
+  it('keeps $ sequences verbatim, not as replacement patterns', () => {
+    expect(renderNotePrompt('{{tasks}}', { ...values, tasks: '- cobrar $& y $$' })).toBe(
+      '- cobrar $& y $$',
+    )
+  })
+
+  it('resolves a selection placeholder to empty rather than erroring', () => {
+    // The user moved a prompt between surfaces. A worse answer, not a crash.
+    expect(renderNotePrompt('Traduce: {{selectedText}}', values)).toBe('Traduce: ')
+  })
+
+  it('leaves an unknown placeholder untouched, so a typo is visible', () => {
+    expect(renderNotePrompt('{{taks}}', values)).toBe('{{taks}}')
+  })
+})
+
+describe('surfaces', () => {
+  const onSelection: AiPrompt = {
+    id: 'sel',
+    label: 'Shorten',
+    body: '{{selectedText}}',
+    mode: 'replace',
+    surface: 'selection',
+  }
+  const onSlash: AiPrompt = {
+    id: 'slash',
+    label: 'daily',
+    body: '{{events}}',
+    mode: 'append',
+    surface: 'slash',
+  }
+
+  it('keeps each prompt out of the other menu', () => {
+    expect(filterAiPrompts([onSelection, onSlash], '').map((p) => p.id)).toContain('sel')
+    expect(filterAiPrompts([onSelection, onSlash], '').map((p) => p.id)).not.toContain('slash')
+    expect(filterSlashPrompts([onSelection, onSlash], '')).toEqual([onSlash])
+  })
+
+  it('offers no built-ins on the slash surface — they all expect a selection', () => {
+    expect(filterSlashPrompts([], '')).toEqual([])
+  })
+
+  it('filters the slash menu by label, case-insensitively', () => {
+    expect(filterSlashPrompts([onSlash], 'DAI')).toEqual([onSlash])
+    expect(filterSlashPrompts([onSlash], 'weekly')).toEqual([])
   })
 })

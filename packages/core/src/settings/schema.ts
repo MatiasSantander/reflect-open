@@ -505,11 +505,25 @@ export type AiPromptMode = z.infer<typeof aiPromptModeSchema>
  * port over verbatim); a body without the placeholder gets the selection
  * appended after it.
  */
+/**
+ * Where a prompt runs. `selection` is the editor's AI menu, acting on text
+ * the user marked; `slash` is the `/` menu, acting on no selection at all and
+ * on whatever context the prompt asks for by placeholder.
+ *
+ * A prompt lives on exactly one surface: one written for a selection reads as
+ * nonsense without one, and the reverse. Invalid or absent degrades to
+ * `selection`, so every prompt saved before this existed keeps working.
+ */
+export const aiPromptSurfaceSchema = z.enum(['selection', 'slash']).catch('selection')
+
+export type AiPromptSurface = z.infer<typeof aiPromptSurfaceSchema>
+
 export const aiPromptSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   body: z.string().min(1),
   mode: aiPromptModeSchema,
+  surface: aiPromptSurfaceSchema.default('selection'),
 })
 
 export type AiPrompt = z.infer<typeof aiPromptSchema>

@@ -38,6 +38,7 @@ export const BUILT_IN_AI_PROMPTS: readonly AiPrompt[] = [
 
 Do not return anything other than the corrected text. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:copy-editor',
@@ -50,6 +51,7 @@ Do not return anything other than the corrected text. ${FILLER}`,
 
 Return only the edited text. If in doubt, or you can't make edits, just return the original text. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:rephrase',
@@ -62,6 +64,7 @@ Return only the edited text. If in doubt, or you can't make edits, just return t
 
 Do not return anything other than the rephrased text. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:simplify',
@@ -74,6 +77,7 @@ Do not return anything other than the rephrased text. ${FILLER}`,
 
 Simplify and condense the writing. Do not return anything other than the simplified writing. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:format-paragraphs',
@@ -86,6 +90,7 @@ Simplify and condense the writing. Do not return anything other than the simplif
 
 Do not return anything other than the formatted text. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:short-summary',
@@ -98,6 +103,7 @@ Do not return anything other than the formatted text. ${FILLER}`,
 
 Do not return anything other than the summary. ${FILLER}`,
     mode: 'append',
+    surface: 'selection',
   },
   {
     id: 'built-in:takeaways',
@@ -110,6 +116,7 @@ Do not return anything other than the summary. ${FILLER}`,
 
 Write a Markdown list (using dashes) of key takeaways from my notes. Write at least 3 items. Do not return anything other than the list. ${FILLER}`,
     mode: 'append',
+    surface: 'selection',
   },
   {
     id: 'built-in:action-items',
@@ -127,6 +134,7 @@ Write a todo list of action items from my note using the following format:
 
 Only include actions actually implied by the note. Do not return anything other than the todo list. ${FILLER}`,
     mode: 'append',
+    surface: 'selection',
   },
   {
     id: 'built-in:points-to-document',
@@ -139,6 +147,7 @@ Only include actions actually implied by the note. Do not return anything other 
 
 Do not return anything other than the document. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
   {
     id: 'built-in:continuation',
@@ -151,6 +160,7 @@ Do not return anything other than the document. ${FILLER}`,
 
 Write the next paragraph, keeping the same voice and style. Stay on the same topic. Write at least 3 sentences. Do not repeat the existing text. ${FILLER}`,
     mode: 'append',
+    surface: 'selection',
   },
   {
     id: 'built-in:backlinks',
@@ -163,6 +173,7 @@ Write the next paragraph, keeping the same voice and style. Stay on the same top
 
 Do not return anything other than the decorated text. ${FILLER}`,
     mode: 'replace',
+    surface: 'selection',
   },
 ]
 
@@ -175,9 +186,7 @@ Do not return anything other than the decorated text. ${FILLER}`,
 export function renderSelectionPrompt(body: string, selectedText: string): string {
   if (SELECTED_TEXT_PLACEHOLDER.test(body)) {
     SELECTED_TEXT_PLACEHOLDER.lastIndex = 0
-    // A replacer function, not the string form: `$&`/`$$` sequences in the
-    // selection must land verbatim, not as replacement patterns.
-    return body.replaceAll(SELECTED_TEXT_PLACEHOLDER, () => selectedText)
+    return substitute(body, { selectedText })
   }
   return `${body}
 
@@ -188,15 +197,73 @@ ${selectedText}
 }
 
 /**
+ * The values a `slash` prompt can ask for by name (Plan 26). Gathered by the
+ * caller, because core does not reach for a graph or a calendar on its own.
+ */
+export interface PromptValues {
+  /** Today, written the way a person would say it. */
+  today: string
+  /** The day's calendar events, or a line saying there are none. */
+  events: string
+  /** Open tasks a cloud model may see, or a line saying there are none. */
+  tasks: string
+}
+
+/**
+ * Render a prompt that runs on no selection.
+ *
+ * Nothing is appended to a body with no placeholder: on this surface there is
+ * no selection to append, so a bare instruction is simply the whole prompt.
+ * `{{selectedText}}` resolves to empty rather than erroring — a user moving a
+ * prompt between surfaces should get a worse answer, not a crash.
+ */
+export function renderNotePrompt(body: string, values: PromptValues): string {
+  return substitute(body, { ...values, selectedText: '' })
+}
+
+/**
+ * Substitute `{{name}}` placeholders, matched with flexible inner spacing.
+ *
+ * A replacer function, not the string form: `$&` and `$$` sequences in a
+ * value must land verbatim, not as replacement patterns. Values are
+ * substituted against the original body in one pass, so a value that itself
+ * contains `{{tasks}}` is left alone rather than expanded again.
+ */
+function substitute(body: string, values: Record<string, string>): string {
+  return body.replaceAll(/\{\{\s*(\w+)\s*\}\}/gu, (match, name: string) =>
+    name in values ? (values[name] ?? '') : match,
+  )
+}
+
+/**
  * The prompts the AI menu lists for a filter query: the user's saved prompts
  * first (old Reflect's order — the user's own workflow beats the stock set),
  * then the built-ins, case-insensitively filtered on the label. An empty
  * query returns everything. The menu does not re-rank — order here is display
  * order.
+ *
+ * Only `selection` prompts: a prompt written for the `/` menu expects the
+ * day's events, not the paragraph the user just highlighted.
  */
 export function filterAiPrompts(prompts: readonly AiPrompt[], query: string): AiPrompt[] {
-  const all = [...prompts, ...BUILT_IN_AI_PROMPTS]
+  const all = [...prompts.filter(runsOnSelection), ...BUILT_IN_AI_PROMPTS]
+  return byLabel(all, query)
+}
+
+/** The user's `/` menu prompts for a query. There are no built-ins here yet. */
+export function filterSlashPrompts(prompts: readonly AiPrompt[], query: string): AiPrompt[] {
+  return byLabel(
+    prompts.filter((prompt) => !runsOnSelection(prompt)),
+    query,
+  )
+}
+
+function runsOnSelection(prompt: AiPrompt): boolean {
+  return prompt.surface !== 'slash'
+}
+
+function byLabel(prompts: readonly AiPrompt[], query: string): AiPrompt[] {
   const needle = query.trim().toLowerCase()
-  if (!needle) return all
-  return all.filter((prompt) => prompt.label.toLowerCase().includes(needle))
+  if (!needle) return [...prompts]
+  return prompts.filter((prompt) => prompt.label.toLowerCase().includes(needle))
 }

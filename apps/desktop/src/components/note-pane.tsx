@@ -28,6 +28,7 @@ import { useAssetPersistence } from '@/editor/use-asset-persistence.ts'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useNoteDocument } from '@/editor/use-note-document.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
+import { useAiSlashItems } from '@/editor/use-ai-slash-items.ts'
 import { useTemplateSlashItems } from '@/editor/use-template-slash-items.ts'
 import { useMarkdownLinkNavigation } from '@/editor/use-markdown-link-navigation.ts'
 import { useLinkPreview } from '@/editor/use-link-preview.ts'
@@ -213,11 +214,17 @@ export function NotePaneComponent({
   // The registry entry this pane made, so unmount removes exactly it (a
   // remount of the same path may already have re-registered).
   const registeredHandle = useRef<{ path: string; handle: NoteEditorHandle } | null>(null)
-  // The `/` menu's template rows insert into this pane's own editor, read
-  // through the registry ref at select time (a late resolve after the pane
-  // unmounted must insert nowhere rather than somewhere stale).
-  const onSlashMenuSearch = useTemplateSlashItems(
-    useCallback(() => registeredHandle.current?.handle ?? null, []),
+  // The `/` menu's rows insert into this pane's own editor, read through the
+  // registry ref at select time (a late resolve after the pane unmounted must
+  // insert nowhere rather than somewhere stale).
+  const paneEditor = useCallback(() => registeredHandle.current?.handle ?? null, [])
+  const templateSlashItems = useTemplateSlashItems(paneEditor)
+  const aiSlashItems = useAiSlashItems(path, paneEditor)
+  // Templates first, then AI prompts: a template is instant and a prompt
+  // costs a provider call, so the cheap answer sorts above the expensive one.
+  const onSlashMenuSearch = useCallback(
+    async (query: string) => [...(await templateSlashItems(query)), ...aiSlashItems(query)],
+    [templateSlashItems, aiSlashItems],
   )
   const handleRef = useCallback(
     (handle: NoteEditorHandle | null) => {

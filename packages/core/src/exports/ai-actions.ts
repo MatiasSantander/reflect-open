@@ -95,8 +95,12 @@ export { streamChat, type ChatStreamEvent, type StreamChatOptions } from '../ai/
 export {
   BUILT_IN_AI_PROMPTS,
   filterAiPrompts,
+  filterSlashPrompts,
+  renderNotePrompt,
   renderSelectionPrompt,
+  type PromptValues,
 } from '../ai/selection-prompts.ts'
+export { promptContext, type PromptContextInput } from '../ai/prompt-context.ts'
 export {
   transformSelection,
   type TransformSelectionOptions,

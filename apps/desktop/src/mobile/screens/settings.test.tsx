@@ -290,6 +290,7 @@ describe('MobileSettings', () => {
           label: 'Shorten',
           body: 'Shorten: {{selectedText}}',
           mode: 'replace',
+          surface: 'selection',
         }),
       ],
     })
@@ -302,6 +303,7 @@ describe('MobileSettings', () => {
       label: 'Translate to French',
       body: 'Translate: {{selectedText}}',
       mode: 'replace' as const,
+      surface: 'selection' as const,
     }
     settingsState.current = { ...settingsState.current, aiPrompts: [saved] }
     await mount()
@@ -320,7 +322,15 @@ describe('MobileSettings', () => {
     const user = userEvent
     settingsState.current = {
       ...settingsState.current,
-      aiPrompts: [{ id: 'p1', label: 'Shorten', body: 'Shorten this.', mode: 'replace' }],
+      aiPrompts: [
+        {
+          id: 'p1',
+          label: 'Shorten',
+          body: 'Shorten this.',
+          mode: 'replace',
+          surface: 'selection',
+        },
+      ],
     }
     await mount()
 

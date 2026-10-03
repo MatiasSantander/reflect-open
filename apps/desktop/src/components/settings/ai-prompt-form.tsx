@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
-import type { AiPrompt, AiPromptMode } from '@reflect/core'
+import type { AiPrompt, AiPromptMode, AiPromptSurface } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import {
@@ -30,12 +30,20 @@ export function AiPromptForm({ prompt, onSave, onClose }: AiPromptFormProps): Re
       label: prompt?.label ?? '',
       body: prompt?.body ?? '',
       mode: prompt?.mode ?? 'replace',
+      surface: prompt?.surface ?? 'selection',
     },
   })
   const mode = useWatch({ control, name: 'mode' })
+  const surface = useWatch({ control, name: 'surface' })
+  const runsOnSelection = surface === 'selection'
 
   const submit = handleSubmit((values) => {
-    onSave({ label: values.label.trim(), body: values.body.trim(), mode: values.mode })
+    onSave({
+      label: values.label.trim(),
+      body: values.body.trim(),
+      mode: values.mode,
+      surface: values.surface,
+    })
     onClose()
   })
 
@@ -46,6 +54,27 @@ export function AiPromptForm({ prompt, onSave, onClose }: AiPromptFormProps): Re
         void submit(event)
       }}
     >
+      <label className="flex flex-col gap-1.5">
+        <span className={FIELD_LABEL_CLASS}>Runs on</span>
+        <Select
+          value={surface}
+          items={{
+            selection: 'Text I select',
+            slash: 'The / menu, with no selection',
+          }}
+          onValueChange={(value) => setValue('surface', value as AiPromptSurface)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="selection">Text I select</SelectItem>
+              <SelectItem value="slash">The / menu, with no selection</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </label>
       <label className="flex flex-col gap-1.5">
         <span className={FIELD_LABEL_CLASS}>Label</span>
         <Input
@@ -62,10 +91,19 @@ export function AiPromptForm({ prompt, onSave, onClose }: AiPromptFormProps): Re
           aria-invalid={formState.errors.body !== undefined || undefined}
           className="field-sizing-fixed h-40 max-h-[50dvh] resize-y overflow-y-auto"
           rows={5}
-          placeholder={'Translate the following text to French.\n\n{{selectedText}}'}
+          placeholder={
+            runsOnSelection
+              ? 'Translate the following text to French.\n\n{{selectedText}}'
+              : 'Summarise my day.\n\nToday is {{today}}.\n\nEvents:\n{{events}}\n\nOpen tasks:\n{{tasks}}'
+          }
         />
+        <span className="text-xs text-text-tertiary">
+          {runsOnSelection
+            ? 'Use {{selectedText}} where the selection should appear.'
+            : 'Available: {{today}}, {{events}}, {{tasks}}. The result is inserted at the cursor.'}
+        </span>
       </label>
-      <label className="flex flex-col gap-1.5">
+      <label className={`flex-col gap-1.5 ${runsOnSelection ? 'flex' : 'hidden'}`}>
         <span className={FIELD_LABEL_CLASS}>Result</span>
         <Select
           value={mode}

@@ -79,6 +79,24 @@ export async function getOpenTasks(): Promise<OpenTask[]> {
 }
 
 /**
+ * Open tasks a cloud provider may be shown (Plan 26).
+ *
+ * The same rows as {@link getOpenTasks} minus the private notes'. That
+ * function includes them deliberately — it feeds a local-only list — and an
+ * AI prompt is not a local-only surface. The distinction lives here rather
+ * than at the call site because the next caller would forget it.
+ */
+export async function getCloudSafeOpenTasks(): Promise<OpenTask[]> {
+  const rows = await taskRowsQuery()
+    .where('tasks.checked', '=', 0)
+    .where('notes.isPrivate', '=', 0)
+    .orderBy('tasks.notePath')
+    .orderBy('tasks.markerOffset')
+    .execute()
+  return rows.map(toTaskRow)
+}
+
+/**
  * Completed tasks across the graph, most-recently-edited note first — the
  * Tasks view's "show archived" surface.
  */
