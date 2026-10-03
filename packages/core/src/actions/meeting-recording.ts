@@ -160,7 +160,7 @@ export async function startMeetingSession(
   // Both sides of the segment being assembled, and the points already in the
   // note — the summary runs once per rotation, not once per track, because
   // half a conversation summarises badly.
-  let pendingSegment: { part: number; lines: string[] } | null = null
+  let pendingSegment: { part: number; arrived: number; lines: string[] } | null = null
   const summarySoFar: string[] = []
   const decisionsSoFar: string[] = []
   const tasksSoFar: string[] = []
@@ -252,14 +252,26 @@ export async function startMeetingSession(
     }
     const label = segment.track === 'system' ? 'Them' : 'You'
     if (pendingSegment?.part !== segment.part) {
-      pendingSegment = { part: segment.part, lines: [] }
+      pendingSegment = { part: segment.part, arrived: 0, lines: [] }
     }
-    pendingSegment.lines.push(`${label}: ${text}`)
-    if (pendingSegment.lines.length < TRACKS_PER_SESSION) {
+    // Arrivals are counted apart from content, because a side that said
+    // nothing still has to arrive before the pair is complete. What it must
+    // not do is reach the model: a `Them:` with nothing after it reads as
+    // somebody who spoke and invites the model to fill in what they said.
+    pendingSegment.arrived += 1
+    if (text.trim() !== '') {
+      pendingSegment.lines.push(`${label}: ${text}`)
+    }
+    if (pendingSegment.arrived < TRACKS_PER_SESSION) {
       return
     }
     const joined = pendingSegment.lines.join('\n\n')
     pendingSegment = null
+    if (joined === '') {
+      // Five minutes in which neither side said anything. There is nothing to
+      // summarise and nothing to name the meeting after.
+      return
+    }
     everythingSaid.push(joined)
     const summary = await input.summarise(joined, {
       points: summarySoFar,

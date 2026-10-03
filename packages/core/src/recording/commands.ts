@@ -11,6 +11,17 @@ import { call } from '../ipc/invoke.ts'
  */
 
 /**
+ * A command that answers nothing.
+ *
+ * Rust's `()` crosses the bridge as JSON `null`, so this is `z.null()` — the
+ * same spelling the settings and embeddings bindings use. A schema that
+ * insists on `undefined` instead rejects every such answer, and for a stop
+ * that means the capture halts (Rust already acted) while every decision
+ * hanging off the stop never runs.
+ */
+const voidSchema = z.null()
+
+/**
  * Has the user granted "Screen & System Audio Recording"? Never prompts.
  *
  * Worth checking even though {@link probeSystemAudio} would also catch a
@@ -88,7 +99,7 @@ export async function startMeetingRecording(segmentMs: number): Promise<Recordin
  * because the user pressing stop and a meeting ending can race.
  */
 export async function stopMeetingRecording(): Promise<void> {
-  await call('recording_stop', {}, z.void())
+  await call('recording_stop', {}, voidSchema)
 }
 
 /** Subscribe to finished segments. Returns the unsubscribe. */
@@ -142,7 +153,7 @@ export async function callCandidates(): Promise<CallCandidate[]> {
  */
 export async function traceRecording(line: string): Promise<void> {
   try {
-    await call('recording_trace', { line }, z.void())
+    await call('recording_trace', { line }, voidSchema)
   } catch {
     // Deliberately silent — see above.
   }

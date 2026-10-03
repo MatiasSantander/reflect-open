@@ -425,3 +425,42 @@ describe('stop after a failed import', () => {
     expect(onDiscarded).toHaveBeenCalled()
   })
 })
+
+describe('a side that said nothing', () => {
+  it('is left out, so the model never sees a speaker with no words', async () => {
+    // Straight from a real session: `transcribed part=1 system 0 chars`.
+    const summarise = vi.fn().mockResolvedValue({ points: [], decisions: [], tasks: [] })
+    await start({
+      transcribeSegment: async (part) =>
+        await Promise.resolve(part.track === 'system' ? '' : 'cerremos con Next.js'),
+      summarise,
+    })
+
+    for (const part of rotation(0)) {
+      announce(part)
+    }
+    await settle()
+
+    expect(summarise).toHaveBeenCalledWith('You: cerremos con Next.js', expect.anything())
+  })
+
+  it('does not summarise a stretch neither side spoke in', async () => {
+    const summarise = vi.fn().mockResolvedValue({ points: [], decisions: [], tasks: [] })
+    const nameFromTranscript = vi.fn().mockResolvedValue('algo')
+    const session = await start({
+      transcribeSegment: async () => await Promise.resolve(''),
+      summarise,
+      nameFromTranscript,
+    })
+
+    for (const part of rotation(0)) {
+      announce(part)
+    }
+    await settle()
+    await session.stop()
+
+    expect(summarise).not.toHaveBeenCalled()
+    // Nothing was said, so there is nothing to name it after either.
+    expect(nameFromTranscript).not.toHaveBeenCalled()
+  })
+})
