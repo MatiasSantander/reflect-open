@@ -23,6 +23,7 @@ import {
   type GraphInfo,
   type MeetingSession,
 } from '@reflect/core'
+import type { AiProviderConfig } from '@reflect/core'
 import { providerFetch } from '@/lib/provider-fetch.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
 import { useCallWatch } from '@/providers/call-watch.ts'
@@ -70,6 +71,23 @@ export function useMeetingRecording(): MeetingRecordingValue {
 export interface MeetingRecordingProviderProps {
   graph: GraphInfo
   children: ReactNode
+}
+
+/**
+ * A provider and its key, or null when either is missing.
+ *
+ * Resolved once and carried for the session: a provider removed mid-meeting
+ * is rarer than four keychain prompts per segment, and the recording survives
+ * either way.
+ */
+async function credentialsFor<T extends AiProviderConfig>(
+  config: T | null,
+): Promise<{ config: T; apiKey: string } | null> {
+  if (config === null) {
+    return null
+  }
+  const apiKey = await aiApiKeyForConfig(config)
+  return apiKey === null ? null : { config, apiKey }
 }
 
 /**
@@ -161,89 +179,86 @@ export function MeetingRecordingProvider({
     setError(null)
     setRecording(true)
     const generation = generationRef.current
+    const source = detectedAsRef.current
     // Ask before recording, never after. A tap created without this
     // permission is created happily and delivers digital silence, so a
     // recording that never asked is a recording of nothing.
     void ensureSystemAudio()
-      .then((allowed) => {
+      .then(async (allowed) => {
         if (!allowed) {
           statusRef.current = 'idle'
           setRecording(false)
           setError('Reflect needs permission to record system audio.')
           return null
         }
-        return startMeetingSession({
+        // Credentials are resolved once per session, not once per segment.
+        // Each read is a keychain access, and macOS may ask the user to
+        // approve it — four prompts per five minutes is not a feature.
+        const settings = settingsRef.current
+        const state = {
+          providers: settings.aiProviders,
+          defaultProviderId: settings.defaultAiProviderId,
+        }
+        const transcription = await credentialsFor(pickTranscriptionConfig(state))
+        const assistant = await credentialsFor(
+          settings.aiProviders.find((candidate) => candidate.id === settings.defaultAiProviderId) ??
+            null,
+        )
+
+        return await startMeetingSession({
           segmentMs: MEETING_SEGMENT_MS,
           generation,
-          ...(detectedAsRef.current === null ? {} : { title: detectedAsRef.current }),
+          ...(source === null ? {} : { source }),
 
-          // Transcription and summarising are passed in rather than reached for,
-          // so the session stays testable and a graph with no provider configured
-          // still records — the audio is the durable part either way.
-          transcribeSegment: async (_segment, audio) => {
-            const state = {
-              providers: settingsRef.current.aiProviders,
-              defaultProviderId: settingsRef.current.defaultAiProviderId,
-            }
-            const config = pickTranscriptionConfig(state)
-            if (config === null) {
-              return ''
-            }
-            const apiKey = await aiApiKeyForConfig(config)
-            if (apiKey === null) {
-              return ''
-            }
-            if (audio.length === 0) {
-              return ''
-            }
-            return await transcribeAudio({
-              provider: config.provider,
-              apiKey,
-              prompt: settingsRef.current.transcriptionPrompt,
-              audio: new Blob([audio.slice().buffer], { type: 'audio/wav' }),
-              mimeType: 'audio/wav',
-              fetchFn: providerFetch,
-              isStale: () => false,
-            })
-          },
+          // Transcription and summarising are passed in rather than reached
+          // for, so the session stays testable and a graph with no provider
+          // configured still records — the audio is the durable part either
+          // way.
+          transcribeSegment:
+            transcription === null
+              ? undefined
+              : async (_segment, audio) => {
+                  if (audio.length === 0) {
+                    return ''
+                  }
+                  return await transcribeAudio({
+                    provider: transcription.config.provider,
+                    apiKey: transcription.apiKey,
+                    prompt: settings.transcriptionPrompt,
+                    audio: new Blob([audio.slice().buffer], { type: 'audio/wav' }),
+                    mimeType: 'audio/wav',
+                    fetchFn: providerFetch,
+                    isStale: () => false,
+                  })
+                },
 
-          summarise: async (segment, soFar) => {
-            const config = settingsRef.current.aiProviders.find(
-              (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
-            )
-            if (config === undefined) {
-              return { points: [], decisions: [], tasks: [] }
-            }
-            const apiKey = await aiApiKeyForConfig(config)
-            if (apiKey === null) {
-              return { points: [], decisions: [], tasks: [] }
-            }
-            return await summariseMeetingSegment({
-              config,
-              apiKey,
-              segment,
-              soFar: soFar.points,
-              decisionsSoFar: soFar.decisions,
-              tasksSoFar: soFar.tasks,
-              fetchFn: providerFetch,
-            })
-          },
+          summarise:
+            assistant === null
+              ? undefined
+              : async (segment, soFar) =>
+                  await summariseMeetingSegment({
+                    config: assistant.config,
+                    apiKey: assistant.apiKey,
+                    segment,
+                    soFar: soFar.points,
+                    decisionsSoFar: soFar.decisions,
+                    tasksSoFar: soFar.tasks,
+                    fetchFn: providerFetch,
+                  }),
 
           // Named last, from what was said. Until then the note carries its
           // clock and its app, which is at least true.
-          nameFromTranscript: async (transcript) => {
-            const config = settingsRef.current.aiProviders.find(
-              (candidate) => candidate.id === settingsRef.current.defaultAiProviderId,
-            )
-            if (config === undefined) {
-              return ''
-            }
-            const apiKey = await aiApiKeyForConfig(config)
-            if (apiKey === null) {
-              return ''
-            }
-            return await nameMeeting({ config, apiKey, transcript, fetchFn: providerFetch })
-          },
+          nameFromTranscript:
+            assistant === null
+              ? undefined
+              : async (transcript) =>
+                  await nameMeeting({
+                    config: assistant.config,
+                    apiKey: assistant.apiKey,
+                    transcript,
+                    fetchFn: providerFetch,
+                  }),
+
           onSegment: (segment, path) => {
             console.debug('[meeting] segment imported', segment.part, segment.track, path)
           },
