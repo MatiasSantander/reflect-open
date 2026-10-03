@@ -20,6 +20,18 @@ const openNoteFindForPath = vi.hoisted(() => vi.fn(() => true))
 const findNextInNote = vi.hoisted(() => vi.fn())
 const findPreviousInNote = vi.hoisted(() => vi.fn())
 
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/lib/platform.ts', () => ({ isMacosDesktop: true, isNativeShell: () => false }))
 vi.mock('@/lib/keybindings.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/keybindings.ts')>()),

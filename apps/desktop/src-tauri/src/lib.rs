@@ -17,6 +17,7 @@
 mod background_task;
 mod blocking;
 mod calendar;
+mod recording;
 mod capture;
 mod conflict;
 mod contacts;
@@ -268,6 +269,7 @@ pub fn run() {
         .manage(fs::ImportCancel::default())
         .manage(fs::assets::AssetUploads::default())
         .manage(db::IndexState::default())
+        .manage(recording::RecordingState::default())
         .manage(watcher::WatcherState::default())
         .manage(quit::QuitState::default())
         .manage(windows::WindowInit::default())
@@ -355,6 +357,12 @@ pub fn run() {
             calendar::calendar_request_access,
             calendar::calendar_list_calendars,
             calendar::calendar_list_events,
+            recording::recording_system_audio_access_granted,
+            recording::recording_request_system_audio_access,
+            recording::recording_call_candidates,
+            recording::recording_trace,
+            recording::recording_start,
+            recording::recording_stop,
             contacts::contacts_authorization_status,
             contacts::contacts_request_access,
             contacts::contacts_lookup_by_email,

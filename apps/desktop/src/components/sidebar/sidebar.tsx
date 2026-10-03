@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import { isUntitledNotePath, type GraphInfo } from '@reflect/core'
 import { ListChecks, MessageSquare, SquarePen } from 'lucide-react'
 import { AudioMemoButton } from '@/components/audio-memo/audio-memo-button.tsx'
+import { MeetingRecordingBanner } from '@/components/meeting-recording-banner.tsx'
 import { ListIcon } from '@/components/icons/list-icon.tsx'
 import { PencilIcon } from '@/components/icons/pencil-icon.tsx'
 import { usePinnedNotes } from '@/hooks/use-pinned-notes.ts'
@@ -66,6 +67,8 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
           </div>
           <AudioMemoButton />
         </div>
+
+        <MeetingRecordingBanner />
 
         <nav aria-label="Primary" className="mt-6 space-y-1 px-4">
           <SidebarItem

@@ -23,6 +23,7 @@ function part(overrides: Partial<AudioMemoPart>): AudioMemoPart {
     path: audioMemoPartPath(MEMO, partNumber, end),
     part: partNumber,
     end,
+    track: null,
     placeholder: false,
     sizeBytes: 1024,
     modifiedMs: 1_000_000,
@@ -143,5 +144,55 @@ describe('stitchSessionTranscript', () => {
     expect(stitchSessionTranscript([{ text: 'first' }, { text: '' }, { text: 'third' }])).toBe(
       'first\n\nthird',
     )
+  })
+})
+
+describe('a meeting session is judged per track', () => {
+  function track(partNumber: number, end: boolean, name: 'system' | 'mic'): AudioMemoPart {
+    return {
+      ...part({ part: partNumber, end }),
+      path: audioMemoPartPath(MEMO, partNumber, end, name),
+      track: name,
+    }
+  }
+
+  it('is ready when both tracks run 1..N', () => {
+    const session = groupAudioMemoSessions([
+      track(1, false, 'system'),
+      track(1, false, 'mic'),
+      track(2, true, 'system'),
+      track(2, true, 'mic'),
+    ])[0]!
+    expect(isSessionReady(session, 2_000_000)).toBe(true)
+  })
+
+  it('is not ready when one track is missing a segment', () => {
+    // A flat index check would pass this — four parts numbered 1, 1, 2, 2 —
+    // which is exactly the hole this guard exists to catch.
+    const session = groupAudioMemoSessions([
+      track(1, false, 'system'),
+      track(1, false, 'mic'),
+      track(2, true, 'system'),
+      track(3, true, 'mic'),
+    ])[0]!
+    expect(isSessionReady(session, 2_000_000)).toBe(false)
+  })
+})
+
+describe('a two-track transcript says who spoke', () => {
+  it('labels each track', () => {
+    expect(stitchSessionTranscript([{ text: 'hola' }, { text: 'hi' }], ['system', 'mic'])).toBe(
+      '**Them**\n\nhola\n\n**You**\n\nhi',
+    )
+  })
+
+  it('leaves a single-track session exactly as it was', () => {
+    expect(stitchSessionTranscript([{ text: 'one' }, { text: 'two' }])).toBe('one\n\ntwo')
+  })
+
+  it('names the track in a failure instead of a position', () => {
+    expect(
+      stitchSessionTranscript([{ text: 'hola' }, { rejected: 'too big' }], ['system', 'mic']),
+    ).toBe('**Them**\n\nhola\n\nYou transcription failed: too big')
   })
 })

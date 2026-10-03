@@ -207,6 +207,39 @@ export {
 } from '../calendar/commands.ts'
 export { displayEvents, isDeclinedByUser, defaultAttendees, dayRange } from '../calendar/events.ts'
 export {
+  systemAudioAccessGranted,
+  requestSystemAudioAccess,
+  startMeetingRecording,
+  stopMeetingRecording,
+  subscribeRecordingSegments,
+  callCandidates,
+  traceRecording,
+  callCandidateSchema,
+  type CallCandidate,
+} from '../recording/commands.ts'
+export { isCallCandidate, candidateTitle, settledCandidate } from '../actions/call-detection.ts'
+export { recordingSegmentSchema, type RecordingSegment } from '../recording/commands.ts'
+export {
+  nameMeeting,
+  summariseMeetingSegment,
+  type MeetingSummary,
+  type MeetingSummaryRequest,
+} from '../ai/meeting-summary.ts'
+export {
+  openMeetingNote,
+  appendTranscript,
+  appendDecision,
+  appendSummary,
+  appendTask,
+  renameMeetingNote,
+} from '../actions/meeting-note.ts'
+export {
+  startMeetingSession,
+  MEETING_SEGMENT_MS,
+  type MeetingSession,
+  type StartMeetingSessionInput,
+} from '../actions/meeting-recording.ts'
+export {
   addMeetingToDaily,
   meetingLine,
   MEETINGS_HEADING,

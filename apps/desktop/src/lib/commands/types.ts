@@ -42,6 +42,8 @@ export interface CommandContext {
   switchGraph: (index: number) => void
   /** Start an audio memo, or stop-and-save the one recording. */
   toggleAudioMemo: () => void
+  /** Start or stop capturing a meeting (Plan 25). */
+  toggleMeetingRecording: () => void
   /**
    * The open **index session** generation (`index_open`), or null when none —
    * what index/embedding commands echo. File writes (`note_write`) take

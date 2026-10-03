@@ -14,7 +14,7 @@ import {
   writeTranscriptCache,
 } from '../graph/commands.ts'
 import { hasBinaryIpc } from '../ipc/bridge.ts'
-import type { AudioMemoIdentity } from './audio-memo.ts'
+import type { AudioMemoIdentity, AudioMemoTrack } from './audio-memo.ts'
 
 /**
  * Session semantics for segmented audio memos. One recording session rotates
@@ -67,6 +67,11 @@ export interface AudioMemoPart {
   part: number
   /** True on the final segment of a cleanly stopped session. */
   end: boolean
+  /**
+   * Which track this segment is, or `null` on a single-track memo. A meeting
+   * records two files per position, so completeness is judged per track.
+   */
+  track: AudioMemoTrack | null
   /** iCloud eviction placeholder — the bytes are not local (Plan 21). */
   placeholder: boolean
   /** Listing size, for the transcription size guard. */
@@ -118,10 +123,33 @@ export function isSessionClosed(session: AudioMemoSession, nowMs: number): boole
  * silent hole), and every segment's bytes locally readable.
  */
 export function isSessionReady(session: AudioMemoSession, nowMs: number): boolean {
-  return (
-    isSessionClosed(session, nowMs) &&
-    session.parts.every((part, index) => part.part === index + 1 && !part.placeholder)
+  if (!isSessionClosed(session, nowMs)) {
+    return false
+  }
+  if (session.parts.some((part) => part.placeholder)) {
+    return false
+  }
+  // A meeting writes one file per track per position, so the run from 1 to N
+  // has to be complete *within* a track: interleaving the two would read as
+  // 1, 1, 2, 2 and fail a flat index check that single-track memos pass.
+  const byTrack = new Map<string, number[]>()
+  for (const part of session.parts) {
+    const key = part.track ?? ''
+    const positions = byTrack.get(key)
+    if (positions === undefined) {
+      byTrack.set(key, [part.part])
+    } else {
+      positions.push(part.part)
+    }
+  }
+  const runs = [...byTrack.values()].map((positions) =>
+    positions.sort((first, second) => first - second),
   )
+  const complete = runs.every((positions) => positions.every((part, index) => part === index + 1))
+  // And the same length: a system track of [1, 2] beside a mic of [1] runs
+  // 1..N on both sides and is still missing half of the last segment, which
+  // would publish a transcript with one voice silently absent.
+  return complete && runs.every((positions) => positions.length === runs[0]!.length)
 }
 
 /** A segment's terminal transcription result, as cached and as stitched. */
@@ -162,19 +190,40 @@ export function encodePartResult(result: AudioMemoPartResult): string {
  * line so a single bad container never sinks the rest of the meeting. The
  * single-part wording matches the pre-segmentation notes byte for byte.
  */
-export function stitchSessionTranscript(results: AudioMemoPartResult[]): string {
+export function stitchSessionTranscript(
+  results: AudioMemoPartResult[],
+  tracks: readonly (AudioMemoTrack | null)[] = [],
+): string {
   if (results.length === 1) {
     const only = results[0]!
     return 'rejected' in only ? `Transcription failed: ${only.rejected}` : only.text
   }
   return results
-    .map((result, index) =>
-      'rejected' in result
-        ? `Part ${index + 1} transcription failed: ${result.rejected}`
-        : result.text,
-    )
+    .map((result, index) => {
+      const label = trackLabel(tracks[index])
+      if ('rejected' in result) {
+        return `${label ?? `Part ${index + 1}`} transcription failed: ${result.rejected}`
+      }
+      // Two tracks are the whole reason the capture records separately: a
+      // transcript that merges them back into one voice throws away who was
+      // speaking, which no amount of later processing recovers.
+      return label === null || result.text === '' ? result.text : `**${label}**\n\n${result.text}`
+    })
     .filter((section) => section !== '')
     .join('\n\n')
+}
+
+/**
+ * How a track reads in a note. `system` is everyone on the far end of the
+ * call and `mic` is the person at this machine — true by convention, and the
+ * convention breaks in a shared room, where one microphone carries several
+ * people. Labelling it anyway beats inferring, which would be guessing.
+ */
+export function trackLabel(track: AudioMemoTrack | null | undefined): string | null {
+  if (track === 'system') {
+    return 'Them'
+  }
+  return track === 'mic' ? 'You' : null
 }
 
 /** Read a segment's cached result, or `null` when none is stored yet. */

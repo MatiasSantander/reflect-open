@@ -14,6 +14,18 @@ const workspaceState = vi.hoisted<WorkspaceState>(() => ({
   target: { kind: 'daily', date: '2026-07-11' },
 }))
 
+vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
+  useMeetingRecording: () => ({
+    recording: false,
+    detectedAs: null,
+    startingAt: null,
+    error: null,
+    toggle: vi.fn(),
+    cancelStart: vi.fn(),
+  }),
+  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
+}))
+
 vi.mock('@/components/command-palette/command-palette.tsx', () => ({
   CommandPalette: () => null,
 }))

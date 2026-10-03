@@ -28,6 +28,7 @@ import {
   groupAudioMemoSessions,
   isSessionReady,
   stitchSessionTranscript,
+  trackLabel,
   transcribeSessionParts,
   type AudioMemoPart,
   type AudioMemoSession,
@@ -104,16 +105,21 @@ const MIME_BY_EXTENSION: Record<string, string> = Object.fromEntries(
 )
 
 /**
- * `audio-memos/(audio-memo-<date>-<hhmmss>-<ms>)[.part-NNN[-end]].<ext>`.
+ * `audio-memos/(audio-memo-<date>-<hhmmss>-<ms>)[.part-NNN[-end]][.<track>].<ext>`.
  * Milliseconds make back-to-back recordings collision-free; the title drops
  * them. The optional `part` suffix is a session segment (see
  * `audio-memo-session`): `-end` marks the final segment of a cleanly stopped
  * session, and a legacy suffix-free file reads as a one-part closed session.
  * Part numbers are zero-padded to three digits and grow past it: a session
  * has no duration cap, so `part-1000` must parse like `part-999`.
+ *
+ * The optional `track` suffix belongs to a meeting recording, which captures
+ * the room and the microphone as two files per segment (Plan 25). A memo
+ * without one is single-track, which is every memo the app recorded before
+ * meetings existed — so its absence must keep parsing exactly as it did.
  */
 const MEMO_PATH_RE =
-  /^audio-memos\/(audio-memo-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})-\d{3})(?:\.part-(\d{3,})(-end)?)?\.([a-z0-9]+)$/
+  /^audio-memos\/(audio-memo-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})-\d{3})(?:\.part-(\d{3,})(-end)?)?(?:\.(system|mic))?\.([a-z0-9]+)$/
 
 function pad(value: number, width: number): string {
   return String(value).padStart(width, '0')
@@ -159,11 +165,20 @@ export function audioMemoFromPath(path: string): AudioMemoIdentity | null {
   return audioMemoPartFromPath(path)?.memo ?? null
 }
 
+/**
+ * Which side of a meeting a segment captured: `system` is what the call
+ * played, `mic` is what the person at this machine said. Keeping them apart
+ * is what labels a transcript without any diarization.
+ */
+export type AudioMemoTrack = 'system' | 'mic'
+
 /** A parsed segment path: which session, which position, end-marked or not. */
 export interface ParsedAudioMemoPart {
   memo: AudioMemoIdentity
   part: number
   end: boolean
+  /** `null` on a single-track memo — the shape every memo had before Plan 25. */
+  track: AudioMemoTrack | null
 }
 
 /**
@@ -175,7 +190,7 @@ export function audioMemoPartFromPath(path: string): ParsedAudioMemoPart | null 
   if (match === null) {
     return null
   }
-  const [, base, date, hours, minutes, seconds, part, end, extension] = match
+  const [, base, date, hours, minutes, seconds, part, end, track, extension] = match
   if (
     base === undefined ||
     date === undefined ||
@@ -202,13 +217,25 @@ export function audioMemoPartFromPath(path: string): ParsedAudioMemoPart | null 
     memo: buildIdentity(base, date, hours, minutes, seconds, extension),
     part: partNumber,
     end: part === undefined ? true : end !== undefined,
+    track: track === 'system' || track === 'mic' ? track : null,
   }
 }
 
-/** The stored path of one session segment, e.g. `….part-002-end.m4a`. */
-export function audioMemoPartPath(memo: AudioMemoIdentity, part: number, end: boolean): string {
+/**
+ * The stored path of one session segment, e.g. `….part-002-end.m4a`, or
+ * `….part-002-end.mic.wav` for one track of a meeting recording.
+ */
+export function audioMemoPartPath(
+  memo: AudioMemoIdentity,
+  part: number,
+  end: boolean,
+  track: AudioMemoTrack | null = null,
+): string {
   const extension = memo.audioPath.slice(memo.audioPath.lastIndexOf('.') + 1)
-  return audioMemoPath(`${memo.base}.part-${pad(part, 3)}${end ? '-end' : ''}.${extension}`)
+  const suffix = track === null ? '' : `.${track}`
+  return audioMemoPath(
+    `${memo.base}.part-${pad(part, 3)}${end ? '-end' : ''}${suffix}.${extension}`,
+  )
 }
 
 /**
@@ -330,6 +357,7 @@ export async function listPendingAudioMemoSessions(
         path: file.path,
         part: parsed.part,
         end: parsed.end,
+        track: parsed.track,
         placeholder: file.placeholder === true,
         sizeBytes: file.size,
         modifiedMs: file.modifiedMs,
@@ -377,12 +405,25 @@ function transcriptionNote(
   return `---\naliases: [${memo.base}]\n---\n\n# ${title}\n\n${recordings}\n\n${body}\n`
 }
 
-/** The note's link line: every segment stays reachable from the transcript. */
+/**
+ * The note's link line: every segment stays reachable from the transcript.
+ * A meeting's segments are labelled by track rather than by position, which
+ * is the only labelling that survives a second track being added — `Part 2`
+ * would otherwise mean "the microphone" on one note and "the second five
+ * minutes" on another.
+ */
 function recordingLinks(session: AudioMemoSession): string {
+  const positions = new Set(session.parts.map((part) => part.part))
   return session.parts
-    .map((part, index) =>
-      index === 0 ? `[Recording](${part.path})` : `[Part ${index + 1}](${part.path})`,
-    )
+    .map((part, index) => {
+      const label = trackLabel(part.track)
+      if (label === null) {
+        return index === 0 ? `[Recording](${part.path})` : `[Part ${index + 1}](${part.path})`
+      }
+      return positions.size > 1
+        ? `[${label} ${part.part}](${part.path})`
+        : `[${label}](${part.path})`
+    })
     .join(' · ')
 }
 
@@ -614,7 +655,10 @@ export async function reconcileAudioMemos(
       if (stale()) return stalled()
       const anyRejected = parts.results.some((result) => 'rejected' in result)
       const allRejected = parts.results.every((result) => 'rejected' in result)
-      const stitched = stitchSessionTranscript(parts.results)
+      const stitched = stitchSessionTranscript(
+        parts.results,
+        session.parts.map((part) => part.track),
+      )
       let title = memo.title
       let body = stitched
       if (!anyRejected) {

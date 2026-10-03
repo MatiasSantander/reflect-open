@@ -82,6 +82,7 @@ function fakeContext(overrides?: Partial<CommandContext>) {
     findPreviousInNote: vi.fn(),
     switchGraph: vi.fn(),
     toggleAudioMemo: vi.fn(),
+    toggleMeetingRecording: vi.fn(),
     generation: () => 7,
     graphRoot: () => '/g',
     openPalette: vi.fn(),

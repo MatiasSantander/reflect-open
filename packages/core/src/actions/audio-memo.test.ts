@@ -159,7 +159,7 @@ describe('audioMemoFromPath', () => {
 
   it('parses a part number that outgrew three digits', () => {
     const path = 'audio-memos/audio-memo-2026-06-11-153022-845.part-1000.webm'
-    expect(audioMemoPartFromPath(path)).toEqual({ memo: MEMO, part: 1000, end: false })
+    expect(audioMemoPartFromPath(path)).toEqual({ memo: MEMO, part: 1000, end: false, track: null })
     expect(audioMemoPartPath(MEMO, 1000, false)).toBe(path)
   })
 
@@ -800,5 +800,36 @@ describe('isSilentStop', () => {
     expect(isSilentStop(stop('auth'))).toBe(false)
     expect(isSilentStop(stop('io'))).toBe(false)
     expect(isSilentStop(stop('unknown'))).toBe(false)
+  })
+})
+
+describe('meeting recordings carry a track', () => {
+  const memo = audioMemoIdentity(new Date(2026, 9, 2, 17, 0, 0, 123), 'audio/wav')
+
+  it('round-trips a track through the path', () => {
+    const path = audioMemoPartPath(memo, 2, false, 'system')
+    expect(path).toBe(`audio-memos/${memo.base}.part-002.system.wav`)
+    expect(audioMemoPartFromPath(path)).toMatchObject({ part: 2, end: false, track: 'system' })
+  })
+
+  it('keeps the end marker ahead of the track', () => {
+    const path = audioMemoPartPath(memo, 12, true, 'mic')
+    expect(path).toBe(`audio-memos/${memo.base}.part-012-end.mic.wav`)
+    expect(audioMemoPartFromPath(path)).toMatchObject({ part: 12, end: true, track: 'mic' })
+  })
+
+  it('reads a single-track memo as having no track, exactly as before', () => {
+    const path = audioMemoPartPath(memo, 1, false)
+    expect(path).toBe(`audio-memos/${memo.base}.part-001.wav`)
+    expect(audioMemoPartFromPath(path)).toMatchObject({ track: null })
+    expect(audioMemoPartFromPath(`audio-memos/${memo.base}.wav`)).toMatchObject({
+      part: 1,
+      end: true,
+      track: null,
+    })
+  })
+
+  it('refuses a suffix that is not a track, rather than inventing one', () => {
+    expect(audioMemoPartFromPath(`audio-memos/${memo.base}.part-001.speaker.wav`)).toBeNull()
   })
 })

@@ -15,6 +15,7 @@ import { isMacosDesktop } from '@/lib/platform.ts'
 import { retryFailedEmbeddings } from '@/lib/semantic.ts'
 import type { CommandContext } from '@/lib/commands/types.ts'
 import { useAudioMemo } from '@/providers/audio-memo-provider.tsx'
+import { useMeetingRecording } from '@/providers/meeting-recording-provider.tsx'
 import { useChatSession } from '@/providers/chat-provider.tsx'
 import { useFocusedDailyDate } from '@/providers/focused-daily-provider.tsx'
 import { useGraph } from '@/providers/graph-provider.tsx'
@@ -174,6 +175,7 @@ export function useAppShortcuts(): CommandContext {
   } = useNoteTemplates()
   const { toggleSidebar } = useSidebar()
   const { toggle: toggleAudioMemo } = useAudioMemo()
+  const { toggle: toggleMeetingRecording } = useMeetingRecording()
   const { newChat } = useChatSession()
   const { updateSettings } = useSettings()
   const {
@@ -267,6 +269,7 @@ export function useAppShortcuts(): CommandContext {
         void openRecentRef.current(recent.root)
       },
       toggleAudioMemo,
+      toggleMeetingRecording,
       generation: () => generationRef.current,
       graphRoot: () => graphRootRef.current,
       openPalette,
@@ -298,6 +301,7 @@ export function useAppShortcuts(): CommandContext {
       findNextInNote,
       findPreviousInNote,
       toggleAudioMemo,
+      toggleMeetingRecording,
       updateSettings,
     ],
   )
