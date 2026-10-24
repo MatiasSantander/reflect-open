@@ -76,24 +76,6 @@ pub fn is_call(candidate: &CallCandidate) -> bool {
     BROWSER_APPS.contains(&candidate.app.as_str()) && call_window(candidate).is_some()
 }
 
-/// What to call the note, from the window that matched.
-///
-/// `- ADIPA - Slack` is the dialog before anyone answers: the separator sits
-/// where the person's name will go, so there is no name to take and the
-/// transcript supplies one instead.
-pub fn candidate_title(candidate: &CallCandidate) -> Option<String> {
-    let window = call_window(candidate)?;
-    if window
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_whitespace() || c == '-' || c == '–' || c == '—')
-    {
-        return None;
-    }
-    let trimmed = window.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
 /// Which candidate to record once the situation has settled.
 ///
 /// One Slack call rings in the desktop app *and* the browser, so the first
@@ -266,22 +248,6 @@ mod tests {
     #[test]
     fn matches_a_window_title_whatever_its_case() {
         assert!(is_call(&candidate("Safari.app", 1, &["ZOOM Meeting"])));
-    }
-
-    #[test]
-    fn names_the_note_after_the_window_that_matched() {
-        assert_eq!(
-            candidate_title(&candidate("Dia.app", 1, &["Matías - ADIPA - Slack"])).as_deref(),
-            Some("Matías - ADIPA - Slack"),
-        );
-    }
-
-    #[test]
-    fn takes_no_name_from_the_dialog_before_anyone_answers() {
-        // `- ADIPA - Slack`: the separator sits where the name will go.
-        assert_eq!(candidate_title(&candidate("Dia.app", 1, &["- ADIPA - Slack"])), None);
-        assert_eq!(candidate_title(&candidate("Dia.app", 1, &["– ADIPA - Slack"])), None);
-        assert_eq!(candidate_title(&candidate("Slack.app", 1, &[])), None);
     }
 
     #[test]

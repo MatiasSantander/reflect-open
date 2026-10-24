@@ -38,6 +38,31 @@ pub struct Summary {
     pub tasks: Vec<String>,
 }
 
+/// The two provider calls, behind a trait.
+///
+/// Not for taste — for testability. What can fail silently here is the
+/// *orchestration*: whether a summary reaches the note, whether a silent far
+/// end is discarded, whether the rename lands. None of that needs a real
+/// provider to be wrong, and all of it needs one to be tested against the
+/// network.
+pub trait Assistant {
+    fn transcribe(&self, wav: &Path) -> String;
+    fn summarise(&self, segment: &str, so_far: AlreadyNoted<'_>) -> Summary;
+    fn name_meeting(&self, transcript: &str) -> String;
+}
+
+impl Assistant for Provider {
+    fn transcribe(&self, wav: &Path) -> String {
+        transcribe(self, wav)
+    }
+    fn summarise(&self, segment: &str, so_far: AlreadyNoted<'_>) -> Summary {
+        summarise(self, segment, so_far)
+    }
+    fn name_meeting(&self, transcript: &str) -> String {
+        name_meeting(self, transcript)
+    }
+}
+
 /// Transcribe one WAV file.
 ///
 /// Empty on failure, which is the honest answer: the file is still on disk,
