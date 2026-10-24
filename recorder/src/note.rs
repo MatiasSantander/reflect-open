@@ -101,10 +101,6 @@ impl MeetingNote {
         Ok(TranscriptNote { path })
     }
 
-    pub fn stem(&self) -> &str {
-        &self.stem
-    }
-
     /// Append one bullet under the running summary.
     pub fn append_point(&self, at: &str, text: &str) -> io::Result<()> {
         self.append_under(KEY_POINTS, &format!("**{at}** {text}"))

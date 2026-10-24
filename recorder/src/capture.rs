@@ -46,6 +46,10 @@ pub struct RecordingSegment {
     /// Samples loud enough to be something rather than room tone. On the
     /// system track this is the evidence that anyone else was there.
     pub loud: u64,
+    /// The rate the file was written at. Nothing reads it today — the WAV
+    /// header carries the same number — but a segment that cannot say how
+    /// fast it is cannot be diagnosed from a log line.
+    #[allow(dead_code)]
     pub rate: u32,
 }
 
