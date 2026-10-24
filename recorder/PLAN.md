@@ -1,3 +1,9 @@
+> **Where this now lives.** This plan was written while the recorder was
+> part of Reflect. The code it describes moved out to this directory; what
+> survives here is the reasoning — why Core Audio over ScreenCaptureKit, why
+> two tracks, the traps and the edge cases — which is as true outside Reflect
+> as it was inside. The file contract is in `FORMAT.md`.
+
 # Plan 25 — Meeting notes (capture, transcribe, summarize)
 
 **Goal:** a meeting becomes one note that writes itself while it happens.
