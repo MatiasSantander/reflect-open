@@ -81,6 +81,26 @@ impl MeetingNote {
         &self.path
     }
 
+    /// Create the transcript note beside the meeting, cross-linked.
+    pub fn create_transcript(&self, title: &str) -> io::Result<TranscriptNote> {
+        let path = self.path.with_file_name(format!("{}-transcript.md", self.stem));
+        let body = [
+            "---".to_string(),
+            format!("id: {}", uuid::Uuid::new_v4()),
+            format!("aliases: [{}-transcript]", self.stem),
+            "---".to_string(),
+            String::new(),
+            format!("# {title} · transcript"),
+            String::new(),
+            "- Type: #meeting".to_string(),
+            format!("- [[{}|{title}]]", self.stem),
+            String::new(),
+        ]
+        .join("\n");
+        fs::write(&path, body)?;
+        Ok(TranscriptNote { path })
+    }
+
     pub fn stem(&self) -> &str {
         &self.stem
     }
@@ -108,6 +128,11 @@ impl MeetingNote {
         self.append_under(TASKS, &line)
     }
 
+    /// The transcript's path, whether or not it exists.
+    pub fn transcript_path(&self) -> PathBuf {
+        self.path.with_file_name(format!("{}-transcript.md", self.stem))
+    }
+
     /// Rename the meeting once there is something to name it after.
     ///
     /// The heading only. The filename is an address, and an address that
@@ -127,7 +152,26 @@ impl MeetingNote {
                 }
             })
             .collect();
-        fs::write(&self.path, format!("{}\n", renamed.join("\n")))
+        fs::write(&self.path, format!("{}\n", renamed.join("\n")))?;
+        // The transcript's heading and its link back both name the meeting,
+        // so both go stale on a rename.
+        let transcript = self.transcript_path();
+        if let Ok(source) = fs::read_to_string(&transcript) {
+            let fixed: Vec<String> = source
+                .lines()
+                .map(|line| {
+                    if line.starts_with("# ") {
+                        format!("# {title} · transcript")
+                    } else if line.starts_with(&format!("- [[{}|", self.stem)) {
+                        format!("- [[{}|{title}]]", self.stem)
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect();
+            fs::write(&transcript, format!("{}\n", fixed.join("\n")))?;
+        }
+        Ok(())
     }
 
     /// Take the note back out — a meeting nobody else spoke in.
@@ -135,10 +179,13 @@ impl MeetingNote {
     /// Nothing else references it, because nothing was ever written into the
     /// daily note. That is the whole reason the link points the other way.
     pub fn discard(&self) -> io::Result<()> {
-        match fs::remove_file(&self.path) {
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-            other => other,
+        for path in [self.path.clone(), self.transcript_path()] {
+            match fs::remove_file(&path) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                other => other?,
+            }
         }
+        Ok(())
     }
 
     /// Read the note as it is right now, or `None` if the user deleted it.
@@ -367,5 +414,117 @@ mod tests {
         assert_eq!(stem("2026-10-24", 11, 13, "Slack"), "2026-10-24-1113-slack");
         assert_eq!(stem("2026-10-24", 9, 5, "zoom.us"), "2026-10-24-0905-zoom-us");
         assert_eq!(stem("2026-10-24", 9, 5, ""), "2026-10-24-0905");
+    }
+}
+
+/// The transcript note: one long thing in the order it was said.
+pub struct TranscriptNote {
+    path: PathBuf,
+}
+
+impl TranscriptNote {
+    /// Append one segment's transcript, labelled by who spoke and by the time
+    /// it was said — a reader looking for "what did they say around 17:20" is
+    /// the only reader a transcript ever has.
+    pub fn append(&self, at: &str, speaker: &str, text: &str) -> io::Result<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(());
+        }
+        // Straight onto the end: it has no sections, being one long thing in
+        // the order it was said.
+        let Ok(source) = fs::read_to_string(&self.path) else {
+            // Deleted mid-meeting. Their note, their decision.
+            return Ok(());
+        };
+        fs::write(
+            &self.path,
+            format!("{}\n\n- **{at} · {speaker}** — {text}\n", source.trim_end()),
+        )
+    }
+}
+
+#[cfg(test)]
+mod transcript_tests {
+    use super::*;
+
+    fn graph(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("recorder-tn-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn pair(dir: &Path) -> (MeetingNote, TranscriptNote) {
+        let note = MeetingNote::create(
+            dir,
+            "2026-10-24-1113-slack".into(),
+            "11:13 · Slack",
+            "2026-10-24",
+            Path::new("/tmp/a"),
+        )
+        .unwrap();
+        let transcript = note.create_transcript("11:13 · Slack").unwrap();
+        (note, transcript)
+    }
+
+    #[test]
+    fn writes_the_transcript_beside_the_meeting_cross_linked() {
+        let dir = graph("beside");
+        let (note, _) = pair(&dir);
+        let body = fs::read_to_string(note.transcript_path()).unwrap();
+
+        assert!(note.transcript_path().ends_with("2026-10-24-1113-slack-transcript.md"));
+        assert!(body.contains("# 11:13 · Slack · transcript"));
+        assert!(body.contains("- Type: #meeting"));
+        assert!(body.contains("- [[2026-10-24-1113-slack|11:13 · Slack]]"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn labels_each_line_by_who_spoke_and_keeps_the_meeting_note_short() {
+        let dir = graph("labels");
+        let (note, transcript) = pair(&dir);
+        transcript.append("11:20", "Them", "¿Cuántos colegios?").unwrap();
+        transcript.append("11:20", "You", "Tres por ahora").unwrap();
+
+        let body = fs::read_to_string(note.transcript_path()).unwrap();
+        assert!(body.contains("- **11:20 · Them** — ¿Cuántos colegios?"));
+        assert!(body.contains("- **11:20 · You** — Tres por ahora"));
+        // The long thing stays out of the note that gets read.
+        assert!(!fs::read_to_string(note.path()).unwrap().contains("Tres por ahora"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn says_nothing_about_a_side_that_said_nothing() {
+        let dir = graph("silent");
+        let (note, transcript) = pair(&dir);
+        let before = fs::read_to_string(note.transcript_path()).unwrap();
+        transcript.append("11:20", "Them", "   ").unwrap();
+        assert_eq!(fs::read_to_string(note.transcript_path()).unwrap(), before);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_rename_reaches_the_transcript_and_its_link_back() {
+        let dir = graph("rename");
+        let (note, _) = pair(&dir);
+        note.retitle("11:13 · Slack · Precios por colegio").unwrap();
+
+        let body = fs::read_to_string(note.transcript_path()).unwrap();
+        assert!(body.contains("# 11:13 · Slack · Precios por colegio · transcript"));
+        assert!(body.contains("- [[2026-10-24-1113-slack|11:13 · Slack · Precios por colegio]]"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discarding_takes_both_files() {
+        let dir = graph("discard-both");
+        let (note, _) = pair(&dir);
+        note.discard().unwrap();
+        assert!(!note.path().exists());
+        assert!(!note.transcript_path().exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

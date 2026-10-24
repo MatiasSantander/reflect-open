@@ -1,12 +1,30 @@
 # The file contract
 
-The recorder writes **one markdown file per meeting** into the graph and
+The recorder writes **a meeting note and its transcript** into the graph and
 touches nothing else. That sentence is the entire interface between this
 program and Reflect, and everything below exists to keep it true.
 
 Reflect must stay byte-identical to upstream. The moment the recorder needs a
 change inside `apps/` or `packages/`, the arrangement has failed and the cost
 returns on every merge.
+
+### Two files, not one
+
+The transcript is the longest thing a meeting produces and the least often
+read: the points and the decisions are what gets opened, and the transcript is
+what they are checked against when one of them looks wrong. Keeping it beside
+the meeting rather than inside it leaves the note that matters short enough to
+read in one screen — and keeps it searchable, which it would not be if it
+lived out beside the audio.
+
+```
+meetings/2026-10-24-1113-slack.md
+meetings/2026-10-24-1113-slack-transcript.md
+```
+
+The same stem with one more segment, so the pair sorts together and either one
+names the other. They cross-link, and the transcript carries the same
+`- Type: #meeting` tag.
 
 ## Where the note goes
 

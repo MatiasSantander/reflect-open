@@ -59,7 +59,7 @@ pub struct RecordingStarted {
 }
 
 /// A process that might be in a call: an app with the microphone open.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallCandidate {
     pub bundle_id: String,
     pub pid: i64,
