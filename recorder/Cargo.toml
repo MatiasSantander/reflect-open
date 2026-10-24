@@ -1,0 +1,69 @@
+# The meeting recorder: a standalone program that shares this repository with
+# Reflect and nothing else.
+#
+# Deliberately **not** a member of the root Cargo workspace, and deliberately
+# at the top level rather than under `apps/`: pnpm's workspace globs are
+# `apps/*` and `packages/*`, so a crate placed there would join the JS
+# workspace, enter `pnpm-lock.yaml`, and conflict on every upstream merge.
+# Here, upstream does not know this directory exists, and git cannot conflict
+# on a file only one side has.
+#
+# Rust only, for the same reason: no `package.json` means no lockfile, and
+# nothing for the repo's formatter or linter to reach into.
+# Its own workspace root, which is what keeps it out of the one above: the
+# root `Cargo.toml` lists its members explicitly, so this crate is invisible
+# to it — and declaring the table here stops Cargo from reaching upward and
+# finding a workspace it does not belong to.
+[workspace]
+
+[package]
+name = "reflect-recorder"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "reflect-recorder"
+path = "src/main.rs"
+
+[dependencies]
+# The capture, moved from the desktop shell. Core Audio process taps are the
+# system half, cpal is the microphone half, hound writes the segment files.
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-core-audio = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "AudioHardware",
+  "block2",
+  "dispatch2",
+  "objc2",
+  "objc2-core-audio-types",
+  "objc2-foundation",
+] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "CoreAudioBaseTypes",
+  "objc2",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["CFDictionary"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+  "NSString",
+  "NSObject",
+  "NSValue",
+  "NSDictionary",
+  "NSArray",
+  "block2",
+] }
+dispatch2 = "0.3.1"
+core-foundation = "0.10.1"
+cpal = "0.16.0"
+hound = "3.5.1"
+libc = "0.2"
+
+# Config, the note file, and the provider calls.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+ureq = { version = "2.10", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"

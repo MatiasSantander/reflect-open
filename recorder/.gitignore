@@ -1,0 +1,5 @@
+# Kept here rather than in the repository root: the root `.gitignore` is a
+# file upstream edits, and every line we add there is a merge conflict
+# waiting to happen.
+/target
+Cargo.lock
