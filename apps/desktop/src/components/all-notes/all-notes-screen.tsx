@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { foldTag, isDaily, listNotes, listNoteTags } from '@reflect/core'
+import { canTrashNote, foldTag } from '@reflect/core'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
+import { useNoteLinkNavigation, type ModClickEvent } from '@/hooks/use-note-link-navigation.ts'
+import { useNoteRows } from '@/hooks/note-row-overlay.ts'
 import { queryKeys } from '@/lib/query-client.ts'
-import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { useListSelection } from '@/lib/selection/use-list-selection.ts'
 import { useScrollRestoration } from '@/lib/use-scroll-restoration.ts'
 import { useScrollToIndexBridge } from '@/lib/use-scroll-to-index-bridge.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { routeForPath } from '@/routing/route.ts'
 import { useRouter } from '@/routing/router.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { AllNotesFilters } from './all-notes-filters.tsx'
 import { AllNotesTable } from './all-notes-table.tsx'
 import { AllNotesTrashDialog } from './all-notes-trash-dialog.tsx'
@@ -43,6 +43,7 @@ interface AllNotesScreenProps {
  */
 export function AllNotesScreen({ tag }: AllNotesScreenProps): ReactElement {
   const { graph } = useGraph()
+  const { noteList } = useCoreServices()
   const { navigate } = useRouter()
   const navigateNoteLink = useNoteLinkNavigation()
   // The scroll container lives in state, not a ref, so scroll restoration
@@ -54,17 +55,18 @@ export function AllNotesScreen({ tag }: AllNotesScreenProps): ReactElement {
   // The surface, so the keyboard shortcuts can scope to it (and focus it on mount).
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && graph !== null
+  const enabled = graph !== null
 
-  const { data: notes } = useQuery({
+  const { data: indexedNotes } = useQuery({
     queryKey: queryKeys.index.allNotesWithTag(graph?.root, tag === null ? null : foldTag(tag)),
-    queryFn: () => listNotes({ tag }),
+    queryFn: () => noteList.listNotes({ tag }),
     enabled,
   })
+  // Unfiltered, the list holds every note that can be trashed.
+  const notes = useNoteRows(indexedNotes, { complete: tag === null })
   const { data: facets } = useQuery({
     queryKey: queryKeys.index.allNotesTags(graph?.root),
-    queryFn: () => listNoteTags(),
+    queryFn: () => noteList.listNoteTags(),
     enabled,
   })
 
@@ -75,11 +77,12 @@ export function AllNotesScreen({ tag }: AllNotesScreenProps): ReactElement {
   const orderedPaths = useMemo(() => (notes ?? []).map((note) => note.path), [notes])
   const selection = useListSelection(orderedPaths)
   const openNote = useCallback(
-    (path: string, event?: ModClickEvent) =>
+    (path: string, event?: ModClickEvent) => {
       navigateNoteLink({
         target: routeForPath(path),
         openInNewWindow: event !== undefined && isModEvent(event),
-      }),
+      })
+    },
     [navigateNoteLink],
   )
   const handleFilterSelect = useCallback(
@@ -94,7 +97,7 @@ export function AllNotesScreen({ tag }: AllNotesScreenProps): ReactElement {
   const [confirmingTrash, setConfirmingTrash] = useState(false)
   const [pendingPaths, setPendingPaths] = useState<readonly string[]>([])
   const trashableSelectedPaths = useMemo(
-    () => [...selection.selected].filter((path) => !isDaily(path)),
+    () => [...selection.selected].filter((path) => canTrashNote(path)),
     [selection.selected],
   )
   const openTrashConfirm = useCallback(() => {

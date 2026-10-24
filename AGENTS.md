@@ -97,9 +97,9 @@ Desktop JS tests are split into Vitest projects (details in
   logic test that drives the DOM is named `.test.tsx` so it lands in the
   browser project.
 - `console.warn` / `console.error` fail tests (`vitest-fail-on-console`).
-  Pre-existing noise is allowlisted in
-  `apps/desktop/src/test-utils/allowed-console.ts`; PRs may only shrink that
-  list, and a new entry needs a stated reason.
+  This covers the core, app and desktop projects. The allowlist in
+  `apps/desktop/src/test-utils/allowed-console.ts` holds one browser artifact;
+  a new entry needs a measured reason in that file.
 
 Rust tests (the Cargo workspace: desktop shell, `reflect` CLI, index-schema crate):
 
@@ -119,6 +119,11 @@ pnpm --filter @reflect/desktop sidecar
 
 Otherwise tauri-build fails with `resource path binaries/<name>-<triple> doesn't exist`
 (`pnpm tauri dev`/`build` stage them automatically; details in [docs/cli.md](docs/cli.md)).
+Clippy and the tests never run the sidecars, so they can skip them instead, as CI does:
+`TAURI_CONFIG='{"bundle":{"externalBin":null}}' cargo clippy --workspace --all-targets`.
+
+`.cargo/config.toml` sets `build.warnings = "deny"`: lint warnings in workspace crates
+fail the build. Use `CARGO_BUILD_WARNINGS=warn` while iterating.
 
 ### Repo layout
 
@@ -130,8 +135,9 @@ crates form a single **Cargo workspace** rooted at the repository root.
 reflect-open/
 ├── apps/
 │   ├── desktop/            # @reflect/desktop — the Tauri 2 app
-│   │   ├── src/            # React frontend (main.tsx, app.tsx, components/, editor/,
-│   │   │                   #   hooks/, providers/, routing/); calls Rust via @tauri-apps/api
+│   │   ├── src/            # React frontend (main.tsx, boot.ts, components/, editor/,
+│   │   │                   #   hooks/, providers/, routing/, services/); reaches Rust
+│   │   │                   #   only through @reflect/core services
 │   │   ├── src-tauri/      # Tauri native shell (Rust crate `reflect-open`)
 │   │   │   ├── src/        # lib.rs (#[tauri::command] handlers, plugins), db/, fs/,
 │   │   │   │               #   watcher.rs, embed.rs, recents.rs, secrets.rs, settings.rs
@@ -141,15 +147,18 @@ reflect-open/
 │   │   │   ├── icons/                   # App icons for desktop/mobile bundles
 │   │   │   ├── gen/                     # Generated schemas + platform projects (no hand-edits)
 │   │   │   └── ios.project.yml          # iOS XcodeGen template
-│   │   ├── scripts/        # build-sidecar.mjs (stages the reflect CLI for bundling)
+│   │   ├── scripts/        # build-*.ts (sidecars, release builds), upload-testflight.ts
 │   │   ├── dist/           # Vite build output (frontendDist in tauri.conf.json)
 │   │   └── public/         # Static assets served by Vite
 │   ├── cli/                # `reflect` — self-contained Rust read/discovery CLI (see docs/cli.md)
 │   ├── extension/          # @reflect/extension — Chrome MV3 capture extension (WXT; see its README)
 │   └── native-host/        # `reflect-capture-host` — native-messaging spooler sidecar (Plan 11)
 ├── packages/
-│   ├── core/               # @reflect/core — ALL TS business logic (markdown/, indexing/,
-│   │                       #   graph/, embeddings/, ai/, settings/, ipc/)
+│   ├── core/               # @reflect/core — ALL TS business logic as services (app/,
+│   │                       #   graph/, documents/, indexing/, markdown/, embeddings/,
+│   │                       #   ai/, sync/, settings/, ipc/, testing/)
+│   ├── app/                # @reflect/app: the app layer (windows, routes, commands,
+│   │                       #   menus, update, theme, boot flows); no React, no Tauri
 │   └── db/                 # @reflect/db — generated Kysely schema + the IPC dialect
 ├── crates/
 │   └── index-schema/       # Shared SQLite migrations for <graph>/.reflect/index.sqlite
@@ -159,6 +168,15 @@ reflect-open/
 ├── Cargo.toml              # Root Cargo workspace (reflect-open, reflect-cli, reflect-capture-host, reflect-index-schema)
 └── turbo.json, pnpm-workspace.yaml
 ```
+
+### Sync
+
+Safety rules for the sync path: [docs/git-backup-safety.md](docs/git-backup-safety.md) (S1 to S9). Read them before you change `git/`, `conflict/`, `icloud/`, `fs/` or `packages/core/src/sync/`.
+
+- **TS owns policy.** Cadence, single-flight queueing and status live in `packages/core/src/sync/*-service.ts` (`engine.ts`, `backup-service.ts`, `icloud-sync-service.ts`). Rust owns the capabilities: `git/` (libgit2 commit, fetch, merge, push) and `icloud/` (sweep, versions, watch).
+- **Conflicts.** `.md` notes go through `conflict/ladder.rs` (also used by `note_write`). Other files get a conflict copy from `conflict/copy.rs`. See S7.
+- **One lock per graph.** `fs/graph_lock.rs` serializes git commands, note writes and sweep writes. Take it before you touch notes in Rust. `git_fetch` and `git_remote_head` run outside it.
+- **Own writes.** `fs/own_writes.rs` records the note bytes this process wrote, so a later read can tell its own content from a change that arrived from elsewhere.
 
 ### Related repos
 
@@ -179,10 +197,38 @@ All UI work should follow the Reflect design system documented in [`design-syste
 - `design-system/guidelines/` — color, type, spacing, and brand specimens
 - `design-system/styles.css` — global entry point that imports all tokens
 
-**Frontend ↔ Rust bridge**
+**Services (how TypeScript code is wired)**
+
+Read [docs/plans/architecture-conventions.md](docs/plans/architecture-conventions.md) §3
+and [docs/contributing/services.md](docs/contributing/services.md) before adding logic.
+The short version:
+
+- Three packages: `@reflect/core` (business logic, platform primitive interfaces),
+  `@reflect/app` (windows, routes, commands, menus, update, theme, boot flows),
+  `apps/desktop` (React, Tauri adapters). Lint keeps React, TanStack and Tauri out of
+  both packages. A service is `createXxxService(deps)` in
+  `<package>/src/<domain>/<name>-service.ts`; it gets other services only through `deps`.
+- Two roots: `createCoreServices(adapters: CoreAdapters)` and
+  `createAppServices(core, host: AppHost)`. `apps/desktop/src/boot.ts` builds the
+  primitives, the host, core, then app. Core's ports (`progress`, `activity` in
+  `packages/core/src/ports/activity-port.ts`, `progress-port.ts`, and `role`) are implemented by app services.
+- React reads `useCoreServices()` and `useAppServices()`; commands read
+  `CommandContext.services` and `.app`. Never import from `boot.ts` outside
+  `main.tsx` and the platform roots.
+- Core, app, or desktop? A product rule every client needs goes in core; windows,
+  routes, menus and pixels go in app; React goes in desktop. See
+  [docs/contributing/services.md](docs/contributing/services.md).
+- Rust-boundary wrappers (`NoteFileService`) take an explicit `generation`. User-facing
+  services read the `GraphSession` once at method entry and pass its generations down.
+- Tests build services over `@reflect/core/testing` and `@reflect/app/testing`
+  (`createTestCoreServices({ database })`, `createTestAppServices(core)`); desktop tests render with
+  `renderInApp`. `vi.mock` only for the allowlist in `eslint.config.js`. See
+  [docs/contributing/testing.md](docs/contributing/testing.md).
+
+**Frontend ↔ Rust**
 
 - Define commands in `apps/desktop/src-tauri/src/` (registered in `lib.rs`'s `invoke_handler`) with `#[tauri::command]`.
-- Call commands from the frontend with `invoke` from `@tauri-apps/api/core`.
+- Bind each command as a method of the core service that owns the domain, through `ipc.call(command, args, zodSchema)`. Components never call `invoke`. See [docs/contributing/adding-a-command.md](docs/contributing/adding-a-command.md).
 - Add Tauri plugins in `apps/desktop/src-tauri/Cargo.toml` (Rust) and grant permissions in `apps/desktop/src-tauri/capabilities/`.
 
 **Common commands** (run from the repo root)
@@ -190,16 +236,14 @@ All UI work should follow the Reflect design system documented in [`design-syste
 ```bash
 pnpm dev              # turbo dev across packages (Vite on http://localhost:1420)
                       #   add ?platform=ios to the URL to preview the MOBILE tree in a
-                      #   plain browser (dev-only in-memory bridge + seeded demo graph)
+                      #   plain browser (dev-only in-memory IPC backend + seeded demo graph)
 pnpm tauri dev        # Full Tauri app with hot reload (stages the CLI sidecar first)
 pnpm tauri:dev        # `pnpm tauri dev` with the dev overlay → the "Reflect Dev" flavor (green icon, own identifier; coexists with Reflect / Reflect Beta)
 pnpm build            # turbo build pipeline → apps/desktop/dist/
 pnpm tauri build      # Native app bundle, incl. the reflect CLI sidecar
-pnpm release:macos    # Signed + notarized macOS build for distribution (docs/macos-distribution.md)
-pnpm release:macos publish  # The above, then fill and undraft the release-please draft release
+pnpm build:macos      # Signed + notarized macOS build for distribution (docs/macos-distribution.md)
 pnpm tauri:ios:dev "iPhone 17 Pro"  # Run the Tauri iOS target in the simulator (docs/contributing/mobile-simulator.md)
-pnpm release:ios preflight --build-number=123  # Check iOS/TestFlight signing, App Store Connect app record, and upload auth
-pnpm release:ios testflight --build-number=123 --wait  # Build and upload the iOS app to TestFlight
+pnpm build:ios --build-number=123   # Build and check the iOS app; `pnpm upload:testflight` uploads it
 ```
 
 **iOS simulator**
@@ -217,17 +261,15 @@ normalize generated project and plist files.
 
 **iOS TestFlight**
 
-Use `pnpm release:ios` for TestFlight work; do not hand-roll `tauri ios build`
-and `altool` unless debugging the helper itself. Start with
-`pnpm release:ios preflight --build-number=<number>`, then run
-`pnpm release:ios testflight --build-number=<number> --wait` or upload an
-existing IPA with `pnpm release:ios upload --ipa=<path> --wait`.
+Use `pnpm build:ios` and `pnpm upload:testflight` for TestFlight work; do not
+hand-roll `tauri ios build` and `altool` unless debugging the helpers
+themselves. Start with `pnpm build:ios --build-number=<number>`.
 
 The iOS bundle identifier is `app.reflect.ios`, intentionally separate from the
 old Capacitor TestFlight app (`app.reflect.ReflectMobile`). The release helper
 verifies the IPA bundle identifier and `ITSAppUsesNonExemptEncryption=false`
-before upload. See `docs/ios-testflight.md` for App Store Connect setup, local
-keychain fallback (`reflect-notary`), API key CI secrets, and troubleshooting.
+before upload. See `docs/ios-testflight.md` for App Store Connect setup, API key
+CI secrets, and troubleshooting.
 
 # Code Conventions
 
@@ -263,7 +305,8 @@ document behavior, and the existing local patterns over new abstractions.
 - Prefer function declarations for named functions and arrow functions for
   callbacks.
 - Prefer async/await over Promise chains.
-- Prefer functional patterns over classes.
+- A service is a class behind an interface and a factory; everything else prefers
+  functions over classes.
 
 ## Data Boundaries
 

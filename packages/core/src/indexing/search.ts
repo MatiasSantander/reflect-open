@@ -1,6 +1,3 @@
-import { sql } from 'kysely'
-import { db } from './db.ts'
-
 /**
  * Search-highlight plumbing for indexed snippets and query-matched titles.
  * The search itself lives in `filtered-search.ts` — one ranked, snippeted
@@ -39,12 +36,4 @@ export function parseHighlights(snippet: string): HighlightSegment[] {
     highlighted = !highlighted
   }
   return segments
-}
-
-/** A uniformly random note path, or null on an empty graph (Plan 08 command). */
-export async function randomNotePath(): Promise<string | null> {
-  const result = await sql<{ path: string }>`
-    SELECT path FROM notes ORDER BY random() LIMIT 1
-  `.execute(db)
-  return result.rows[0]?.path ?? null
 }

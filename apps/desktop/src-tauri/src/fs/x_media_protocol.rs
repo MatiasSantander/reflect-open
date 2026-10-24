@@ -1,5 +1,5 @@
-use super::x_archive_store as archive;
 use super::GraphState;
+use super::x_archive_store as archive;
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -86,14 +86,14 @@ async fn serve<R: Runtime>(
                 .header("Content-Range", format!("bytes */{}", receipt.bytes))
                 .header("Cache-Control", "no-store")
                 .body(Cow::Borrowed(&[] as &[u8]))
-                .expect("valid response")
+                .expect("valid response");
         }
     };
     let (start, end) = selected.unwrap_or((0, receipt.bytes - 1));
     let count = end - start + 1;
     let name = receipt.name.clone();
     let body = tauri::async_runtime::spawn_blocking(move || -> crate::error::AppResult<Vec<u8>> {
-        let path = super::resolve::resolve(&root, &format!("assets/x/{name}"))?;
+        let path = super::resolve(&root, &format!("assets/x/{name}"))?;
         let mut file = File::open(path)?;
         if file.metadata()?.len() != receipt.bytes {
             return Err(crate::error::AppError::io("file-changed"));

@@ -5,8 +5,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useNoteRowOverlay } from '@/hooks/note-row-overlay.ts'
 import { useGithubConnected } from '@/hooks/use-github-connected.ts'
 import { useNoteRow } from '@/hooks/use-note-row.ts'
-import { runGistPublish, runGistUnpublish } from '@/lib/note-gist.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { publishGistAndCopyLink } from '@/lib/clipboard-actions.ts'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteGistActionProps {
   /** Graph-relative path of the note the action operates on. */
@@ -27,14 +27,16 @@ export function NoteGistAction({
   path,
   keybinding = null,
 }: NoteGistActionProps): ReactElement | null {
-  const { graph } = useGraph()
+  const services = useCoreServices()
+  const { gistPublish } = services
+  const app = useAppServices()
   const connected = useGithubConnected()
   const row = useNoteRow(path)
   // `row` already reflects a just-published or just-unpublished URL (the
   // optimistic overlay flows through `useNoteRow`); the raw overlay tells us
   // that a publish is still catching up, which keeps the action in the
   // published state until the index agrees.
-  const optimistic = useNoteRowOverlay(path, graph?.generation)?.gistUrl != null
+  const optimistic = useNoteRowOverlay(path)?.gistUrl != null
   const [isPublishing, setIsPublishing] = useState(false)
   const [isUnpublishing, setIsUnpublishing] = useState(false)
 
@@ -44,26 +46,18 @@ export function NoteGistAction({
   }
 
   const onPublish = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
     setIsPublishing(true)
     try {
-      await runGistPublish(path, generation)
+      await publishGistAndCopyLink(services, app, path)
     } finally {
       setIsPublishing(false)
     }
   }
 
   const onUnpublish = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
     setIsUnpublishing(true)
     try {
-      await runGistUnpublish(path, generation)
+      await gistPublish.unpublish(path)
     } finally {
       setIsUnpublishing(false)
     }

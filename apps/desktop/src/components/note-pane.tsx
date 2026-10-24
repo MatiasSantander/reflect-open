@@ -1,20 +1,12 @@
 import { memo, useCallback, useMemo, useRef, useState, type ReactElement } from 'react'
 import type { ExitBoundaryHandler, SearchStatus } from '@meowdown/core'
-import {
-  detectConflictMarkers,
-  isDaily,
-  isTemplatePath,
-  isUntitledNotePath,
-  untitledNoteSeed,
-} from '@reflect/core'
+import { deferredCreationPolicy, isDaily } from '@reflect/core'
 import { BacklinksPanel } from '@/components/backlinks-panel.tsx'
-import { ConflictNoteView } from '@/components/conflict-note-view.tsx'
 import { NoteLoading } from '@/components/note-loading.tsx'
 import { NoteOpenError } from '@/components/note-open-error.tsx'
 import { NoteSaveAlerts } from '@/components/note-save-alerts.tsx'
 import { ProtectedNoteView } from '@/components/protected-note-view.tsx'
 import { SuggestedContactCard } from '@/components/suggested-contact-card.tsx'
-import { SyncConflictNotice } from '@/components/sync-conflict-notice.tsx'
 import { EditorAiKeymap } from '@/editor/ai-menu/editor-ai-keymap.tsx'
 import { useEditorAiMenu } from '@/editor/ai-menu/use-editor-ai-menu.tsx'
 import { editorBodyWithDefaultBullet } from '@/editor/default-bullet.ts'
@@ -28,18 +20,17 @@ import { useAssetPersistence } from '@/editor/use-asset-persistence.ts'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useNoteDocument } from '@/editor/use-note-document.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
-import { useAiSlashItems } from '@/editor/use-ai-slash-items.ts'
 import { useTemplateSlashItems } from '@/editor/use-template-slash-items.ts'
-import { useMarkdownLinkNavigation } from '@/editor/use-markdown-link-navigation.ts'
+import { useMarkdownLinkClick } from '@/editor/use-markdown-link-click.ts'
 import { useLinkPreview } from '@/editor/use-link-preview.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
 import { useWikiLinkHoverPreview } from '@/editor/use-wiki-link-hover-preview.tsx'
 import { useXPostPreload } from '@/editor/use-x-post-preload.ts'
-import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
 import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useNoteSearchQuery, useNoteSearchReport } from '@/providers/note-find-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface NotePaneProps {
   /** Graph-relative path of the note to edit. */
@@ -48,24 +39,24 @@ interface NotePaneProps {
    * Request lazy creation. The pane permits it only for daily notes and the
    * explicit new-note ULID route; arbitrary missing paths fail closed.
    */
-  lazy?: boolean
+  lazy?: boolean | undefined
   /** Focus the editor when it mounts (the navigated-to day/note). */
-  autoFocus?: boolean
+  autoFocus?: boolean | undefined
   /**
    * Where the caret lands when {@link autoFocus} applies: the document start
    * (default — a seeded new note's empty H1, so typing names the note) or the
    * end of the note's content (append-style capture, e.g. the mobile daily
    * double-tap).
    */
-  autoFocusSelection?: 'start' | 'end'
+  autoFocusSelection?: 'start' | 'end' | undefined
   /** Called once the autofocus actually happened (the editor mounted). */
-  onAutoFocused?: () => void
+  onAutoFocused?: (() => void) | undefined
   /**
    * Extra classes for the pane root in every state (loading, error,
    * protected, editing). The note route uses this to make the pane a
    * stretching flex column so the editor can fill the viewport.
    */
-  className?: string
+  className?: string | undefined
   /**
    * Extra classes for the editable area (e.g. the daily stream's per-day
    * `min-h-*`). Applied to the contenteditable root, so the reserved space
@@ -73,7 +64,7 @@ interface NotePaneProps {
    * holds the same space in every state instead of collapsing and re-expanding
    * around the stream's scroll anchor while its note arrives.
    */
-  editorClassName?: string
+  editorClassName?: string | undefined
   /**
    * Horizontal gutter applied *inside* the pane's pieces — the contenteditable
    * itself plus the chrome around it (alerts, backlinks, loading/error text) —
@@ -81,37 +72,37 @@ interface NotePaneProps {
    * spans the pane's full width (dividers run edge to edge) while the gutter
    * stays part of the editor's click-to-focus area.
    */
-  gutterClassName?: string
+  gutterClassName?: string | undefined
   /**
    * Render the built-in desktop backlinks panel below the note (default).
    * The mobile surfaces pass `false` and mount their own touch-chrome
    * `IncomingBacklinks` section over the same data layer.
    */
-  showBacklinks?: boolean
+  showBacklinks?: boolean | undefined
   /**
    * The daily stream's day key for this pane (omitted by non-daily callers).
    * Required for {@link registerHandle} and {@link onExitBoundary} to identify
    * which day fired.
    */
-  dailyDate?: string
+  dailyDate?: string | undefined
   /**
    * Register (or, with `null`, unregister) this pane's editor handle with the
    * daily stream, so it can move the caret here from an adjacent day. Keyed by
    * {@link dailyDate}.
    */
-  registerHandle?: (date: string, handle: NoteEditorHandle | null) => void
+  registerHandle?: ((date: string, handle: NoteEditorHandle | null) => void) | undefined
   /**
    * The caret tried to leave this pane's top (`'up'`) / bottom (`'down'`) edge.
    * The daily stream moves focus to the adjacent day; returns `true` when it
    * did, so the editor consumes the key.
    */
-  onExitBoundary?: (date: string, direction: 'up' | 'down') => boolean
+  onExitBoundary?: ((date: string, direction: 'up' | 'down') => boolean) | undefined
 }
 
 /**
  * One open note: the editor bound to its on-disk document via the Plan 05 save
- * pipeline (debounced atomic writes, watcher-driven external reload, and a
- * non-destructive conflict prompt when an external change races unsaved edits).
+ * pipeline (debounced atomic writes, and watcher-driven external reload that
+ * merges an external change into unsaved edits on the next write).
  * Notes the editor can't faithfully round-trip open **protected** (read-only)
  * so a converter gap can never silently rewrite a file. Plan 06 mounts one of
  * these per day in the daily stream.
@@ -136,37 +127,33 @@ export function NotePaneComponent({
 }: NotePaneProps): ReactElement {
   const { graph } = useGraph()
   const { settings } = useSettings()
-  const generation = graph?.generation ?? null
+  const { noteCreation, platform } = useCoreServices()
   const graphKey = graph?.root ?? null
   const dailyNote = isDaily(path)
-  const lazyCreate = lazy && (dailyNote || isUntitledNotePath(path))
-  // Templates rename via file operations only (settings, or outside the app):
-  // the rename pipeline's slug targets live under `notes/`, so tracking a
-  // template's title would move it out of `templates/`. The untitled `id:`
-  // seed is skipped for the same reason — it exists to feed that pipeline.
-  const template = isTemplatePath(path)
+  const policy = deferredCreationPolicy(path)
+  const lazyCreate = lazy && policy.lazyCreatable
   // One seed per (pane, path): a fresh seed carries a fresh `id:`, and a mere
   // re-render must not mint a new identity (the session is keyed on the seed).
   // Re-mint during render when the path changes — only the committed render's
   // seed reaches the session, so the transient stale render is harmless, and
   // this avoids writing a ref during render.
-  const needsSeed = lazyCreate && !dailyNote && !template
-  const [seed, setSeed] = useState(() => ({ path, seed: untitledNoteSeed() }))
+  const needsSeed = lazyCreate && policy.seedsUntitled
+  const [seed, setSeed] = useState(() => ({ path, seed: noteCreation.untitledNoteSeed() }))
   if (needsSeed && seed.path !== path) {
-    setSeed({ path, seed: untitledNoteSeed() })
+    setSeed({ path, seed: noteCreation.untitledNoteSeed() })
   }
-  const document = useNoteDocument(path, generation, {
+  const document = useNoteDocument(path, {
     createIfMissing: lazyCreate,
     // Every editable regular note maintains title-addressed links and
     // title-mirroring backlink displays. The coordinator separately limits
     // title-derived file moves to Reflect-managed notes.
-    trackRenames: !dailyNote && !template,
+    trackRenames: policy.trackRenames,
     // A missing ordinary note opens as a name-me template (old Reflect's
     // new-note flow): the seed — `id:` frontmatter plus an empty H1 the
     // caret lands in, ghosted "Untitled" by the title placeholder — only
     // reaches disk if the user edits, and typing names the note. Daily
     // notes stay unseeded — the date is their identity.
-    ...(needsSeed ? { missingSeed: seed.seed } : {}),
+    missingSeed: needsSeed ? seed.seed : undefined,
   })
   const {
     resolveImageUrl,
@@ -177,27 +164,17 @@ export function NotePaneComponent({
     saveFile,
     resolveFileInfo,
     saveError,
-  } = useAssetPersistence(generation, path)
+  } = useAssetPersistence(path)
   const renderWikilinkHoverCard = useWikiLinkHoverPreview({
-    generation,
-    graphKey: graph?.root ?? null,
     dateFormat: settings.dateFormat,
   })
-  const onWikiLinkClick = useWikiLinkNavigation(generation)
-  const onNoteLinkClick = useMarkdownLinkNavigation(generation, path)
+  const onWikiLinkClick = useWikiLinkNavigation()
+  const onLinkClick = useMarkdownLinkClick(path)
   const onTagClick = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
   const linkPreviewSession = useMemo(
-    () =>
-      generation === null || graphKey === null
-        ? null
-        : {
-            path,
-            generation,
-            graphKey,
-            sessionEpoch: document.sessionEpoch,
-          },
-    [path, generation, graphKey, document.sessionEpoch],
+    () => (graphKey === null ? null : { path, graphKey, sessionEpoch: document.sessionEpoch }),
+    [path, graphKey, document.sessionEpoch],
   )
   const resolveLinkPreview = useLinkPreview(linkPreviewSession)
 
@@ -213,31 +190,28 @@ export function NotePaneComponent({
   )
   // The registry entry this pane made, so unmount removes exactly it (a
   // remount of the same path may already have re-registered).
-  const registeredHandle = useRef<{ path: string; handle: NoteEditorHandle } | null>(null)
-  // The `/` menu's rows insert into this pane's own editor, read through the
-  // registry ref at select time (a late resolve after the pane unmounted must
-  // insert nowhere rather than somewhere stale).
-  const paneEditor = useCallback(() => registeredHandle.current?.handle ?? null, [])
-  const templateSlashItems = useTemplateSlashItems(paneEditor)
-  const aiSlashItems = useAiSlashItems(path, paneEditor)
-  // Templates first, then AI prompts: a template is instant and a prompt
-  // costs a provider call, so the cheap answer sorts above the expensive one.
-  const onSlashMenuSearch = useCallback(
-    async (query: string) => [...(await templateSlashItems(query)), ...aiSlashItems(query)],
-    [templateSlashItems, aiSlashItems],
+  const registeredHandleRef = useRef<{ path: string; handle: NoteEditorHandle } | null>(null)
+  // The `/` menu's template rows insert into this pane's own editor, read
+  // through the registry ref at select time (a late resolve after the pane
+  // unmounted must insert nowhere rather than somewhere stale).
+  const onSlashMenuSearch = useTemplateSlashItems(
+    useCallback(() => registeredHandleRef.current?.handle ?? null, []),
   )
   const handleRef = useCallback(
     (handle: NoteEditorHandle | null) => {
       bindEditor(handle)
       aiEditorRef.current = handle
       if (handle === null) {
-        if (registeredHandle.current !== null) {
-          unregisterNoteEditorHandle(registeredHandle.current.path, registeredHandle.current.handle)
-          registeredHandle.current = null
+        if (registeredHandleRef.current !== null) {
+          unregisterNoteEditorHandle(
+            registeredHandleRef.current.path,
+            registeredHandleRef.current.handle,
+          )
+          registeredHandleRef.current = null
         }
       } else {
         registerNoteEditorHandle(path, handle)
-        registeredHandle.current = { path, handle }
+        registeredHandleRef.current = { path, handle }
       }
       if (dailyDate !== undefined) {
         registerHandle?.(dailyDate, handle)
@@ -290,20 +264,9 @@ export function NotePaneComponent({
   }
 
   if (document.protected) {
-    // Sync-conflicted notes land here (the session gates on the markers), so the
-    // conflict notice — with its raw-text resolution actions — leads the
-    // view, and the file renders with each block's sides color-coded instead
-    // of the generic read-only dump (whose converter-gap alert would only
-    // double up on the conflict explanation).
-    const conflicted = detectConflictMarkers(document.initialContent)
     return (
       <div className={cn(gutterClassName, className)}>
-        <SyncConflictNotice path={path} className="mb-4" />
-        {conflicted ? (
-          <ConflictNoteView content={document.initialContent} />
-        ) : (
-          <ProtectedNoteView content={document.initialContent} />
-        )}
+        <ProtectedNoteView content={document.initialContent} />
         {showBacklinks ? <BacklinksPanel path={path} /> : null}
       </div>
     )
@@ -322,8 +285,6 @@ export function NotePaneComponent({
     <div className={cn('relative', className)} aria-label={`Editing ${path}`}>
       <div className={gutterClassName}>
         <NoteSaveAlerts document={document} assetSaveError={saveError} />
-
-        <SyncConflictNotice path={path} className="mb-4" />
 
         {/* Daily notes are date-titled, so a contact can never match one —
             the hook gates on it, and skipping the mount keeps the stream lean.
@@ -346,6 +307,7 @@ export function NotePaneComponent({
         smoothCaretAnimation={settings.editorSmoothCaretAnimation}
         timeFormat={settings.timeFormat}
         bulletAfterHeading={settings.editorBulletAfterHeading}
+        backspaceDeletesEmptyFirstBlock={dailyNote}
         // The grip drag-reorders blocks and the "+" inserts a paragraph below.
         blockHandle={true}
         resolveImageUrl={resolveImageUrl}
@@ -359,15 +321,15 @@ export function NotePaneComponent({
         resolveFileLink={resolveFileLink}
         resolveFileInfo={resolveFileInfo}
         onWikiLinkClick={onWikiLinkClick}
-        onNoteLinkClick={onNoteLinkClick}
-        {...(resolveLinkPreview !== undefined ? { resolveLinkPreview } : {})}
-        {...(generation !== null && !isTouchEditorSurface() ? { renderWikilinkHoverCard } : {})}
+        onLinkClick={onLinkClick}
+        resolveLinkPreview={resolveLinkPreview}
+        renderWikilinkHoverCard={
+          graph !== null && !platform.surface.touchEditor ? renderWikilinkHoverCard : undefined
+        }
         onTagClick={onTagClick}
         onWikilinkSearch={onWikilinkSearch}
         onTagSearch={onTagSearch}
-        {...(aiMenu.onSelectionMenuSearch !== undefined
-          ? { onSelectionMenuSearch: aiMenu.onSelectionMenuSearch }
-          : {})}
+        onSelectionMenuSearch={aiMenu.onSelectionMenuSearch}
         pendingReplacementActions={aiMenu.pendingReplacementActions}
         onPendingReplacementResolve={aiMenu.onPendingReplacementResolve}
         onSlashMenuSearch={onSlashMenuSearch}

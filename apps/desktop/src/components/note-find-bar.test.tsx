@@ -1,7 +1,3 @@
-import { useEffect, type ReactElement } from 'react'
-import { render } from 'vitest-browser-react'
-import { page, userEvent } from 'vitest/browser'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   registerNoteEditorHandle,
   unregisterNoteEditorHandle,
@@ -14,10 +10,11 @@ import {
   useNoteSearchQuery,
   useNoteSearchReport,
 } from '@/providers/note-find-provider.tsx'
-import { RouterProvider } from '@/routing/router.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { useEffect, type ReactElement } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { page, userEvent } from 'vitest/browser'
 import { NoteFindBar } from './note-find-bar.tsx'
-
-vi.mock('@/lib/windows/window-role.ts', () => ({ isMainWindow: () => true }))
 
 const NOTE_PATH = 'notes/find-me.md'
 
@@ -71,14 +68,13 @@ function Harness(): ReactElement {
 }
 
 function renderFindBar() {
-  return render(
-    <RouterProvider initialRoute={{ kind: 'note', path: NOTE_PATH }}>
-      <FocusedDailyProvider>
-        <NoteFindProvider>
-          <Harness />
-        </NoteFindProvider>
-      </FocusedDailyProvider>
-    </RouterProvider>,
+  return renderInApp(
+    <FocusedDailyProvider>
+      <NoteFindProvider>
+        <Harness />
+      </NoteFindProvider>
+    </FocusedDailyProvider>,
+    { route: { kind: 'note', path: NOTE_PATH } },
   )
 }
 

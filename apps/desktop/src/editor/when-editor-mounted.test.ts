@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createTestLoggerService } from '@reflect/core/testing'
 import { whenEditorMounted } from './when-editor-mounted.ts'
 
 /**
@@ -44,14 +45,13 @@ function fakeFrames(): FakeFrames {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  vi.restoreAllMocks()
 })
 
 describe('whenEditorMounted', () => {
   it('runs synchronously when the editor is already mounted', () => {
     fakeFrames()
     const run = vi.fn()
-    whenEditorMounted({ mounted: true }, run)
+    whenEditorMounted(createTestLoggerService(), { mounted: true }, run)
     expect(run).toHaveBeenCalledTimes(1)
   })
 
@@ -59,7 +59,7 @@ describe('whenEditorMounted', () => {
     const frames = fakeFrames()
     const editor = { mounted: false }
     const run = vi.fn()
-    whenEditorMounted(editor, run)
+    whenEditorMounted(createTestLoggerService(), editor, run)
     expect(run).not.toHaveBeenCalled()
 
     frames.step()
@@ -74,9 +74,9 @@ describe('whenEditorMounted', () => {
 
   it('gives up loudly after the frame budget instead of spinning forever', () => {
     const frames = fakeFrames()
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const logger = createTestLoggerService()
     const run = vi.fn()
-    whenEditorMounted({ mounted: false }, run)
+    whenEditorMounted(logger, { mounted: false }, run)
 
     let steps = 0
     while (frames.step()) {
@@ -86,13 +86,15 @@ describe('whenEditorMounted', () => {
 
     expect(steps).toBe(30)
     expect(run).not.toHaveBeenCalled()
-    expect(error).toHaveBeenCalledOnce()
+    expect(logger.getErrors()).toEqual([
+      { message: 'editor view never mounted; gave up after 30 frames', cause: undefined },
+    ])
   })
 
   it('cancel stops the retry loop', () => {
     const frames = fakeFrames()
     const run = vi.fn()
-    const cancel = whenEditorMounted({ mounted: false }, run)
+    const cancel = whenEditorMounted(createTestLoggerService(), { mounted: false }, run)
     cancel()
     expect(frames.canceled()).toBe(1)
     // The canceled frame is genuinely gone — nothing left to run.

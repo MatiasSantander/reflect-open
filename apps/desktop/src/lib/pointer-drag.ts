@@ -1,9 +1,15 @@
-/** Minimum spacing between velocity samples; the window smooths per-event jitter. */
+/**
+ * Minimum spacing between velocity samples; the window smooths per-event jitter.
+ */
 const VELOCITY_WINDOW_MS = 30
-/** A velocity sample older than this means the finger stalled. */
+/**
+ * A velocity sample older than this means the finger stalled.
+ */
 export const VELOCITY_STALE_MS = 120
 
-/** The fields of a pointer event that a drag reads. */
+/**
+ * The fields of a pointer event that a drag reads.
+ */
 export interface DragPointerEvent {
   pointerId: number
   pointerType: string
@@ -13,43 +19,53 @@ export interface DragPointerEvent {
   currentTarget: Element
 }
 
-/** What an armed touch should do, given its travel from the start point. */
+/**
+ * What an armed touch should do, given its travel from the start point.
+ */
 export type DragIntent = 'wait' | 'start' | 'abort'
 
-/** One primary touch, from touch start until it becomes a drag or ends. */
+/**
+ * One primary touch, from touch start until it becomes a drag or ends.
+ */
 export class PointerDrag {
-  private pointerId: number | undefined = undefined
-  private isDragging = false
-  private x = 0
-  private y = 0
+  #pointerId: number | undefined = undefined
+  #dragging = false
+  #x = 0
+  #y = 0
 
-  /** True from `arm` until the touch ends or aborts. */
-  get live(): boolean {
-    return this.pointerId !== undefined
+  /**
+   * True from `arm` until the touch ends or aborts.
+   */
+  isLive(): boolean {
+    return this.#pointerId !== undefined
   }
 
-  /** True once an armed touch has started dragging. */
-  get dragging(): boolean {
-    return this.isDragging
+  /**
+   * True once an armed touch has started dragging.
+   */
+  isDragging(): boolean {
+    return this.#dragging
   }
 
-  get startX(): number {
-    return this.x
+  getStartX(): number {
+    return this.#x
   }
 
-  get startY(): number {
-    return this.y
+  getStartY(): number {
+    return this.#y
   }
 
-  /** Arm on a primary touch, replacing any live touch. Returns false for other pointers. */
+  /**
+   * Arm on a primary touch, replacing any live touch. Returns false for other pointers.
+   */
   arm(event: DragPointerEvent): boolean {
     if (event.pointerType !== 'touch' || !event.isPrimary) {
       return false
     }
-    this.pointerId = event.pointerId
-    this.isDragging = false
-    this.x = event.clientX
-    this.y = event.clientY
+    this.#pointerId = event.pointerId
+    this.#dragging = false
+    this.#x = event.clientX
+    this.#y = event.clientY
     return true
   }
 
@@ -62,18 +78,18 @@ export class PointerDrag {
     event: DragPointerEvent,
     intent: (travelX: number, travelY: number) => DragIntent,
   ): 'started' | 'moved' | 'aborted' | undefined {
-    if (this.pointerId !== event.pointerId) {
+    if (this.#pointerId !== event.pointerId) {
       return
     }
-    if (this.isDragging) {
+    if (this.#dragging) {
       return 'moved'
     }
-    const decision = intent(event.clientX - this.x, event.clientY - this.y)
+    const decision = intent(event.clientX - this.#x, event.clientY - this.#y)
     if (decision === 'wait') {
       return
     }
     if (decision === 'abort') {
-      this.pointerId = undefined
+      this.#pointerId = undefined
       return 'aborted'
     }
     try {
@@ -81,41 +97,47 @@ export class PointerDrag {
     } catch {
       // Synthetic events have no live pointer to capture.
     }
-    this.isDragging = true
+    this.#dragging = true
     return 'started'
   }
 
-  /** End the touch that owns this drag, reporting whether it ever dragged. */
+  /**
+   * End the touch that owns this drag, reporting whether it ever dragged.
+   */
   end(event: DragPointerEvent): 'tap' | 'drag' | undefined {
-    if (this.pointerId !== event.pointerId) {
+    if (this.#pointerId !== event.pointerId) {
       return
     }
-    const result = this.isDragging ? 'drag' : 'tap'
-    this.pointerId = undefined
-    this.isDragging = false
+    const result = this.#dragging ? 'drag' : 'tap'
+    this.#pointerId = undefined
+    this.#dragging = false
     return result
   }
 }
 
-/** Velocity (units/ms) of one scalar, sampled over windows instead of per event. */
+/**
+ * Velocity (units/ms) of one scalar, sampled over windows instead of per event.
+ */
 export class VelocitySampler {
-  private current = 0
-  private sampleValue = 0
-  private sampleTime = 0
+  #current = 0
+  #sampleValue = 0
+  #sampleTime = 0
 
-  get velocity(): number {
-    return this.current
+  getVelocity(): number {
+    return this.#current
   }
 
-  /** True when the last sample is old enough that the finger has stalled. */
-  get stale(): boolean {
-    return performance.now() - this.sampleTime > VELOCITY_STALE_MS
+  /**
+   * True when the last sample is old enough that the finger has stalled.
+   */
+  isStale(): boolean {
+    return performance.now() - this.#sampleTime > VELOCITY_STALE_MS
   }
 
   reset(value: number): void {
-    this.current = 0
-    this.sampleValue = value
-    this.sampleTime = performance.now()
+    this.#current = 0
+    this.#sampleValue = value
+    this.#sampleTime = performance.now()
   }
 
   /**
@@ -124,11 +146,11 @@ export class VelocitySampler {
    */
   sample(value: number): number {
     const now = performance.now()
-    const elapsed = now - this.sampleTime
+    const elapsed = now - this.#sampleTime
     if (elapsed >= VELOCITY_WINDOW_MS) {
-      this.current = (value - this.sampleValue) / elapsed
-      this.sampleValue = value
-      this.sampleTime = now
+      this.#current = (value - this.#sampleValue) / elapsed
+      this.#sampleValue = value
+      this.#sampleTime = now
     }
     return elapsed
   }

@@ -41,15 +41,18 @@ another git remote are connected directly by the user.
 ## Install
 
 1. **Install the Mac app.** Download the latest release for your Mac:
-   - **Stable:** [Apple silicon (M-series)](https://github.com/team-reflect/reflect-open/releases/latest/download/Reflect_aarch64.dmg) · [Intel](https://github.com/team-reflect/reflect-open/releases/latest/download/Reflect_x86_64.dmg)
-   - **Beta:** [Apple silicon (M-series)](https://github.com/team-reflect/reflect-open/releases/download/updater-beta/Reflect.Beta_aarch64.dmg) · [Intel](https://github.com/team-reflect/reflect-open/releases/download/updater-beta/Reflect.Beta_x86_64.dmg)
+   - **Stable:** [Apple silicon (M-series)](https://github.com/team-reflect/reflect-open/releases/latest/download/Reflect_aarch64.dmg) · [Universal (Intel and Apple silicon)](https://github.com/team-reflect/reflect-open/releases/latest/download/Reflect_universal.dmg)
+   - **Beta:** [Apple silicon (M-series)](https://github.com/team-reflect/reflect-open/releases/download/updater-beta/Reflect.Beta_aarch64.dmg) · [Universal (Intel and Apple silicon)](https://github.com/team-reflect/reflect-open/releases/download/updater-beta/Reflect.Beta_universal.dmg)
 
    Each build is signed, notarized, and auto-updated from GitHub Releases. You
    can also [view all releases](https://github.com/team-reflect/reflect-open/releases).
 2. **Install the iOS beta.** Join
    [TestFlight](https://testflight.apple.com/join/j2eEz43d). The iOS app uses
    the same plain-file graph and sync options as the Mac app.
-3. **Install the Chrome extension.** Add
+3. **Windows and Linux (experimental).** Unsigned builds are attached to a
+   release when their builds succeed. See [docs/windows-builds.md](docs/windows-builds.md) and
+   [docs/linux-builds.md](docs/linux-builds.md).
+4. **Install the Chrome extension.** Add
    [Reflect Capture from the Chrome Web Store](https://chromewebstore.google.com/detail/reflect-capture/ccabifmooehighoonjeiololjfofkhkd)
    to save the current page, selected text, screenshots, and optional page text
    from Chrome.
@@ -149,8 +152,8 @@ pnpm tauri:ios:dev "iPhone 17 Pro"
 For TestFlight builds:
 
 ```bash
-pnpm release:ios preflight --build-number=123
-pnpm release:ios testflight --build-number=123 --wait
+pnpm build:ios --build-number=123
+pnpm upload:testflight
 ```
 
 ## Status
@@ -158,9 +161,16 @@ pnpm release:ios testflight --build-number=123 --wait
 Reflect is in beta and used daily. The current focus is the Mac app, iOS
 companion, browser capture, local-first data model, and sync reliability.
 
-Windows, Android, and a plugin API are out of scope for now. See the
+Android and a plugin API are out of scope for now. Windows and Linux builds
+are experimental. See the
 [V2 product vision](docs/reflect-v2-product-vision.md) and the implementation
 plans in [docs/plans/](docs/plans/) for the longer-term direction.
+
+## Community
+
+Join the [Reflect Discord server](https://reflect.app/discord) to ask questions,
+share feedback, and follow the project. Report bugs and request features in
+[GitHub issues](https://github.com/team-reflect/reflect-open/issues).
 
 ## License
 

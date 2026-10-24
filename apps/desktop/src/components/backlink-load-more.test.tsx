@@ -11,11 +11,10 @@ class TestIntersectionObserver implements IntersectionObserver {
   readonly scrollMargin = '0px'
   readonly thresholds: readonly number[]
   readonly targets = new Set<Element>()
+  readonly #callback: IntersectionObserverCallback
 
-  constructor(
-    private readonly callback: IntersectionObserverCallback,
-    options: IntersectionObserverInit = {},
-  ) {
+  constructor(callback: IntersectionObserverCallback, options: IntersectionObserverInit = {}) {
+    this.#callback = callback
     this.root = options.root ?? null
     this.rootMargin = options.rootMargin ?? '0px'
     const threshold = options.threshold ?? 0
@@ -53,7 +52,7 @@ class TestIntersectionObserver implements IntersectionObserver {
       }
     })
     for (let index = 0; index < times; index += 1) {
-      this.callback(entries, this)
+      this.#callback(entries, this)
     }
   }
 }

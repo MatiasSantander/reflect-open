@@ -2,22 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { ArrowRight, CalendarDays, Check, CircleCheck, List, Trash2, Undo2, X } from 'lucide-react'
 import { Priority } from '@meowdown/core'
 import { useKeymap } from '@meowdown/react'
-import type { OpenTask } from '@reflect/core'
+import { getTaskDueDate, type OpenTask } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { markModeFromSyntax } from '@/editor/mark-mode.ts'
 import { NoteEditor, type NoteEditorHandle } from '@/editor/note-editor.tsx'
 import { useEditorAutocomplete } from '@/editor/use-editor-autocomplete.ts'
 import { useTagNavigation } from '@/editor/use-tag-navigation.ts'
+import { useMarkdownLinkClick } from '@/editor/use-markdown-link-click.ts'
 import { useWikiLinkNavigation } from '@/editor/use-wiki-link-navigation.ts'
 import { addDaysIso, formatDayLabel } from '@/lib/dates.ts'
 import type { TaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
-import { draftDueDate, withDraftDueDate } from '@/mobile/task-draft.ts'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { withDraftDueDate } from '@/mobile/task-draft.ts'
 import { TaskScheduleGrid } from '@/mobile/task-schedule-grid.tsx'
 import { useTaskSheetFinalizer } from '@/mobile/use-task-sheet-finalizer.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
 
 interface MobileTaskEditSheetProps {
@@ -62,10 +63,10 @@ export function MobileTaskEditSheet({
   onOpenNote,
   autoFocusEditor = false,
 }: MobileTaskEditSheetProps): ReactElement {
-  const { graph } = useGraph()
+  const { haptics } = useMobileAppServices()
   const { settings } = useSettings()
-  const generation = graph?.generation ?? null
-  const navigateWikiLink = useWikiLinkNavigation(generation)
+  const navigateWikiLink = useWikiLinkNavigation()
+  const onLinkClick = useMarkdownLinkClick(null)
   const navigateTag = useTagNavigation()
   const { onWikilinkSearch, onTagSearch } = useEditorAutocomplete()
   const [showCalendar, setShowCalendar] = useState(false)
@@ -81,10 +82,11 @@ export function MobileTaskEditSheet({
   // and "torn down" into '', indistinguishable from a genuine clear, and an
   // empty draft means delete.
   const liveDraftRef = useRef<{ seed: number; markdown: string } | null>(null)
-  const readLiveDraft = (): string | null =>
-    liveDraftRef.current !== null && liveDraftRef.current.seed === editorSeed
+  const readLiveDraft = (): string | null => {
+    return liveDraftRef.current !== null && liveDraftRef.current.seed === editorSeed
       ? liveDraftRef.current.markdown
       : null
+  }
   // The commit/cancel/delete rules — baseline frozen at open, reseed on
   // reopen, dismissal vs navigate vs unmount — live in the finalizer. It
   // resolves against the live mirror (readDraft) with the state as fallback.
@@ -100,7 +102,7 @@ export function MobileTaskEditSheet({
         setEditorSeed((seed) => seed + 1)
       },
     })
-  const dueDate = draftDueDate(draft)
+  const dueDate = getTaskDueDate(draft)
 
   const handleChange = (markdown: string): void => {
     liveDraftRef.current = { seed: editorSeed, markdown }
@@ -128,7 +130,7 @@ export function MobileTaskEditSheet({
   const finishEdit = useCallback(() => finishRef.current(), [])
 
   const complete = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     const result = resolve()
     if (result.type === 'commit') {
       actions.editAndToggle(task, result.content)
@@ -143,7 +145,7 @@ export function MobileTaskEditSheet({
   }
 
   const convertToBullet = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     const result = resolve()
     if (result.type === 'commit') {
       actions.editAndConvertToBullet(task, result.content)
@@ -158,7 +160,7 @@ export function MobileTaskEditSheet({
   }
 
   const openNote = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     closeNavigate()
     onOpenNote(task.notePath)
   }
@@ -176,13 +178,13 @@ export function MobileTaskEditSheet({
   }
 
   const remove = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     actions.remove([task])
     closeHandled()
   }
 
   const schedule = (isoDate: string | null): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     // Base the rewrite on the freshest draft, then keep every mirror in step
     // by hand: setMarkdown is silent (no onChange echo), so neither the live
     // mirror nor the state (chip highlights) updates on its own.
@@ -194,7 +196,7 @@ export function MobileTaskEditSheet({
   }
 
   const toggleCalendar = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     setShowCalendar((showing) => !showing)
   }
 
@@ -221,6 +223,7 @@ export function MobileTaskEditSheet({
             <NoteEditor
               key={editorSeed}
               initialContent={draft}
+              singleParagraph
               onChange={handleChange}
               markMode={markModeFromSyntax(settings.editorMarkdownSyntax)}
               spellCheck={settings.editorSpellCheck}
@@ -229,6 +232,7 @@ export function MobileTaskEditSheet({
               // A one-line editor has nothing to reorder, so keep the gutter grip off.
               blockHandle={false}
               onWikiLinkClick={openWikiLink}
+              onLinkClick={onLinkClick}
               onTagClick={openTag}
               onWikilinkSearch={onWikilinkSearch}
               onTagSearch={onTagSearch}

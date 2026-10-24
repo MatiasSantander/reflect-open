@@ -62,7 +62,7 @@ aliases:
   can address the selected note. Clicking a valid ISO date whose key is
   unclaimed still opens or lazily creates that daily.
 - Renames are **stronger than v1**: the rename coordinator
-  (`apps/desktop/src/editor/rename-coordinator.ts`) rewrites known
+  (`packages/core/src/documents/title-rename-service.ts`) rewrites known
   `[[old title]]` links across the graph, then records the old title as an
   alias so unindexed or external references keep resolving too.
 - Because the whole `Tim MacCaw // Dad` H1 is v2's canonical title, changing

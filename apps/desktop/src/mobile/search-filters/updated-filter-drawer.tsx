@@ -3,12 +3,9 @@ import { Check } from 'lucide-react'
 import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerBody, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import {
-  UPDATED_PRESETS,
-  updatedPresetFilter,
-  updatedRangeFilter,
-  type UpdatedFilter,
-} from './filter-state.ts'
+import { useDateFormat } from '@/hooks/use-date-format.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
+import { UPDATED_PRESETS, updatedRangeFilter, type UpdatedFilter } from './filter-state.ts'
 
 interface UpdatedFilterDrawerProps {
   open: boolean
@@ -28,6 +25,8 @@ export function UpdatedFilterDrawer({
   current,
   onApply,
 }: UpdatedFilterDrawerProps): ReactElement {
+  const dateFormat = useDateFormat()
+  const { paletteSearch } = useAppServices()
   const [fromIso, setFromIso] = useState('')
   const [toIso, setToIso] = useState('')
 
@@ -46,7 +45,7 @@ export function UpdatedFilterDrawer({
     setOpen(false)
   }
 
-  const range = updatedRangeFilter(fromIso, toIso)
+  const range = updatedRangeFilter(fromIso, toIso, dateFormat)
 
   return (
     <Drawer open={open} onOpenChange={setOpen}>
@@ -58,7 +57,7 @@ export function UpdatedFilterDrawer({
               <button
                 key={preset}
                 type="button"
-                onClick={() => apply(updatedPresetFilter(preset))}
+                onClick={() => apply(paletteSearch.updatedPresetFilter(preset))}
                 className="flex h-12 w-full items-center border-b border-border text-left text-base"
               >
                 <span className="min-w-0 flex-1">{label}</span>

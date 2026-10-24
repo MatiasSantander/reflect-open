@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { errorMessage, runDeviceFlow } from '@reflect/core'
-import { invalidateGithubAuth } from '@/lib/github-auth-state.ts'
-import { providerFetch } from '@/lib/provider-fetch.ts'
+import { errorMessage } from '@reflect/core'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /** What a device-flow surface renders: nothing yet, or the code to enter. */
 export type DeviceFlowView =
@@ -26,11 +25,13 @@ export interface DeviceFlowAuth {
 /**
  * The GitHub device-flow state machine, separated from rendering so any
  * surface (the connect dialog, restore, a future onboarding screen) can drive
- * the same auth. Polling policy lives further down in core's `runDeviceFlow`;
- * this hook owns the React side: the view/busy/error states and aborting the
- * poll when the owning component unmounts.
+ * the same auth. Polling policy lives further down in core's
+ * `GithubAuthService.runDeviceFlow`; this hook owns the React side: the
+ * view/busy/error states and aborting the poll when the owning component
+ * unmounts.
  */
 export function useDeviceFlowAuth(): DeviceFlowAuth {
+  const { githubAuth } = useCoreServices()
   const [view, setView] = useState<DeviceFlowView>({ view: 'idle' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,16 +54,12 @@ export function useDeviceFlowAuth(): DeviceFlowAuth {
     setBusy(true)
     try {
       const signal = abortRef.current?.signal
-      const auth = await runDeviceFlow({
-        fetchFn: providerFetch,
-        ...(signal !== undefined ? { signal } : {}),
+      const auth = await githubAuth.runDeviceFlow({
+        signal,
         onCode: (code) => {
           setView({ view: 'code', userCode: code.userCode, verificationUri: code.verificationUri })
         },
       })
-      if (auth !== null) {
-        invalidateGithubAuth()
-      }
       return auth !== null
     } catch (caught: unknown) {
       setView({ view: 'idle' })

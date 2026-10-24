@@ -1,5 +1,4 @@
-import { act } from 'react'
-import { cleanup, render } from 'vitest-browser-react'
+import { act } from '@/test-utils/act.ts'
 import { page } from 'vitest/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -7,12 +6,9 @@ import {
   publishFormattingToolbar,
   type FormattingToolbar,
 } from '@/editor/formatting-toolbar-store.ts'
-import { pickFiles } from '@/lib/pick-files.ts'
 import { fireEvent } from '@/test-utils/fire-event.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { MobileFormattingToolbar } from './formatting-toolbar.tsx'
-
-vi.mock('@/mobile/haptics.ts', () => ({ hapticImpactLight: vi.fn() }))
-vi.mock('@/lib/pick-files.ts', () => ({ pickFiles: vi.fn(async () => []) }))
 
 function makeToolbar(
   capabilities: Partial<FormattingToolbar['capabilities']> = {},
@@ -44,21 +40,20 @@ function makeToolbar(
 const owner = Symbol('toolbar-test')
 
 afterEach(() => {
-  cleanup()
   clearFormattingToolbar(owner)
   vi.clearAllMocks()
 })
 
 describe('MobileFormattingToolbar', () => {
   it('renders nothing while no editor is focused (the search keyboard case)', async () => {
-    const view = await render(<MobileFormattingToolbar />)
+    const view = await renderInApp(<MobileFormattingToolbar />)
     expect(view.container.firstChild).toBeNull()
   })
 
   it('renders V1 item order plus the dismiss button, with canExec-driven enablement', async () => {
     const toolbar = makeToolbar({ canDedent: false, canMoveUp: false })
-    await render(<MobileFormattingToolbar />)
-    act(() => publishFormattingToolbar(owner, toolbar))
+    await renderInApp(<MobileFormattingToolbar />)
+    await act(() => publishFormattingToolbar(owner, toolbar))
 
     const buttons = page.getByRole('button').elements()
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -80,8 +75,8 @@ describe('MobileFormattingToolbar', () => {
   })
 
   it('never lets a tap move focus out of the editor', async () => {
-    await render(<MobileFormattingToolbar />)
-    act(() => publishFormattingToolbar(owner, makeToolbar()))
+    await renderInApp(<MobileFormattingToolbar />)
+    await act(() => publishFormattingToolbar(owner, makeToolbar()))
 
     const bullet = page.getByRole('button', { name: 'Cycle list style' })
     // fireEvent returns false when a handler called preventDefault — the
@@ -92,8 +87,8 @@ describe('MobileFormattingToolbar', () => {
 
   it('routes taps to the published commands', async () => {
     const toolbar = makeToolbar()
-    await render(<MobileFormattingToolbar />)
-    act(() => publishFormattingToolbar(owner, toolbar))
+    await renderInApp(<MobileFormattingToolbar />)
+    await act(() => publishFormattingToolbar(owner, toolbar))
 
     fireEvent.click(page.getByRole('button', { name: 'Cycle list style' }))
     expect(toolbar.commands.cycleBulletOrderedList).toHaveBeenCalledOnce()
@@ -115,24 +110,38 @@ describe('MobileFormattingToolbar', () => {
   })
 
   it('hides the image button for an editor that cannot persist files', async () => {
-    await render(<MobileFormattingToolbar />)
-    act(() => publishFormattingToolbar(owner, makeToolbar({ canAttachFiles: false })))
+    await renderInApp(<MobileFormattingToolbar />)
+    await act(() => publishFormattingToolbar(owner, makeToolbar({ canAttachFiles: false })))
 
     expect(page.getByRole('button', { name: 'Insert image' }).query()).toBeNull()
   })
 
   it('hands the picked images to the editor', async () => {
-    const picked = [new File(['png'], 'photo.png', { type: 'image/png' })]
-    vi.mocked(pickFiles).mockResolvedValueOnce(picked)
+    // The OS file picker cannot be answered from a test: the input's `click`
+    // is where it would open, so the files are chosen there instead.
+    const inputs: HTMLInputElement[] = []
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function (
+      this: HTMLInputElement,
+    ) {
+      inputs.push(this)
+      const chosen = new DataTransfer()
+      chosen.items.add(new File(['png'], 'photo.png', { type: 'image/png' }))
+      this.files = chosen.files
+      this.dispatchEvent(new Event('change'))
+    })
     const toolbar = makeToolbar()
-    await render(<MobileFormattingToolbar />)
-    act(() => publishFormattingToolbar(owner, toolbar))
+    await renderInApp(<MobileFormattingToolbar />)
+    await act(() => publishFormattingToolbar(owner, toolbar))
 
     fireEvent.click(page.getByRole('button', { name: 'Insert image' }))
 
-    expect(pickFiles).toHaveBeenCalledWith({ accept: 'image/*', multiple: true })
+    expect(inputs.map((input) => [input.type, input.accept, input.multiple])).toEqual([
+      ['file', 'image/*', true],
+    ])
     await vi.waitFor(() => {
-      expect(toolbar.commands.attachFiles).toHaveBeenCalledWith(picked)
+      expect(toolbar.commands.attachFiles).toHaveBeenCalledOnce()
     })
+    const attached = vi.mocked(toolbar.commands.attachFiles).mock.lastCall?.[0] ?? []
+    expect(attached.map((file) => [file.name, file.type])).toEqual([['photo.png', 'image/png']])
   })
 })

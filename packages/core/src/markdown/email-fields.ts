@@ -15,18 +15,24 @@
  * and an optional inline value. A missing colon is accepted only when the
  * label occupies the whole list item.
  */
-const EMAIL_FIELD_PATTERN = /^([ \t]*)[-+*][ \t]+emails?[ \t]*(?::[ \t]*(.*))?$/i
+const EMAIL_FIELD_PATTERN = /^([ \t]*)[-+*][ \t]+emails?[ \t]*(?::(.*))?$/i
 
 /** A nested unordered-list item, capturing indentation and value. */
-const LIST_ITEM_PATTERN = /^([ \t]*)[-+*][ \t]+(.*)$/
+const LIST_ITEM_PATTERN = /^([ \t]*)[-+*][ \t](.*)$/
 const LEADING_WHITESPACE_PATTERN = /^[ \t]*/
 const MARKDOWN_TAB_WIDTH = 4
 
 /**
- * An address inside a field value (tolerates `mailto:` links and commas —
- * excluding `:` keeps the scheme out of the local part).
+ * An address inside a field value, captured in group 1. The local part is a
+ * practical subset (letters, digits, `._%+'-`). Leading `._%+'-` are skipped,
+ * so `'ada@example.com'` and `_ada@example.com_` yield the bare address.
+ * Each domain label starts and ends with a letter or digit, so trailing
+ * punctuation, `?query`, `/path`, and Markdown or CJK marks end the match.
+ * The leading non-capturing group starts a match only at a token boundary,
+ * which keeps the scan linear.
  */
-const EMAIL_PATTERN = /[^\s@<>(),;:[\]]+@[^\s@<>(),;:[\]]+\.[^\s@<>(),;:[\]]+/g
+const EMAIL_PATTERN =
+  /(?:^|[^\p{L}\p{N}._%+'-])[._%+'-]*([\p{L}\p{N}][\p{L}\p{N}._%+'-]*@(?:[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\.)+[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?)/gu
 
 /**
  * Normalize an email identity for matching. Provider-specific transformations
@@ -34,13 +40,11 @@ const EMAIL_PATTERN = /[^\s@<>(),;:[\]]+@[^\s@<>(),;:[\]]+\.[^\s@<>(),;:[\]]+/g
  */
 export function canonicalEmail(email: string): string {
   const trimmed = email.trim()
-  const wrapped = trimmed.match(/^[^<>]*<\s*([^<>]+)>$/)
-  const address = (wrapped?.[1] ?? trimmed).replace(/^mailto:/i, '').trim()
-  return address.toLowerCase()
+  const wrapped = trimmed.match(/^[^<>]*<([^<>]+)>$/)
+  const unwrapped = wrapped?.[1]?.trimStart() ?? trimmed
+  const mailto = unwrapped.match(/^mailto:([^?#]*)/i)
+  return (mailto?.[1] ?? unwrapped).trim().toLowerCase()
 }
-
-/** The established indexing name for {@link canonicalEmail}. */
-export const foldEmail = canonicalEmail
 
 /** Canonicalize, remove blanks, and deduplicate email identities in order. */
 export function canonicalEmails(values: readonly string[]): string[] {
@@ -71,7 +75,7 @@ function indentationWidth(whitespace: string): number {
 
 function appendEmails(value: string, seen: Set<string>, emails: string[]): void {
   for (const match of value.matchAll(EMAIL_PATTERN)) {
-    const email = match[0].replace(/\.+$/, '')
+    const email = match[1] ?? ''
     const key = canonicalEmail(email)
     if (seen.has(key)) {
       continue
@@ -92,7 +96,7 @@ export function extractEmailFields(body: string): string[] {
   const emails: string[] = []
   let legacyParentIndent: number | null = null
 
-  for (const line of body.split(/\r?\n/)) {
+  for (const line of body.split(/\r\n?|\n/)) {
     const field = line.match(EMAIL_FIELD_PATTERN)
     if (field !== null) {
       const inlineValue = field[2] ?? ''

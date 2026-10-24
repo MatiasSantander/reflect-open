@@ -17,9 +17,7 @@
 mod background_task;
 mod blocking;
 mod calendar;
-mod recording;
 mod capture;
-mod conflict;
 mod contacts;
 mod db;
 mod devtools;
@@ -27,9 +25,9 @@ mod editor_link_preview;
 mod error;
 mod fs;
 mod git;
-mod graph_gitignore;
 mod icloud;
 mod link_preview;
+mod logging;
 mod menu;
 mod quit;
 mod recents;
@@ -41,13 +39,14 @@ mod wake;
 mod web_fetch;
 mod windows;
 
-// The watcher and the embedding runtime are desktop capabilities (Plan 19):
-// mobile swaps in stand-ins with the identical command surface, so the
-// `invoke_handler` list below needs no platform branches.
-#[cfg(desktop)]
+// The watcher and the embedding runtime are desktop capabilities (Plan 19),
+// and Intel macOS has no embedding runtime either: other platforms swap in
+// stand-ins with the identical command surface, so
+// the `invoke_handler` list below needs no platform branches.
+#[cfg(all(desktop, not(all(target_os = "macos", target_arch = "x86_64"))))]
 mod embed;
-#[cfg(mobile)]
-#[path = "embed_mobile.rs"]
+#[cfg(any(mobile, all(target_os = "macos", target_arch = "x86_64")))]
+#[path = "embed_unsupported.rs"]
 mod embed;
 #[cfg(desktop)]
 mod watcher;
@@ -99,23 +98,16 @@ mod capability_tests {
             .as_array()
             .expect("capability permissions");
 
-        assert!(permissions
-            .iter()
-            .any(|permission| permission.as_str() == Some("core:window:allow-hide")));
+        assert!(
+            permissions
+                .iter()
+                .any(|permission| permission.as_str() == Some("core:window:allow-hide"))
+        );
     }
-}
-
-/// Route `tracing` output to stderr, honoring `RUST_LOG` (default `info`).
-fn init_tracing() {
-    use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    // `try_init` so a second call (tests, mobile re-entry) is a no-op, not a panic.
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_tracing();
     let builder = tauri::Builder::default();
 
     // Single-instance must be the first plugin so a second launch is caught
@@ -150,6 +142,7 @@ pub fn run() {
     // geometry, but mobile has no window-state plugin, so show it here or the
     // UI would never appear.
     let builder = builder.setup(|app| {
+        logging::init(app.handle());
         #[cfg(any(target_os = "linux", all(windows, debug_assertions)))]
         {
             use tauri_plugin_deep_link::DeepLinkExt;
@@ -269,7 +262,6 @@ pub fn run() {
         .manage(fs::ImportCancel::default())
         .manage(fs::assets::AssetUploads::default())
         .manage(db::IndexState::default())
-        .manage(recording::RecordingState::default())
         .manage(watcher::WatcherState::default())
         .manage(quit::QuitState::default())
         .manage(windows::WindowInit::default())
@@ -357,12 +349,6 @@ pub fn run() {
             calendar::calendar_request_access,
             calendar::calendar_list_calendars,
             calendar::calendar_list_events,
-            recording::recording_system_audio_access_granted,
-            recording::recording_request_system_audio_access,
-            recording::recording_call_candidates,
-            recording::recording_trace,
-            recording::recording_start,
-            recording::recording_stop,
             contacts::contacts_authorization_status,
             contacts::contacts_request_access,
             contacts::contacts_lookup_by_email,
@@ -386,7 +372,8 @@ pub fn run() {
             git::git_clone,
             git::git_commit_all,
             git::git_fetch,
-            git::git_merge_remote,
+            git::git_remote_head,
+            git::git_pull,
             git::git_push,
             quit::quit_confirm,
             windows::open_note_window,

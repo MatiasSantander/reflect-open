@@ -1,8 +1,8 @@
-import { render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { AiProviderConfig } from '@reflect/core'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 
 /** The per-provider management sheet: make-default and remove wiring. */
 
@@ -35,7 +35,7 @@ beforeEach(() => {
 })
 
 async function renderSheet(isDefault = false) {
-  await render(
+  return await renderInApp(
     <AiProviderActionsDrawer
       provider={PROVIDER}
       isDefault={isDefault}
@@ -45,6 +45,7 @@ async function renderSheet(isDefault = false) {
       onSetDefaultModel={onSetDefaultModel}
       onRemove={onRemove}
     />,
+    { servicesOnly: true },
   )
 }
 
@@ -83,16 +84,18 @@ describe('AiProviderActionsDrawer', () => {
   })
 
   it('a failed removal keeps the sheet open for a retry', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     onRemove.mockRejectedValue(new Error('keychain unavailable'))
-    await renderSheet()
+    const { app } = await renderSheet()
 
     await page.getByRole('button', { name: 'Remove provider' }).click()
 
-    await vi.waitFor(() => expect(consoleError).toHaveBeenCalled())
+    await vi.waitFor(() => {
+      expect(app.logger.getErrors()).toEqual([
+        { message: 'AI provider removal failed:', cause: 'keychain unavailable' },
+      ])
+    })
     expect(onOpenChange).not.toHaveBeenCalled()
     // The pending spinner cleared — the row is pressable again.
     await expect.element(page.getByRole('button', { name: 'Remove provider' })).toBeEnabled()
-    consoleError.mockRestore()
   })
 })

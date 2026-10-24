@@ -7,10 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
-use reflect_graph_paths::eviction_placeholder;
+use reflect_graph_paths::{eviction_placeholder, normalize_line_endings};
 
 use crate::error::CliError;
-use crate::frontmatter::{parse_frontmatter, split_frontmatter, Frontmatter};
+use crate::frontmatter::{Frontmatter, parse_frontmatter, split_frontmatter};
 use crate::keys::fold_key;
 use crate::paths::date_from_daily_path;
 
@@ -57,14 +57,13 @@ fn unescape_markdown_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars();
     while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            if let Some(next) = chars.clone().next() {
-                if next.is_ascii_punctuation() {
-                    out.push(next);
-                    chars.next();
-                    continue;
-                }
-            }
+        if ch == '\\'
+            && let Some(next) = chars.clone().next()
+            && next.is_ascii_punctuation()
+        {
+            out.push(next);
+            chars.next();
+            continue;
         }
         out.push(ch);
     }
@@ -75,10 +74,7 @@ fn unescape_markdown_text(text: &str) -> String {
 /// headings lose the leading hashes and any trailing closing hashes; both
 /// resolve backslash escapes like the TS extractor.
 fn clean_heading_text(raw: &str) -> String {
-    let raw = raw
-        .strip_suffix('\n')
-        .map(|text| text.strip_suffix('\r').unwrap_or(text))
-        .unwrap_or(raw);
+    let raw = raw.strip_suffix('\n').unwrap_or(raw);
     if let Some(newline_at) = raw.find('\n') {
         return unescape_markdown_text(raw[..newline_at].trim());
     }
@@ -197,19 +193,20 @@ fn render_embedded_wiki_links(title: &str) -> Option<String> {
     let mut replaced = false;
     let mut index = 0;
     while index < bytes.len() {
-        if bytes[index] == b'[' && bytes.get(index + 1) == Some(&b'[') {
-            if let Some(inner_end) = find_wiki_inner_end(bytes, index + 2) {
-                let inner = &title[index + 2..inner_end];
-                let (target, alias) = match inner.find('|') {
-                    Some(pipe) => (inner[..pipe].trim(), inner[pipe + 1..].trim()),
-                    None => (inner.trim(), ""),
-                };
-                if !target.is_empty() {
-                    replaced = true;
-                    rendered.push_str(if alias.is_empty() { target } else { alias });
-                    index = inner_end + 2;
-                    continue;
-                }
+        if bytes[index] == b'['
+            && bytes.get(index + 1) == Some(&b'[')
+            && let Some(inner_end) = find_wiki_inner_end(bytes, index + 2)
+        {
+            let inner = &title[index + 2..inner_end];
+            let (target, alias) = match inner.find('|') {
+                Some(pipe) => (inner[..pipe].trim(), inner[pipe + 1..].trim()),
+                None => (inner.trim(), ""),
+            };
+            if !target.is_empty() {
+                replaced = true;
+                rendered.push_str(if alias.is_empty() { target } else { alias });
+                index = inner_end + 2;
+                continue;
             }
         }
         let ch_len = title[index..].chars().next().map_or(1, char::len_utf8);
@@ -317,11 +314,16 @@ pub fn parse_note_meta(rel_path: &str, source: &str) -> NoteMeta {
     }
 }
 
+/// Read a note's text with `\n` line endings, the form the desktop indexes.
+pub fn read_note_text(path: &Path) -> std::io::Result<String> {
+    fs::read_to_string(path).map(normalize_line_endings)
+}
+
 /// Read a note and enforce the privacy contract: a `private: true` note is
 /// refused (exit 3), based on the file's own frontmatter — never an index row.
 pub fn read_note(root: &Path, rel_path: &str) -> Result<Note, CliError> {
     let absolute = checked_note_path(root, rel_path)?;
-    let content = fs::read_to_string(&absolute)
+    let content = read_note_text(&absolute)
         .map_err(|err| CliError::Runtime(format!("could not read {rel_path}: {err}")))?;
     let meta = parse_note_meta(rel_path, &content);
     if meta.private {
@@ -334,12 +336,12 @@ pub fn read_note(root: &Path, rel_path: &str) -> Result<Note, CliError> {
 /// A missing file has nothing to protect.
 pub fn ensure_not_private(root: &Path, rel_path: &str) -> Result<(), CliError> {
     let absolute = checked_note_path(root, rel_path)?;
-    let content = match fs::read_to_string(&absolute) {
+    let content = match read_note_text(&absolute) {
         Ok(content) => content,
         Err(_) if eviction_placeholder(&absolute).is_some_and(|path| path.is_file()) => {
             return Err(CliError::Runtime(format!(
                 "note is unavailable until iCloud downloads it: {rel_path}"
-            )))
+            )));
         }
         Err(_) => return Ok(()),
     };
@@ -365,14 +367,14 @@ pub(crate) fn checked_note_path(root: &Path, rel_path: &str) -> Result<PathBuf, 
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err(CliError::Runtime(format!(
                     "refusing symlinked note path: {rel_path}"
-                )))
+                )));
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
                 return Err(CliError::Runtime(format!(
                     "could not inspect {rel_path}: {error}"
-                )))
+                )));
             }
         }
     }

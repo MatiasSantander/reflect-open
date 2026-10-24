@@ -1,60 +1,14 @@
 import { EDITOR_KEY_BINDINGS } from '@meowdown/core'
-import { isApplePlatform, normalizeBinding } from '@/lib/keybindings.ts'
 
 /**
  * The central keymap registry (Plan 05 step 9). Every shortcut the app binds —
  * editor formatting and headings (meowdown's, listed in `EDITOR_KEY_BINDINGS`),
  * navigation (Plan 06), `[[` autocomplete (Plan 07), `⌘K` (Plan 08), the AI
- * sidebar (Plan 10) — registers through {@link registerKeymap}, which rejects
- * duplicates so bindings can never silently collide across features.
- * Registration happens once at module scope.
+ * sidebar (Plan 10) — registers in the app's `KeymapService`, which rejects
+ * duplicates so bindings can never silently collide across features. This
+ * module holds the editor-scope table; `registerAppKeymaps` in
+ * `lib/shortcuts.ts` registers it at boot.
  */
-
-export type KeymapScope = 'editor' | 'app'
-
-const registeredBindings = new Map<string, KeymapScope>()
-/** Normalized binding → the binding as registered. */
-const registeredKeystrokes = new Map<string, string>()
-
-/**
- * Register `bindings` under `scope`, throwing on any already-taken keystroke.
- * Bindings are compared after {@link normalizeBinding}, so `Mod-Alt-1` and
- * `Alt-Mod-1` collide. `Meta` is rejected: it means ⌘ on Apple but the
- * Windows/Super key elsewhere, so bindings spell the command key `Mod`.
- * All-or-nothing: validation happens before any key is committed, so a
- * colliding batch never leaves the registry partially mutated.
- */
-export function registerKeymap<T>(
-  scope: KeymapScope,
-  bindings: Record<string, T>,
-): Record<string, T> {
-  const apple = isApplePlatform()
-  const claimed = new Map<string, string>()
-  for (const binding of Object.keys(bindings)) {
-    if (binding.split('-').slice(0, -1).includes('Meta')) {
-      throw new Error(`keybinding "${binding}" uses Meta; use Mod instead`)
-    }
-    const keystroke = normalizeBinding(binding, apple)
-    const existing = registeredKeystrokes.get(keystroke) ?? claimed.get(keystroke)
-    if (existing !== undefined) {
-      const owner = registeredBindings.get(existing) ?? scope
-      throw new Error(
-        `duplicate keybinding "${binding}": already registered by the ${owner} scope as "${existing}"`,
-      )
-    }
-    claimed.set(keystroke, binding)
-  }
-  for (const [keystroke, binding] of claimed) {
-    registeredKeystrokes.set(keystroke, binding)
-    registeredBindings.set(binding, scope)
-  }
-  return bindings
-}
-
-/** Every registered binding (for the collision test + a future shortcuts UI). */
-export function listRegisteredBindings(): ReadonlyMap<string, KeymapScope> {
-  return registeredBindings
-}
 
 /**
  * Display descriptions for the editor-scope bindings (the shortcuts UI). The
@@ -88,7 +42,7 @@ const REFLECT_EDITOR_BINDINGS: Record<string, string> = {
   [AI_MENU_BINDING]: 'Open the AI menu on the selection',
 }
 
-export const EDITOR_BINDING_DESCRIPTIONS: Record<string, string> = registerKeymap('editor', {
+export const EDITOR_BINDING_DESCRIPTIONS: Record<string, string> = {
   ...EDITOR_BINDINGS,
   ...REFLECT_EDITOR_BINDINGS,
-})
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
-import { resolveTaskEdit } from '@/lib/tasks/task-content.ts'
+import { resolveTaskEdit } from '@reflect/core'
 
 /** The finalizer commands a task editor's keymap binds to its keys. */
 export interface TaskEditorApi {

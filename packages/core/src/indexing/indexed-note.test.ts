@@ -8,8 +8,8 @@ import {
 } from './indexed-note.ts'
 
 describe('buildIndexedNote', () => {
-  it('carries the projection version that rebuilds has_content and the FTS body', () => {
-    expect(PROJECTION_VERSION).toBe(20)
+  it('carries the projection version that rebuilds heading-chain task breadcrumbs', () => {
+    expect(PROJECTION_VERSION).toBe(22)
   })
 
   it('flattens a parsed note into the index payload', () => {
@@ -158,12 +158,13 @@ describe('buildIndexedNote', () => {
   })
 
   it('flags a note as empty only when nothing would render', () => {
-    const hasContentOf = (source: string): boolean =>
-      buildIndexedNote(parseNote({ path: 'daily/2026-06-09.md', source }), {
+    const hasContentOf = (source: string): boolean => {
+      return buildIndexedNote(parseNote({ path: 'daily/2026-06-09.md', source }), {
         fileHash: 'h',
         mtime: 0,
         source,
       }).hasContent
+    }
 
     expect(hasContentOf('')).toBe(false)
     expect(hasContentOf('\n  \n')).toBe(false)
@@ -199,12 +200,13 @@ describe('buildIndexedNote', () => {
   })
 
   it('derives the note kind from the path', () => {
-    const kindOf = (path: string): string =>
-      buildIndexedNote(parseNote({ path, source: 'body' }), {
+    const kindOf = (path: string): string => {
+      return buildIndexedNote(parseNote({ path, source: 'body' }), {
         fileHash: 'h',
         mtime: 0,
         source: 'body',
       }).kind
+    }
     expect(kindOf('daily/2026-06-09.md')).toBe('daily')
     expect(kindOf('notes/n.md')).toBe('note')
     expect(kindOf('templates/journal.md')).toBe('template')
@@ -234,8 +236,9 @@ describe('buildIndexedNote', () => {
 
   it('projects the gist url and computes staleness from the body hash', () => {
     const body = '# N\n\npublished body\n'
-    const block = (hash: string): string =>
-      `---\ngist:\n  id: g1\n  url: https://gist.github.com/alex/g1\n  file: N.md\n  hash: ${hash}\n---\n`
+    const block = (hash: string): string => {
+      return `---\ngist:\n  id: g1\n  url: https://gist.github.com/alex/g1\n  file: N.md\n  hash: ${hash}\n---\n`
+    }
 
     const fresh = block(gistBodyHash(body)) + body
     const indexedFresh = buildIndexedNote(parseNote({ path: 'notes/n.md', source: fresh }), {
@@ -277,21 +280,13 @@ describe('buildIndexedNote', () => {
     })
     expect(indexed.tasks).toEqual([
       {
-        markerOffset: source.indexOf('[ ]'),
-        text: 'buy milk',
-        breadcrumbs: [],
-        raw: '[ ] buy milk',
+        astPath: '[1]',
+        markdown: 'buy milk',
+        breadcrumbs: ['Todo'],
         checked: false,
         dueDate: null,
       },
-      {
-        markerOffset: source.indexOf('[x] call'),
-        text: 'call mum',
-        breadcrumbs: [],
-        raw: '[x] call mum',
-        checked: true,
-        dueDate: null,
-      },
+      { astPath: '[5]', markdown: 'call mum', breadcrumbs: ['Todo'], checked: true, dueDate: null },
     ])
   })
 
@@ -303,27 +298,6 @@ describe('buildIndexedNote', () => {
       source,
     })
     expect(indexed.tasks[0]?.dueDate).toBe('2026-06-20')
-  })
-
-  it('flags notes carrying sync conflict markers', () => {
-    const source = '# Shared\n\n<<<<<<< this device\nmine\n=======\ntheirs\n>>>>>>> other device\n'
-    const indexed = buildIndexedNote(parseNote({ path: 'notes/shared.md', source }), {
-      fileHash: 'h',
-      mtime: 0,
-      source,
-    })
-    expect(indexed.hasConflict).toBe(true)
-  })
-
-  it('does not flag a note quoting a conflict inside a code block', () => {
-    const source =
-      '# How to resolve\n\n```\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n```\n'
-    const indexed = buildIndexedNote(parseNote({ path: 'notes/howto.md', source }), {
-      fileHash: 'h',
-      mtime: 0,
-      source,
-    })
-    expect(indexed.hasConflict).toBe(false)
   })
 
   it('produces a payload that satisfies the cross-language contract schema', () => {

@@ -1,111 +1,118 @@
-import type { GraphInfo, NoteRow, PinnedNote } from '@reflect/core'
-import { queryKeys } from '@/lib/query-client.ts'
+import { act } from '@/test-utils/act.ts'
+import {
+  isOstensiblyEmptyNoteSource,
+  type ChatSession,
+  type GraphSessionService,
+  type NoteDocumentService,
+} from '@reflect/core'
+import type { AppServices, LinkNavigationService, NativeMenuService } from '@reflect/app'
+import { createTestAppServices } from '@reflect/app/testing'
+import {
+  createTestCoreServices,
+  createTestPlatformService,
+  type TestCoreServices,
+  type TestOpenGraph,
+  type TestPlatformOptions,
+} from '@reflect/core/testing'
 import {
   FocusedDailyProvider,
   useSetFocusedDailyDate,
 } from '@/providers/focused-daily-provider.tsx'
 import { isModEvent } from '@meowdown/core'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReactNode } from 'react'
-import { renderHook } from 'vitest-browser-react'
+import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { PaletteProvider, usePalette } from '@/components/command-palette/palette-provider.tsx'
-import { listRegisteredBindings } from '@/editor/keymap.ts'
-import { registerAppCommands } from '@/lib/commands/app-commands.ts'
+import {
+  registerNoteEditorHandle,
+  unregisterNoteEditorHandle,
+} from '@/editor/editor-handle-registry.ts'
+import type { NoteEditorHandle } from '@/editor/note-editor.tsx'
+import { registerAppKeymaps } from '@/lib/shortcuts.ts'
+import { AudioMemoProvider } from '@/providers/audio-memo-provider.tsx'
+import { NoteFindProvider, useNoteFind } from '@/providers/note-find-provider.tsx'
 import { NoteTemplatesProvider } from '@/providers/note-templates-provider.tsx'
 import { ShortcutsProvider, useShortcuts } from '@/providers/shortcuts-provider.tsx'
 import { SidebarProvider, useSidebar } from '@/providers/sidebar-provider.tsx'
 import { MOD_KEY, NON_MOD_KEY } from '@/test-utils/mod-key.ts'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { useAppShortcuts } from './app-shortcuts.ts'
-import { RouterProvider, useRouter } from './router.tsx'
+import { useRouter } from './router.tsx'
 
-const commitNoteFrontmatter = vi.hoisted(() => vi.fn(async () => {}))
-const graphState = vi.hoisted((): { graph: GraphInfo | null } => ({
-  graph: { root: '/g', name: 'g', generation: 1 },
-}))
-vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
-  useMeetingRecording: () => ({
-    recording: false,
-    detectedAs: null,
-    startingAt: null,
-    error: null,
-    toggle: vi.fn(),
-    cancelStart: vi.fn(),
-  }),
-  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
-}))
+const GRAPH = { root: '/g', name: 'g', generation: 1 } satisfies TestOpenGraph
 
-vi.mock('@/lib/note-frontmatter.ts', () => ({
-  commitNoteFrontmatter,
-  readNoteSource: async () => '# A\n',
-}))
+// `newChat` of the chat session the open graph created; set by `shortcutsHook`.
+let newChat: MockInstance<ChatSession['newChat']>
 
-const newChat = vi.hoisted(() => vi.fn())
-const openRecent = vi.hoisted(() => vi.fn())
-const openRouteInNewWindow = vi.hoisted(() => vi.fn(async () => true))
+/**
+ * An editor handle that records the Find traversal and ignores the rest.
+ */
+function findHandle(findNext: () => void, findPrevious: () => void): NoteEditorHandle {
+  return {
+    getMarkdown: () => '',
+    setMarkdown: () => {},
+    insertMarkdown: () => {},
+    focus: () => {},
+    setSelection: () => {},
+    getSelectedText: () => '',
+    openSelectionMenu: () => {},
+    startPendingReplacement: () => false,
+    appendPendingReplacementText: () => {},
+    acceptPendingReplacement: () => {},
+    discardPendingReplacement: () => {},
+    findNext,
+    findPrevious,
+  }
+}
 
-const openNoteFindForPath = vi.hoisted(() => vi.fn(() => true))
-const findNextInNote = vi.hoisted(() => vi.fn())
-const findPreviousInNote = vi.hoisted(() => vi.fn())
+// What the app's note documents answer; reset before each test.
+const commitNoteFrontmatter = vi.fn<NoteDocumentService['commitFrontmatter']>()
 
-vi.mock('@/lib/windows/open-in-new-window.ts', () => ({ openRouteInNewWindow }))
-vi.mock('@/providers/note-find-provider.tsx', () => ({
-  useNoteFindActions: () => ({
-    openForPath: openNoteFindForPath,
-    next: findNextInNote,
-    previous: findPreviousInNote,
-  }),
-}))
-
-vi.mock('@/lib/native-menu/menu.ts', () => ({
-  isNativeMenuInstalled: () => false,
-}))
-// macOS-only shortcut behavior lives in app-shortcuts-macos.test.tsx: a
-// browser-mode module mock materializes value exports once, so the flag
-// cannot flip per test.
-vi.mock('@/lib/platform.ts', () => ({ isMacosDesktop: false, isNativeShell: () => false }))
-
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({
-    graph: graphState.graph,
-    recents: [
-      { root: '/g', name: 'g', openedMs: 3 },
-      { root: '/work', name: 'Work', openedMs: 2 },
-      { root: '/side', name: 'Side', openedMs: 1 },
-    ],
-    openRecent,
-  }),
-}))
-vi.mock('@/providers/theme-provider.tsx', () => ({
-  useTheme: () => ({ theme: 'light', resolvedTheme: 'light', setTheme: vi.fn() }),
-}))
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({
-    settings: { editorMarkdownSyntax: 'hide', semanticSearchEnabled: false, theme: 'system' },
-    updateSettings: vi.fn(),
-  }),
-}))
-vi.mock('@/providers/audio-memo-provider.tsx', () => ({
-  useAudioMemo: () => ({ toggle: vi.fn() }),
-}))
-vi.mock('@/providers/chat-provider.tsx', () => ({
-  useChatSession: () => ({ newChat }),
-}))
-
-registerAppCommands() // production does this in main.tsx
+// The platform of the next `shortcutsHook`; each `describe` sets it.
+let platform: TestPlatformOptions
+// The services of the rendered app; set by `shortcutsHook`.
+let app: TestCoreServices
+let appLayer: AppServices
+let openRecent: MockInstance<GraphSessionService['openRecent']>
+let openRouteInNewWindow: MockInstance<LinkNavigationService['openRouteInNewWindow']>
+let isNativeMenuInstalled: MockInstance<NativeMenuService['isInstalled']>
 
 beforeEach(() => {
-  graphState.graph = { root: '/g', name: 'g', generation: 1 }
+  platform = {
+    isNativeShell: false,
+    isMacosDesktop: false,
+    isApplePlatform: MOD_KEY.metaKey,
+    hasMacosTitleBarOverlay: false,
+  }
   commitNoteFrontmatter.mockReset().mockResolvedValue(undefined)
-  openRecent.mockClear()
-  openRouteInNewWindow.mockClear()
-  openNoteFindForPath.mockClear()
-  findNextInNote.mockClear()
-  findPreviousInNote.mockClear()
 })
 
-function shortcutsHook(client = new QueryClient()) {
-  return renderHook(
+async function shortcutsHook() {
+  const readSource = (): Promise<string> => Promise.resolve('# A\n')
+  const services = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    platform: createTestPlatformService(platform),
+    noteDocuments: {
+      readSource,
+      readExisting: readSource,
+      commitFrontmatter: commitNoteFrontmatter,
+      commitSourceEdit: () => Promise.reject(new Error('commitSourceEdit is not stubbed')),
+      isOstensiblyEmpty: isOstensiblyEmptyNoteSource,
+    },
+  })
+  app = services
+  appLayer = createTestAppServices(services)
+  openRecent = vi.spyOn(services.graphSession, 'openRecent').mockResolvedValue(true)
+  openRouteInNewWindow = vi
+    .spyOn(appLayer.linkNavigation, 'openRouteInNewWindow')
+    .mockResolvedValue(true)
+  isNativeMenuInstalled = vi.spyOn(appLayer.nativeMenu, 'isInstalled').mockReturnValue(false)
+  const createChatSession = services.chatSessions.create.bind(services.chatSessions)
+  vi.spyOn(services.chatSessions, 'create').mockImplementation((options) => {
+    const session = createChatSession(options)
+    newChat = vi.spyOn(session, 'newChat')
+    return session
+  })
+  return await renderHookInApp(
     () => {
       const context = useAppShortcuts()
       return {
@@ -113,25 +120,37 @@ function shortcutsHook(client = new QueryClient()) {
         setFocusedDailyDate: useSetFocusedDailyDate(),
         router: useRouter(),
         palette: usePalette(),
+        noteFind: useNoteFind(),
         shortcuts: useShortcuts(),
         sidebar: useSidebar(),
       }
     },
     {
-      wrapper: ({ children }: { children: ReactNode }) => (
-        <QueryClientProvider client={client}>
-          <RouterProvider>
-            <PaletteProvider>
-              <ShortcutsProvider>
-                <NoteTemplatesProvider>
-                  <SidebarProvider>
-                    <FocusedDailyProvider>{children}</FocusedDailyProvider>
-                  </SidebarProvider>
-                </NoteTemplatesProvider>
-              </ShortcutsProvider>
-            </PaletteProvider>
-          </RouterProvider>
-        </QueryClientProvider>
+      app: services,
+      appServices: appLayer,
+      graph: GRAPH,
+      graphState: {
+        recents: [
+          { root: '/g', name: 'g', openedMs: 3 },
+          { root: '/work', name: 'Work', openedMs: 2 },
+          { root: '/side', name: 'Side', openedMs: 1 },
+        ],
+      },
+      settings: { editorMarkdownSyntax: 'hide', semanticSearchEnabled: false, theme: 'system' },
+      wrapper: (children) => (
+        <PaletteProvider>
+          <ShortcutsProvider>
+            <NoteTemplatesProvider>
+              <SidebarProvider>
+                <FocusedDailyProvider>
+                  <NoteFindProvider>
+                    <AudioMemoProvider graph={GRAPH}>{children}</AudioMemoProvider>
+                  </NoteFindProvider>
+                </FocusedDailyProvider>
+              </SidebarProvider>
+            </NoteTemplatesProvider>
+          </ShortcutsProvider>
+        </PaletteProvider>
       ),
     },
   )
@@ -157,16 +176,15 @@ function pressFrom(target: EventTarget, key: string, options: KeyboardEventInit 
 
 describe('app shortcuts', () => {
   it('CMD+O updates the shelf before the file write resolves', async () => {
-    const client = new QueryClient()
-    const key = queryKeys.index.pinnedNotes('/g')
-    client.setQueryData(key, [])
     const write = Promise.withResolvers<void>()
     commitNoteFrontmatter.mockReturnValueOnce(write.promise)
-    const { result, act } = await shortcutsHook(client)
+    const { result } = await shortcutsHook()
     await act(() => result.current.router.navigate({ kind: 'note', path: 'notes/a.md' }))
     await act(() => press('o'))
-    expect(client.getQueryData<PinnedNote[]>(key)?.map((note) => note.path)).toEqual(['notes/a.md'])
-    expect(commitNoteFrontmatter).toHaveBeenCalledWith('notes/a.md', { pinned: 1024 }, 1)
+    await vi.waitFor(() => {
+      expect(commitNoteFrontmatter).toHaveBeenCalledWith('notes/a.md', { pinned: 1024 }, 1)
+    })
+    expect(app.noteRows.getOverlay('notes/a.md')).toEqual({ isPinned: true, pinnedOrder: 1024 })
     await act(() => press('o'))
     expect(commitNoteFrontmatter).toHaveBeenCalledTimes(1)
     write.resolve()
@@ -176,53 +194,39 @@ describe('app shortcuts', () => {
   })
 
   it('palette pin targets the focused daily note through the same context', async () => {
-    const client = new QueryClient()
-    const { result, act } = await shortcutsHook(client)
+    const { result } = await shortcutsHook()
     await act(() => result.current.router.navigate({ kind: 'daily', date: '2026-09-08' }))
     await act(() => result.current.setFocusedDailyDate('2026-09-07'))
     await act(() => result.current.context.togglePin())
-    expect(commitNoteFrontmatter).toHaveBeenCalledWith('daily/2026-09-07.md', { pinned: true }, 1)
-    expect(
-      client.getQueryData<PinnedNote[]>(queryKeys.index.pinnedNotes('/g'))?.[0]?.dailyDate,
-    ).toBe('2026-09-07')
+    expect(commitNoteFrontmatter).toHaveBeenCalledWith('daily/2026-09-07.md', { pinned: 1024 }, 1)
+    expect(app.noteRows.getOverlay('daily/2026-09-07.md')).toMatchObject({ isPinned: true })
   })
 
-  it('palette privacy updates the focused daily note cache before the write resolves', async () => {
-    const client = new QueryClient()
-    const queryKey = queryKeys.index.note('/g', 'daily/2026-09-07.md')
-    client.setQueryData<NoteRow>(queryKey, {
-      path: 'daily/2026-09-07.md',
-      title: 'Daily',
-      dailyDate: '2026-09-07',
-      isPrivate: false,
-      hasConflict: false,
-      gistUrl: null,
-      gistStale: false,
-    })
+  it('palette privacy updates the focused daily note row before the write resolves', async () => {
     const write = Promise.withResolvers<void>()
     commitNoteFrontmatter.mockReturnValueOnce(write.promise)
-    const { result, act } = await shortcutsHook(client)
+    const { result } = await shortcutsHook()
     await act(() => result.current.router.navigate({ kind: 'daily', date: '2026-09-08' }))
     await act(() => result.current.setFocusedDailyDate('2026-09-07'))
     const action = result.current.context.togglePrivate()
-    await vi.waitFor(() =>
+    await vi.waitFor(() => {
       expect(commitNoteFrontmatter).toHaveBeenCalledWith(
         'daily/2026-09-07.md',
         { private: true },
         1,
-      ),
-    )
-    expect(client.getQueryData<NoteRow>(queryKey)?.isPrivate).toBe(true)
+      )
+    })
+    expect(app.noteRows.getOverlay('daily/2026-09-07.md')).toEqual({ isPrivate: true })
     write.resolve()
     await action
   })
 
   it('pin and privacy no-op on note-less routes and without a graph', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => result.current.router.navigate({ kind: 'settings' }))
     await act(() => press('o'))
     await act(() => result.current.context.togglePrivate())
-    graphState.graph = null
+    await act(() => app.graphSession.setGraph(null))
     await act(() => result.current.router.navigate({ kind: 'note', path: 'notes/a.md' }))
     await act(() => press('o'))
     await act(() => result.current.context.togglePrivate())
@@ -230,7 +234,11 @@ describe('app shortcuts', () => {
   })
 
   it('registers the command keybindings in the central keymap registry', () => {
-    const bindings = listRegisteredBindings()
+    const { keymap } = createTestAppServices(
+      createTestCoreServices({ database: createWasmTestDatabaseService() }),
+    )
+    registerAppKeymaps(keymap)
+    const bindings = keymap.list()
     for (const key of [
       'Mod-d',
       'Mod-Shift-a',
@@ -250,7 +258,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘N opens a fresh note route; ⌘D returns to today; ⌘[ ⌘] traverse', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
 
     await act(() => press('n'))
     expect(result.current.router.route.kind).toBe('note')
@@ -268,7 +276,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘N from today makes back re-anchor Daily instead of restoring stale scroll', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => result.current.router.saveScrollState(735))
     expect(result.current.router.savedScroll()).toBe(735)
 
@@ -281,7 +289,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘⇧O opens the current note in a new window', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => press('n'))
     const opened = result.current.router.route
 
@@ -292,7 +300,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘[ and ⌘] still traverse when the focused editor consumes the keydown', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => press('n'))
     await act(() => press('d'))
     expect(result.current.router.route).toEqual({ kind: 'today' })
@@ -313,7 +321,7 @@ describe('app shortcuts', () => {
   })
 
   it('matches bracket history shortcuts by produced key on non-US layouts', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => press('n'))
     const opened = result.current.router.route
     await act(() => press('d'))
@@ -330,32 +338,39 @@ describe('app shortcuts', () => {
   })
 
   it('⌘K opens the palette', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     expect(result.current.palette.open).toBe(false)
     await act(() => press('k'))
     expect(result.current.palette.open).toBe(true)
   })
 
   it('⌘F targets the current note and ⌘G traverses its matches', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => press('n'))
     const opened = result.current.router.route
     if (opened.kind !== 'note') {
       throw new Error('expected the new-note route')
     }
 
+    const findNext = vi.fn()
+    const findPrevious = vi.fn()
+    const handle = findHandle(findNext, findPrevious)
+    registerNoteEditorHandle(opened.path, handle)
+
+    expect(result.current.noteFind.open).toBe(false)
     await act(() => press('f'))
-    expect(openNoteFindForPath).toHaveBeenCalledWith(opened.path)
+    expect(result.current.noteFind.open).toBe(true)
 
     await act(() => press('g'))
-    expect(findNextInNote).toHaveBeenCalledTimes(1)
+    expect(findNext).toHaveBeenCalledTimes(1)
 
     await act(() => press('g', { shiftKey: true }))
-    expect(findPreviousInNote).toHaveBeenCalledTimes(1)
+    expect(findPrevious).toHaveBeenCalledTimes(1)
+    unregisterNoteEditorHandle(opened.path, handle)
   })
 
   it(String.raw`⌘\ toggles the sidebar in both directions`, async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     expect(result.current.sidebar.collapsed).toBe(false)
 
     await act(() => press('\\'))
@@ -366,7 +381,7 @@ describe('app shortcuts', () => {
   })
 
   it('defers ⌘K to a focused editor that already handled it', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     // The editor (meowdown's Mod-k) sits below window: it consumes the keydown
     // before it bubbles up, so the palette must stay closed.
     const editor = document.createElement('div')
@@ -382,15 +397,14 @@ describe('app shortcuts', () => {
   })
 
   it('⌘⇧A opens All notes', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
 
     await act(() => press('a', { shiftKey: true }))
     expect(result.current.router.route).toEqual({ kind: 'allNotes', tag: null })
   })
 
   it('⌘⇧N starts a fresh chat when the chat route is active', async () => {
-    newChat.mockClear()
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
 
     await act(() => press('j'))
     expect(result.current.router.route).toEqual({ kind: 'chat' })
@@ -400,8 +414,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘⇧N is inert outside the chat route', async () => {
-    newChat.mockClear()
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
 
     await act(() => press('n', { shiftKey: true }))
     expect(result.current.router.route).toEqual({ kind: 'today' })
@@ -409,7 +422,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘number switches to the matching recent graph', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
 
     await act(() => press('1'))
     expect(openRecent).not.toHaveBeenCalled() // first row is already open
@@ -422,7 +435,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘number switches graphs from a focused editor that leaves the chord alone', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
     // Stands in for meowdown, whose heading toggles are ⌘⌥1–⌘⌥6: plain ⌘N is
     // not an editor binding, so the keydown bubbles to the app untouched.
     const toggleHeading = vi.fn()
@@ -449,7 +462,7 @@ describe('app shortcuts', () => {
   })
 
   it('matches graph number shortcuts by physical digit key on symbol-producing layouts', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
 
     await act(() => press('@', { code: 'Digit2' }))
 
@@ -457,7 +470,7 @@ describe('app shortcuts', () => {
   })
 
   it('strips Shift from physical digit fallback on layouts where digits require Shift', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
 
     await act(() => press('2', { code: 'Digit2', shiftKey: true }))
 
@@ -465,7 +478,7 @@ describe('app shortcuts', () => {
   })
 
   it('does not turn produced symbols with Shift into graph number shortcuts', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
 
     await act(() => press('@', { code: 'Digit2', shiftKey: true }))
 
@@ -473,7 +486,7 @@ describe('app shortcuts', () => {
   })
 
   it('switches graphs only on the Mod key, not the other command key', async () => {
-    const { act } = await shortcutsHook()
+    await shortcutsHook()
 
     await act(() => press('2', NON_MOD_KEY))
 
@@ -481,7 +494,7 @@ describe('app shortcuts', () => {
   })
 
   it('matches uppercase keys (caps lock) and ignores auto-repeat', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', ...MOD_KEY }))
     })
@@ -495,7 +508,7 @@ describe('app shortcuts', () => {
   })
 
   it('is inert while the palette is open (modal owns the keyboard)', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => result.current.palette.openPalette())
     await act(() => press('n'))
     expect(result.current.router.route).toEqual({ kind: 'today' }) // nothing behind the overlay
@@ -505,7 +518,7 @@ describe('app shortcuts', () => {
   })
 
   it('⌘/ opens the cheat-sheet, closes it again, and mutes other shortcuts meanwhile', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => press('/'))
     expect(result.current.shortcuts.open).toBe(true)
 
@@ -520,10 +533,50 @@ describe('app shortcuts', () => {
   })
 
   it('ignores chords with extra modifiers', async () => {
-    const { result, act } = await shortcutsHook()
+    const { result } = await shortcutsHook()
     await act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ...MOD_KEY, altKey: true }))
     })
     expect(result.current.router.route).toEqual({ kind: 'today' })
+  })
+})
+
+describe('app shortcuts on macOS', () => {
+  beforeEach(() => {
+    platform = { isNativeShell: false }
+  })
+
+  it('keeps the macOS webview fallback until the native menu is installed', async () => {
+    const { result } = await shortcutsHook()
+    const event = new KeyboardEvent('keydown', {
+      key: '\\',
+      metaKey: true,
+      cancelable: true,
+    })
+
+    await act(() => {
+      window.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(true)
+    expect(result.current.sidebar.collapsed).toBe(true)
+  })
+
+  it(String.raw`leaves ⌘\ to the native macOS menu accelerator`, async () => {
+    const { result } = await shortcutsHook()
+    isNativeMenuInstalled.mockReturnValue(true)
+    const event = new KeyboardEvent('keydown', {
+      key: '\\',
+      metaKey: true,
+      cancelable: true,
+    })
+
+    await act(() => {
+      window.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(false)
+    expect(result.current.sidebar.collapsed).toBe(false)
+
+    await act(() => appLayer.nativeMenu.dispatchCommand('sidebar.toggle'))
+    expect(result.current.sidebar.collapsed).toBe(true)
   })
 })

@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Reflect",
+  "productName": "Reflect Dev",
   "identifier": "app.reflect.desktop.dev",
   "app": {
     "windows": [
       {
         "create": false,
-        "title": "Reflect",
+        "title": "Reflect Dev",
         "width": 1300,
         "height": 650,
         "titleBarStyle": "Overlay",
@@ -18,11 +18,12 @@
   },
   "bundle": {
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons-dev/32x32.png",
+      "icons-dev/128x128.png",
+      "icons-dev/128x128@2x.png",
+      "icons-dev/icon.icns",
+      "icons-dev/icon.ico",
+      "icons-dev/Assets.car"
     ],
     "macOS": {
       "entitlements": "Entitlements.dev.plist",

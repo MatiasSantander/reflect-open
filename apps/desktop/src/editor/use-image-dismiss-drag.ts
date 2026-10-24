@@ -53,13 +53,21 @@ type DragState =
 
 const IDLE: DragState = { phase: 'idle' }
 
-/** Styles and handlers driving the mobile drag-to-dismiss gesture. */
+/**
+ * Styles and handlers driving the mobile drag-to-dismiss gesture.
+ */
 export interface ImageDismissDrag {
-  /** Transform applied to the dragged image, or undefined at rest. */
+  /**
+   * Transform applied to the dragged image, or undefined at rest.
+   */
   imageStyle: CSSProperties | undefined
-  /** Fade applied to the lightbox backdrop as the drag progresses. */
+  /**
+   * Fade applied to the lightbox backdrop as the drag progresses.
+   */
   backdropStyle: CSSProperties | undefined
-  /** Fade applied to the corner chrome (close/open buttons) during a drag. */
+  /**
+   * Fade applied to the corner chrome (close/open buttons) during a drag.
+   */
   chromeStyle: CSSProperties | undefined
   handlers: {
     onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void
@@ -68,7 +76,9 @@ export interface ImageDismissDrag {
     onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => void
     onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void
   }
-  /** Completes a settle animation; wire to the image's `onTransitionEnd`. */
+  /**
+   * Completes a settle animation; wire to the image's `onTransitionEnd`.
+   */
   finishSettle: () => void
 }
 
@@ -80,7 +90,9 @@ function dragProgress(deltaX: number, deltaY: number, height: number): number {
   return clamp(dragDistance(deltaX, deltaY) / Math.max(height * PROGRESS_TRAVEL_FRACTION, 1), 0, 1)
 }
 
-/** Continue the drag vector so the image exits along the finger's line. */
+/**
+ * Continue the drag vector so the image exits along the finger's line.
+ */
 function projectDismissOffset(
   deltaX: number,
   deltaY: number,
@@ -211,6 +223,9 @@ export function useImageDismissDrag({
       return
     }
     if (current.action === 'close') {
+      // The drag's inline styles must be gone before `onClose` starts the
+      // view transition, or the transition snapshots the dragged image.
+      // eslint-disable-next-line @eslint-react/dom-no-flush-sync
       flushSync(() => commit(IDLE))
       onClose()
       return
@@ -252,9 +267,9 @@ export function useImageDismissDrag({
       if (current.phase !== 'armed' && current.phase !== 'dragging') {
         return
       }
-      const step = drag.move(event, (travelX, travelY) =>
-        dragDistance(travelX, travelY) < DRAG_ACTIVATE_PX ? 'wait' : 'start',
-      )
+      const step = drag.move(event, (travelX, travelY) => {
+        return dragDistance(travelX, travelY) < DRAG_ACTIVATE_PX ? 'wait' : 'start'
+      })
 
       if (step === 'started') {
         const rect = event.currentTarget.getBoundingClientRect()
@@ -303,7 +318,7 @@ export function useImageDismissDrag({
       const releaseDeltaY = event.clientY - current.originY
       const releaseDistance = dragDistance(releaseDeltaX, releaseDeltaY)
       const elapsed = velocity.sample(releaseDistance)
-      const releaseVelocity = velocity.velocity
+      const releaseVelocity = velocity.getVelocity()
       const flicked =
         releaseVelocity > DISMISS_VELOCITY_PX_PER_MS &&
         releaseDistance > MIN_FLICK_DISTANCE_PX &&

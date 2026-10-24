@@ -4,7 +4,8 @@ import { useQueries } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { xPostQueryOptions } from '@/editor/use-x-post-resolver.ts'
 import { queryClient } from '@/lib/query-client.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useMaybeGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 // Longest wait before mounting anyway; cold-start archive reads measured up to 258 ms.
 const PRELOAD_BUDGET_MS = 300
@@ -15,16 +16,17 @@ const PRELOAD_BUDGET_MS = 300
  * is no editor content yet.
  */
 export function useXPostPreload(markdown: string | null): boolean {
-  const generation = useGraph({ optional: true })?.graph?.generation ?? null
+  const { embedMedia } = useCoreServices()
+  const root = useMaybeGraph()?.graph?.root ?? null
   const queries = useMemo(() => {
-    if (markdown === null || generation === null) return []
+    if (markdown === null || root === null) return []
     const ids = new Set<string>()
     for (const url of collectImages(markdown)) {
       const id = parseXPostId(url)
       if (id) ids.add(id)
     }
-    return [...ids].map((id) => xPostQueryOptions(generation, id))
-  }, [markdown, generation])
+    return [...ids].map((id) => xPostQueryOptions(embedMedia, root, id))
+  }, [embedMedia, markdown, root])
   // The resolver reads the shared client, so the preload must fill that one.
   const loaded = useQueries(
     {

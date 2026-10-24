@@ -1,26 +1,20 @@
-import { render } from 'vitest-browser-react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { EditorFullWidthEffect } from './editor-full-width.tsx'
-
-const settingsState = vi.hoisted(() => ({ editorFullWidth: false }))
-
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({ settings: settingsState }),
-}))
 
 afterEach(() => {
   delete document.documentElement.dataset['editorFullWidth']
-  settingsState.editorFullWidth = false
 })
 
 describe('EditorFullWidthEffect', () => {
   it('mirrors the live setting onto the document root', async () => {
-    const view = await render(<EditorFullWidthEffect />)
+    const { app } = await renderInApp(<EditorFullWidthEffect />, {
+      settings: { editorFullWidth: false },
+    })
     expect(document.documentElement.dataset['editorFullWidth']).toBe('false')
 
-    settingsState.editorFullWidth = true
-    await view.rerender(<EditorFullWidthEffect />)
+    app.settings.update({ editorFullWidth: true })
 
-    expect(document.documentElement.dataset['editorFullWidth']).toBe('true')
+    await vi.waitFor(() => expect(document.documentElement.dataset['editorFullWidth']).toBe('true'))
   })
 })

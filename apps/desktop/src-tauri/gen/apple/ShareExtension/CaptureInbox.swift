@@ -3,7 +3,7 @@ import Foundation
 /// The capture envelopes this extension produces and the App Group inbox it
 /// spools them into — the iOS half of Plan 11's platform-agnostic capture
 /// contract. The TypeScript zod schema
-/// (`packages/core/src/actions/capture-envelope.ts`) is the source of truth;
+/// (`packages/core/src/capture/capture-envelope.ts`) is the source of truth;
 /// these structs must stay in sync with it. The extension never opens the
 /// graph, the Git repo, or SQLite: the inbox is the only contract, and the
 /// main app relays + drains it on next launch/foreground.

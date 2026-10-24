@@ -1,70 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { setBridge } from '@reflect/core'
-import type { resolveArchivedPost } from '@reflect/core/x-archive'
+import { expect, it, vi } from 'vitest'
+import type { ResolvedArchivedPost } from '@reflect/core/x-archive'
+import { createTestCoreServices, createTestNoteFileService } from '@reflect/core/testing'
 import { PaletteProvider } from '@/components/command-palette/palette-provider.tsx'
 import { queryClient } from '@/lib/query-client.ts'
-import { RouterProvider } from '@/routing/router.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import '@/test-utils/locator.ts'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { RouteContent } from './route-content.tsx'
 
-vi.mock('@tauri-apps/api/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@tauri-apps/api/core')>()),
-  convertFileSrc: (path: string) => `reflect-asset://${path}`,
-}))
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-  getBacklinksWithContext: async () => ({ contexts: [], nextCursor: null, indexedLinkCount: 0 }),
-  relatedNotes: async () => [],
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({
-    graph: { root: '/g', name: 'g', generation: 1 },
-    indexing: false,
-  }),
-}))
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({
-    settings: {
-      editorMarkdownSyntax: 'hide',
-      allNotesFilterTags: [],
-      aiProviders: [],
-      defaultAiProviderId: null,
-      chatSystemPrompt: '',
-      aiPrompts: [],
-    },
-    updateSettings: async () => {},
-    updateSettingsWith: () => {},
-  }),
-}))
-
-type ResolvedArchive = Awaited<ReturnType<typeof resolveArchivedPost>>
-
-let files: Record<string, string>
-const resolveArchive = vi.fn<(postId: string) => Promise<ResolvedArchive>>()
-
-beforeEach(() => {
-  files = {}
-  setBridge({
-    invoke: async (command, args) => {
-      if (command === 'note_read') return files[String(args.path)]
-      if (command === 'x_archive_resolve') return await resolveArchive(String(args.postId))
-      if (command === 'db_query') return []
-      return null
-    },
-    listen: async () => () => {},
-  })
-})
-
-afterEach(async () => {
-  await cleanup()
-  setBridge(null)
-  queryClient.clear()
-  vi.resetAllMocks()
-})
+type ResolvedArchive = ResolvedArchivedPost | null
 
 function archivedPost(id: string, text: string): NonNullable<ResolvedArchive> {
   return {
@@ -82,16 +27,30 @@ function archivedPost(id: string, text: string): NonNullable<ResolvedArchive> {
   }
 }
 
-function renderNote(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider initialRoute={{ kind: 'note', path }}>
-        <PaletteProvider>
-          <RouteContent />
-        </PaletteProvider>
-      </RouterProvider>
-    </QueryClientProvider>,
+async function renderNote(
+  path: string,
+  source: string,
+  resolveArchive: (postId: string) => Promise<ResolvedArchive>,
+) {
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    noteFile: createTestNoteFileService({ files: { [path]: source } }),
+  })
+  vi.spyOn(app.xArchive, 'resolve').mockImplementation(
+    async (_generation, postId) => await resolveArchive(postId),
+  )
+  // The X post resolver and its preload read the app's shared query client.
+  return await renderInApp(
+    <PaletteProvider>
+      <RouteContent />
+    </PaletteProvider>,
+    {
+      app,
+      queryClient,
+      graph: { root: '/g', name: 'g', generation: 1 },
+      settings: { editorMarkdownSyntax: 'hide' },
+      route: { kind: 'note', path },
+    },
   )
 }
 
@@ -106,13 +65,15 @@ function watchLoadingCards(): { seen: boolean; stop: () => void } {
 }
 
 it('renders archived X posts in the first frame of the editor', async () => {
-  files['notes/tweets.md'] = '![](https://x.com/jack/status/101)\n'
-  resolveArchive.mockImplementation(async (postId) => {
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    return archivedPost(postId, 'Archived first')
-  })
   const loadingCards = watchLoadingCards()
-  const view = await renderNote('notes/tweets.md')
+  const view = await renderNote(
+    'notes/tweets.md',
+    '![](https://x.com/jack/status/101)\n',
+    async (postId) => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      return archivedPost(postId, 'Archived first')
+    },
+  )
 
   await expect.element(page.getByText('Archived first')).toBeVisible()
   loadingCards.stop()
@@ -121,9 +82,11 @@ it('renders archived X posts in the first frame of the editor', async () => {
 })
 
 it('mounts the editor once the wait runs out for a slow archive', async () => {
-  files['notes/slow.md'] = 'Slow note\n\n![](https://x.com/jack/status/102)\n'
-  resolveArchive.mockImplementation(() => new Promise(() => {}))
-  const view = await renderNote('notes/slow.md')
+  const view = await renderNote(
+    'notes/slow.md',
+    'Slow note\n\n![](https://x.com/jack/status/102)\n',
+    () => new Promise(() => {}),
+  )
 
   await expect.element(page.getByText('Slow note')).toBeVisible()
   await expect.element(page.getByText('Loading this post…')).toBeVisible()

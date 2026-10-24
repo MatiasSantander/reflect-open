@@ -1,6 +1,6 @@
 import type { ModelMessage } from '@reflect/modules/ai'
-import type { ChatStreamEvent } from './stream-chat.ts'
-import type { NoteToolCall, NoteToolResult } from './tools.ts'
+import type { ChatStreamEvent } from './chat-engine-service.ts'
+import type { NoteToolCall, NoteToolResult } from './note-tools-service.ts'
 
 /**
  * The chat conversation model (Plan 10). A {@link ChatTurn} is the single
@@ -81,11 +81,11 @@ export function appendEvent(parts: AssistantPart[], event: ChatStreamEvent): Ass
     case 'tool-call':
       return [...parts, { kind: 'tool', call: event.call, result: null, error: null }]
     case 'tool-result':
-      return parts.map((part) =>
-        part.kind === 'tool' && part.call.toolCallId === event.result.toolCallId
+      return parts.map((part) => {
+        return part.kind === 'tool' && part.call.toolCallId === event.result.toolCallId
           ? { ...part, result: event.result }
-          : part,
-      )
+          : part
+      })
     case 'tool-error':
       return [
         ...settleTools(parts, event.message, event.toolCallId),
@@ -120,13 +120,13 @@ function settleTools(
   message: string,
   toolCallId?: string,
 ): AssistantPart[] {
-  return parts.map((part): AssistantPart =>
-    part.kind === 'tool' &&
-    isToolPending(part) &&
-    (toolCallId === undefined || part.call.toolCallId === toolCallId)
+  return parts.map((part): AssistantPart => {
+    return part.kind === 'tool' &&
+      isToolPending(part) &&
+      (toolCallId === undefined || part.call.toolCallId === toolCallId)
       ? { ...part, error: message }
-      : part,
-  )
+      : part
+  })
 }
 
 /**

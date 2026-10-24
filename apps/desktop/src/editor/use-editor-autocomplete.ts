@@ -5,28 +5,8 @@ import type {
   WikilinkItem,
   WikilinkSearchHandler,
 } from '@meowdown/react'
-import { Counter } from '@ocavue/utils'
-import {
-  aliasHint,
-  contactLinkSuggestions,
-  contactDetailsMarkdown,
-  displayNoteTitle,
-  ensurePersonNote,
-  errorMessage,
-  hasBridge,
-  isContactsReadable,
-  resolveOrCreateNoteWithTitle,
-  resolvePersonContact,
-  suggestTags,
-  suggestWikiLinkTargets,
-} from '@reflect/core'
-import { reportAmbiguousNoteTitle } from '@/editor/ambiguous-note-feedback.ts'
-import { buildAutocompleteEntries } from '@/editor/wiki-autocomplete-entries.ts'
-import { useContactsAuthorization } from '@/hooks/use-contacts-authorization.ts'
-import { formatDayLabel, todayIso } from '@/lib/dates.ts'
-import { startOperation } from '@/lib/operations.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-import { useSettings } from '@/providers/settings-provider.tsx'
+import { useAppServices } from '@/services/services-provider.tsx'
 
 /** The `[[` and `#` autocomplete search handlers a {@link NoteEditor} wires up. */
 export interface EditorAutocomplete {
@@ -38,11 +18,9 @@ export interface EditorAutocomplete {
 
 /**
  * The editor's `[[` and `#` autocomplete, shared by every note editor (the
- * note pane and the Tasks view's inline editor). meowdown owns the menu UI and
- * hands us the raw text typed after `[[` (case preserved, spaces and slashes
- * intact — only `[`, `]`, and newlines close the menu); ranking stays the
- * index's job, so neither menu re-sorts what the host returns. Both handlers
- * are no-ops without a bridge or an open graph.
+ * note pane and the Tasks view's inline editor). meowdown owns the menu UI;
+ * the rows come from `AutocompleteSuggestionService`. Both handlers are no-ops
+ * without an open graph.
  *
  * A consumer wires whichever menus it wants — the note pane and the task editor
  * both take `onWikilinkSearch` and `onTagSearch` — so returning both here never
@@ -50,181 +28,21 @@ export interface EditorAutocomplete {
  */
 export function useEditorAutocomplete(): EditorAutocomplete {
   const { graph } = useGraph()
-  const { settings } = useSettings()
-  const authorization = useContactsAuthorization()
-  const generation = graph?.generation ?? null
-  // Contacts join the `[[` menu (v1's backlink-menu behavior) only while the
-  // integration is on and the permission readable.
-  const contactsInMenu =
-    settings.contactsEnabled && authorization !== null && isContactsReadable(authorization)
-
-  // The `[[` autocomplete's create row: re-resolve and inspect the title's
-  // on-disk slug family before creating. The menu inserts the link text either
-  // way; an ambiguous, unavailable, or failed create leaves it unresolved.
-  const resolveOrCreateFromAutocomplete = useCallback(
-    async (title: string) => {
-      if (generation !== null) {
-        const outcome = await resolveOrCreateNoteWithTitle(title, generation)
-        if (outcome.kind === 'ambiguous') {
-          reportAmbiguousNoteTitle('Creating note', title)
-        } else if (outcome.kind === 'unavailable') {
-          startOperation('Creating note').fail(
-            `Couldn’t create “${title}” while a potentially matching note is unavailable. Try again when it is available on this device.`,
-          )
-        }
-      }
-    },
-    [generation],
-  )
+  const { autocompleteSuggestions } = useAppServices()
 
   const onWikilinkSearch = useCallback(
-    async (query: string): Promise<WikilinkItem[]> => {
-      // Call-time check on purpose: search handlers run on user action, so
-      // they read the live bridge state instead of a captured one.
-      if (!hasBridge() || graph === null) {
-        return []
-      }
-      const dateContext = {
-        today: todayIso(),
-        dateFormat: settings.dateFormat,
-        weekStartDay: settings.weekStartDay,
-      }
-      const [wikiLinks, contactResolutions] = await Promise.all([
-        suggestWikiLinkTargets(query, 8, dateContext),
-        // A contacts hiccup (permission revoked mid-session, store error)
-        // must cost only its own rows, never the note suggestions.
-        contactsInMenu
-          ? contactLinkSuggestions(query)
-              .then((contacts) =>
-                Promise.all(contacts.map((contact) => resolvePersonContact(contact))),
-              )
-              .catch((error: unknown) => {
-                console.error('contact link suggestions failed:', error)
-                return []
-              })
-          : Promise.resolve([]),
-      ])
-      const contacts = contactResolutions.flatMap((resolution) =>
-        resolution.kind === 'blocked'
-          ? []
-          : [
-              {
-                contact: resolution.contact,
-                target: resolution.insertText,
-                ownerPath: resolution.kind === 'existing' ? resolution.path : null,
-              },
-            ],
-      )
-      const blockedContactNames = contactResolutions.flatMap((resolution) =>
-        resolution.kind === 'blocked' ? [resolution.contact.fullName] : [],
-      )
-      const entries = buildAutocompleteEntries(query, wikiLinks.suggestions, {
-        offerCreate: true,
-        contacts,
-        blockedContactNames,
-        requireSerializableWikiText: true,
-        queryReadsAsDate: wikiLinks.queryReadsAsDate,
-        claimedTargetKeys: wikiLinks.claimedTargetKeys,
-      })
-      // Distinct notes can share a title; their rows need the path to tell them apart.
-      const titleCounts = new Counter<string>()
-      for (const entry of entries) {
-        if (entry.kind === 'suggestion' && entry.suggestion.date === null) {
-          titleCounts.increment(displayNoteTitle(entry.suggestion.title))
-        }
-      }
-      return entries.map((entry) => {
-        if (entry.kind === 'create') {
-          return {
-            target: entry.title,
-            label: `Create “${entry.title}”`,
-            // Insert happens in the menu; create the note in the background.
-            // Best-effort: a failed create just leaves an unresolved link.
-            onSelect: () => {
-              void resolveOrCreateFromAutocomplete(entry.title).catch((error: unknown) => {
-                console.error('create-from-autocomplete failed:', error)
-                startOperation('Creating note').fail(errorMessage(error))
-              })
-            },
-          }
-        }
-        if (entry.kind === 'contact') {
-          const { contact } = entry
-          return {
-            target: entry.target,
-            label: contact.fullName,
-            detail: contact.emails[0] ?? contact.phones[0] ?? 'Contact',
-            onSelect: () => {
-              if (generation !== null) {
-                void ensurePersonNote({
-                  title: contact.fullName,
-                  emails: contact.emails,
-                  body: contactDetailsMarkdown(contact),
-                  generation,
-                })
-                  .then((outcome) => {
-                    if (outcome.kind === 'ambiguous') {
-                      reportAmbiguousNoteTitle('Creating note', contact.fullName)
-                    } else if (outcome.kind === 'unavailable') {
-                      startOperation('Creating note').fail(
-                        `Couldn’t create “${contact.fullName}” while a potentially matching note is unavailable. Try again when it is available on this device.`,
-                      )
-                    }
-                  })
-                  .catch((error: unknown) => {
-                    console.error('create-person-note failed:', error)
-                    startOperation('Creating note').fail(errorMessage(error))
-                  })
-              }
-            },
-          }
-        }
-        const { title, date, path, generated, insertText: target } = entry.suggestion
-        // A generated date leads with its phrase ("Next Friday"), resolved day
-        // as the detail; everything else keeps the title/alias/daily form.
-        if (generated !== undefined && date !== null) {
-          return {
-            target,
-            label: generated.phrase,
-            detail: formatDayLabel(date, settings.dateFormat),
-          }
-        }
-        // A rich title reads as its rendered form; the raw form stays the identity.
-        const displayedTitle = displayNoteTitle(title)
-        const label = date !== null ? formatDayLabel(date, settings.dateFormat) : displayedTitle
-        const shownAlias = aliasHint(entry.suggestion)
-        const detail =
-          shownAlias !== null
-            ? `${shownAlias} → ${displayedTitle}`
-            : date !== null
-              ? path === null
-                ? `${date} · new`
-                : date
-              : path !== null && titleCounts.get(displayedTitle) > 1
-                ? path
-                : undefined
-        return { target, label, ...(detail !== undefined ? { detail } : {}) }
-      })
-    },
-    [
-      graph,
-      settings.dateFormat,
-      settings.weekStartDay,
-      resolveOrCreateFromAutocomplete,
-      contactsInMenu,
-      generation,
-    ],
+    (query: string): Promise<WikilinkItem[]> => autocompleteSuggestions.suggestLinks(query),
+    [autocompleteSuggestions],
   )
 
   const onTagSearch = useCallback(
     async (query: string): Promise<TagItem[]> => {
-      if (!hasBridge() || graph === null) {
+      if (graph === null) {
         return []
       }
-      const tags = await suggestTags(query)
-      return tags.map((tag) => ({ tag: tag.tag }))
+      return await autocompleteSuggestions.suggestTags(query)
     },
-    [graph],
+    [graph, autocompleteSuggestions],
   )
 
   return { onWikilinkSearch, onTagSearch }

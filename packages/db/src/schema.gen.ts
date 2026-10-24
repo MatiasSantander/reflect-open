@@ -127,13 +127,12 @@ export interface Tags {
 }
 
 export interface Tasks {
+  astPath: string;
   breadcrumbs: Generated<string>;
   checked: number;
   dueDate: string | null;
-  markerOffset: number;
+  markdown: string;
   notePath: string;
-  raw: string;
-  text: string;
 }
 
 export interface DB {

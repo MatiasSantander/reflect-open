@@ -6,6 +6,7 @@ import { monthOf } from '@/lib/month-grid.ts'
 import { cn } from '@/lib/utils.ts'
 import { monthPickTarget, weekAtIndex, weekStartOf } from '@/mobile/calendar.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
 import { MonthPickerDrawer } from '@/mobile/month-picker-drawer.tsx'
 import { MonthTitle } from '@/mobile/month-title.tsx'
 import { useDailyNoteDates } from '@/mobile/use-daily-note-dates.ts'
@@ -51,6 +52,7 @@ export function CalendarStrip({
   resetSeq,
   onSelect,
 }: CalendarStripProps): ReactElement {
+  const { haptics } = useMobileAppServices()
   const { settings } = useSettings()
   const { navigate } = useRouter()
   const { emblaRef, weekWindow, displayedWeekStart, showWeekOf } = useWeekStrip(
@@ -70,7 +72,7 @@ export function CalendarStrip({
   const showToday = date !== today
 
   const jumpToToday = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     onSelect(today)
     // Selecting today only moves the strip when `date` changes — re-center
     // explicitly so a browse-away strip snaps back even when already on today.
@@ -78,13 +80,13 @@ export function CalendarStrip({
   }
 
   const openSettings = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     navigate({ kind: 'settings' })
   }
 
   const [monthPickerOpen, setMonthPickerOpen] = useState(false)
   const openMonthPicker = (): void => {
-    hapticImpactLight()
+    hapticImpactLight(haptics)
     setMonthPickerOpen(true)
   }
   const pickMonth = (picked: string): void => {
@@ -98,12 +100,12 @@ export function CalendarStrip({
 
   // An explicit re-arrival doesn't change `date`, so the follow effect won't
   // move a browsed-away strip — re-center it here.
-  const lastResetSeq = useRef(resetSeq)
+  const lastResetSeqRef = useRef(resetSeq)
   useEffect(() => {
-    if (resetSeq === lastResetSeq.current) {
+    if (resetSeq === lastResetSeqRef.current) {
       return
     }
-    lastResetSeq.current = resetSeq
+    lastResetSeqRef.current = resetSeq
     showWeekOf(date)
   }, [resetSeq, date, showWeekOf])
 

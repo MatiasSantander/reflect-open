@@ -8,6 +8,7 @@ import {
 } from '@reflect/core'
 import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { SettingsActionRow, SettingsGroup, SettingsSelectRow } from '@/mobile/settings-list.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface AiProviderActionsDrawerProps {
   /** The provider the sheet manages; null renders nothing (exit animation). */
@@ -37,6 +38,7 @@ export function AiProviderActionsDrawer({
   onSetDefaultModel,
   onRemove,
 }: AiProviderActionsDrawerProps): ReactElement {
+  const { logger } = useCoreServices()
   const [removing, setRemoving] = useState(false)
   const providerInfo = provider === null ? null : aiProvider(provider.provider)
   const models =
@@ -66,7 +68,7 @@ export function AiProviderActionsDrawer({
       await onRemove(id)
       onOpenChange(false)
     } catch (cause) {
-      console.error('AI provider removal failed:', errorMessage(cause))
+      logger.error('AI provider removal failed:', errorMessage(cause))
     } finally {
       setRemoving(false)
     }

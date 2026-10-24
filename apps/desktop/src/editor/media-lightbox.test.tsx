@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
-import { render } from 'vitest-browser-react'
 import type { LightboxController } from '@meowdown/react'
+import { MOBILE_PLATFORM, renderInApp } from '@/test-utils/render-in-app.tsx'
 import { MediaLightbox } from './media-lightbox.tsx'
-import { setPlatformSurface } from '@/lib/platform-surface.ts'
 
 // The Playwright context pins prefers-reduced-motion to reduce, so the
 // reduced-motion query stays stubbed to exercise both settings.
@@ -42,9 +41,10 @@ interface RenderedLightbox {
 }
 
 async function renderMobileLightbox(): Promise<RenderedLightbox> {
-  setPlatformSurface({ mobileApp: true })
   const onClose = vi.fn()
-  await render(<MediaLightbox lightbox={makeLightbox(onClose)} onOpenImage={vi.fn()} />)
+  await renderInApp(<MediaLightbox lightbox={makeLightbox(onClose)} onOpenImage={vi.fn()} />, {
+    platform: MOBILE_PLATFORM,
+  })
 
   const dialog = page.getByRole('dialog', { name: 'Image preview' })
   await expect.element(dialog).toBeInTheDocument()
@@ -110,8 +110,6 @@ beforeEach(() => {
 
 afterEach(() => {
   document.removeEventListener('transitionend', swallowTransitionEnd, { capture: true })
-  setPlatformSurface({ touchEditor: false, mobileApp: false })
-  vi.restoreAllMocks()
 })
 
 describe('MediaLightbox mobile drag-to-dismiss', () => {
@@ -159,11 +157,13 @@ describe('MediaLightbox mobile drag-to-dismiss', () => {
     })
     expect(backdrop!.style.opacity).toBe('0')
     expect(onClose).not.toHaveBeenCalled()
+    let transformOnClose: string | undefined
     onClose.mockImplementation(() => {
-      expect(image.style.transform).toBe('')
+      transformOnClose = image.style.transform
     })
 
     await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1), { timeout: 5_000 })
+    expect(transformOnClose).toBe('')
   })
 
   it('dismisses horizontally past the distance threshold', async () => {
@@ -315,7 +315,7 @@ describe('MediaLightbox mobile drag-to-dismiss', () => {
 describe('MediaLightbox desktop surface', () => {
   it('ignores touch drags and closes on click without a drag backdrop', async () => {
     const onClose = vi.fn()
-    await render(<MediaLightbox lightbox={makeLightbox(onClose)} onOpenImage={vi.fn()} />)
+    await renderInApp(<MediaLightbox lightbox={makeLightbox(onClose)} onOpenImage={vi.fn()} />)
 
     const dialogLocator = page.getByRole('dialog', { name: 'Image preview' })
     await expect.element(dialogLocator).toBeInTheDocument()

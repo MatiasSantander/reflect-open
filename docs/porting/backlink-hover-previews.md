@@ -121,12 +121,12 @@ there.
 a focused hook/component, just as it supplies `useWikiLinkNavigation`. Keep
 the prop optional and pass it only from primary note panes, not compact task
 editors. Mobile mounts `NotePane` too, so omit it when
-`isTouchEditorSurface()` is true.
+`platform.surface.touchEditor` is true.
 
 ### 3. Resolve an existing target without creating it
 
-The current pieces are in `packages/core/src/indexing/queries.ts` and
-`packages/core/src/graph/create-note.ts`:
+The current pieces are in `packages/core/src/indexing/wiki-resolver-service.ts`
+and `packages/core/src/graph/note-creation-service.ts`:
 
 - `findExactWikiTargetMatches` preserves ambiguity within the winning indexed
   date/title/alias tier, but it is internal and index-only;
@@ -144,8 +144,9 @@ and the incoming-backlinks query/panel remain untouched.
 ### 4. Read and render without content egress
 
 Read the freshest authoritative source: a loaded open session's live buffer,
-or `readNote(path, graph.generation)` otherwise. Reuse only the session-first
-idea from `apps/desktop/src/lib/note-frontmatter.ts`'s `readNoteSource`; its
+or `noteFile.read(path, graph.generation)` otherwise. Reuse only the session-first
+idea from `NoteDocumentService.readSource`
+(`packages/core/src/documents/note-document-service.ts`); its
 fallback converts `notFound` to an empty note and is not generation-pinned,
 which is wrong for this feature. Preserve missing/deleted as unavailable and
 discard a read that finishes after the graph changes.

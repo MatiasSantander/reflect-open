@@ -49,7 +49,7 @@ plain relative markdown, which fixes v1's export quirk: in v2 the markdown
 - meowdown's image extension handles paste and drop of image files and
   calls the host's `onImagePaste`; the host returns the markdown `src`.
 - reflect-open persists them
-  (`apps/desktop/src/editor/use-image-persistence.ts`): named
+  (`apps/desktop/src/editor/use-asset-persistence.ts`): named
   `pasted-<timestamp>-<random>.<ext>` under `assets/`, written through the
   traversal-guarded `asset_write` command, pinned to the graph generation,
   resolved for display through the app's `reflect-asset://` protocol

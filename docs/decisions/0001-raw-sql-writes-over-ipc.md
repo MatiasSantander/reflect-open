@@ -60,9 +60,11 @@ Every write:
    **one transaction**.
 
 The TS side calls these through typed wrappers
-([`packages/core/src/indexing/commands.ts`](../../packages/core/src/indexing/commands.ts),
-[`packages/core/src/ai/chat/store.ts`](../../packages/core/src/ai/chat/store.ts),
-[`packages/core/src/embeddings/commands.ts`](../../packages/core/src/embeddings/commands.ts)),
+(`packages/core/src/indexing/commands.ts`, `packages/core/src/ai/chat/store.ts`,
+`packages/core/src/embeddings/commands.ts`; today these are
+[`indexing/index-store-service.ts`](../../packages/core/src/indexing/index-store-service.ts),
+[`ai/chat/chat-history-service.ts`](../../packages/core/src/ai/chat/chat-history-service.ts) and
+[`embeddings/embedding-index-service.ts`](../../packages/core/src/embeddings/embedding-index-service.ts)),
 each passing a payload that a hand-written serde struct on the Rust side
 deserializes. The payload contract is mirrored by hand on both sides — the code
 says so explicitly:

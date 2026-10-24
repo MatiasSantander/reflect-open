@@ -1,31 +1,21 @@
 import type { ReactElement } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
-import {
-  agentSkillInstall,
-  agentSkillStatus,
-  agentSkillUninstall,
-  errorMessage,
-  type AgentSkillStatus,
-} from '@reflect/core'
+import { errorMessage, type AgentSkillStatus } from '@reflect/core'
 import { SettingsField } from '@/components/settings/field.tsx'
 import { SettingsSection } from '@/components/settings/section.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { isMacosDesktop } from '@/lib/platform.ts'
 import { mutationKeys, mutationScopeIds, queryKeys } from '@/lib/query-client.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface AgentSkillAction {
   action: 'install' | 'uninstall'
-  generation: number
   root: string
-}
-
-function writeAgentSkill(variables: AgentSkillAction): Promise<AgentSkillStatus> {
-  return variables.action === 'uninstall'
-    ? agentSkillUninstall(variables.generation)
-    : agentSkillInstall(variables.generation)
+  /**
+   * The file generation of the graph the action was requested in.
+   */
+  generation: number
 }
 
 /**
@@ -37,24 +27,31 @@ function writeAgentSkill(variables: AgentSkillAction): Promise<AgentSkillStatus>
  */
 export function AgentsSection(): ReactElement | null {
   const { graph } = useGraph()
+  const { agentSkill, platform, graphSession } = useCoreServices()
   const queryClient = useQueryClient()
   const queryKey = queryKeys.agentSkill.status(graph?.root)
-  const bridgeReady = useBridgeReady()
   const { data: status } = useQuery({
     queryKey,
-    queryFn: agentSkillStatus,
-    enabled: bridgeReady && isMacosDesktop && graph !== null,
+    queryFn: () => agentSkill.status(),
+    enabled: platform.isMacosDesktop && graph !== null,
   })
   const mutation = useMutation({
     mutationKey: mutationKeys.agentSkill.write(graph?.root),
     scope: { id: mutationScopeIds.agentSkillWrite(graph?.root) },
-    mutationFn: writeAgentSkill,
+    mutationFn: async (variables: AgentSkillAction): Promise<AgentSkillStatus> => {
+      if (graphSession.getState().session?.generation !== variables.generation) {
+        throw new Error('The graph changed before the agent skill write ran')
+      }
+      return variables.action === 'uninstall'
+        ? await agentSkill.uninstall()
+        : await agentSkill.install()
+    },
     onSuccess: (nextStatus, variables) => {
       queryClient.setQueryData(queryKeys.agentSkill.status(variables.root), nextStatus)
     },
   })
 
-  if (!isMacosDesktop || graph === null) {
+  if (!platform.isMacosDesktop || graph === null) {
     return null
   }
 
@@ -63,8 +60,9 @@ export function AgentsSection(): ReactElement | null {
   const actionPending = isCurrentMutation && mutation.isPending
   const actionError =
     isCurrentMutation && mutation.error !== null ? errorMessage(mutation.error) : null
-  const mutate = (action: AgentSkillAction['action']): void =>
-    mutation.mutate({ action, generation: graph.generation, root: graph.root })
+  const mutate = (action: AgentSkillAction['action']): void => {
+    mutation.mutate({ action, root: graph.root, generation: graph.generation })
+  }
   return (
     <SettingsSection id="agents">
       <SettingsField

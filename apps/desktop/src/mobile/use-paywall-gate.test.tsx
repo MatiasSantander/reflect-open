@@ -1,522 +1,141 @@
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderHook } from 'vitest-browser-react'
-import type { ReactNode } from 'react'
-import { CLASSIC_ACCESS_SECRET, setBridge, type AppPlatform } from '@reflect/core'
+import { act } from '@/test-utils/act.ts'
+import { focusManager } from '@tanstack/react-query'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  IAP_PRODUCT_IDS,
+  createAppStoreEnvironmentService,
+  createClassicAccessService,
+  createPaywallService,
+  createSubscriptionService,
+} from '@reflect/core'
+import {
+  createTestCoreServices,
+  createTestAppStoreService,
+  createTestIapService,
+  createTestPlatformService,
+} from '@reflect/core/testing'
 import { usePaywallRequested } from '@/hooks/use-paywall-requested.ts'
-import { resetLocalStorageStores } from '@/lib/local-storage.ts'
-import { queryKeys } from '@/lib/query-client.ts'
-import { SettingsProvider } from '@/providers/settings-provider.tsx'
-import { usePaywallGate, type PaywallGate } from './use-paywall-gate.ts'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
+import { usePaywallGate } from './use-paywall-gate.ts'
 
 /**
- * The gate's contract, one case per way in and out of the paywall. The
- * install-channel rules carry the weight: the paywall must stay shown when
- * the probe cannot answer (a broken probe must never hand out a free app),
- * must lift for TestFlight and Xcode builds, and must never be *waited* on,
- * which is why the StoreKit answers in those cases are pending forever.
+ * The hook's wiring: it reads the paywall service's gate and starts the
+ * checks the gate depends on. The gate's decisions live with the service.
  */
 
-// Hoisted above the imports, as every other graph-provider mock in this suite
-// is: the factory runs before the module body assigns anything.
-const graphState = vi.hoisted(() => ({ platform: 'ios' as AppPlatform }))
-vi.mock('@/providers/graph-provider.tsx', () => ({ useGraph: () => graphState }))
-const bridgeState = vi.hoisted(() => ({ ready: true }))
-vi.mock('@/hooks/use-bridge-ready.ts', () => ({ useBridgeReady: () => bridgeState.ready }))
-
-/** What the install-channel probe answers, or how it fails to. */
-let environment: () => Promise<string>
-/** What StoreKit says about each product id. */
-let owned: (productId: string) => Promise<boolean>
-/** What the keychain holds for the Reflect Classic access record. */
-let classicAccess: () => Promise<string | null>
-/** The persisted settings document. */
-let stored: Record<string, unknown>
-/** The native purchase event callback registered by the entitlement hook. */
-let emitPurchaseUpdated: ((payload: unknown) => void) | null
-
-/** A promise that never settles, for the calls a case must not wait on. */
-const rejectNeverPromises = new Set<(reason?: unknown) => void>()
-
-function never<T>(): Promise<T> {
-  return new Promise<T>((_resolve, reject) => {
-    rejectNeverPromises.add(reject)
-  })
-}
-
-/**
- * A StoreKit answer the case settles by hand, for the two that have to see
- * the gate before and after it arrives.
- */
-function deferred<T>(): { answer: () => Promise<T>; settle: (value: T) => void } {
-  const resolvers: ((value: T) => void)[] = []
-  return {
-    answer: () =>
-      new Promise<T>((resolve) => {
-        resolvers.push(resolve)
-      }),
-    settle: (value) => {
-      for (const resolve of resolvers) {
-        resolve(value)
-      }
-    },
-  }
-}
-
-/**
- * Run a launch to the answer it should reach, then close it. What that launch
- * remembered is all the next `renderHook` starts from.
- */
-async function runLaunch(gate: PaywallGate): Promise<void> {
-  const launch = await renderHook(() => usePaywallGate(), { wrapper })
-  await vi.waitFor(() => expect(launch.result.current).toBe(gate))
-  await launch.unmount()
-  queryClient.clear()
-}
-
-function installFakeBridge(): void {
-  setBridge({
-    invoke: async (command, args) => {
-      switch (command) {
-        case 'settings_load':
-          return stored
-        case 'settings_save':
-          return null
-        case 'secret_get':
-          return args['name'] === CLASSIC_ACCESS_SECRET ? await classicAccess() : null
-        case 'plugin:app-store|get_environment':
-          return { environment: await environment() }
-        case 'plugin:iap|get_product_status': {
-          const payload = args['payload'] as { productId: string }
-          return { isOwned: await owned(payload.productId) }
-        }
-        default:
-          return null
-      }
-    },
-    listen: async () => () => {},
-    // `subscribeIapPurchaseUpdated` registers through the plugin channel, and
-    // logs loudly when the bridge has none.
-    listenPlugin: async (plugin, event, handler) => {
-      if (plugin === 'iap' && event === 'purchaseUpdated') {
-        emitPurchaseUpdated = handler
-      }
-    },
-  })
-}
-
-let queryClient: QueryClient
-
-function wrapper({ children }: { children: ReactNode }) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <SettingsProvider>{children}</SettingsProvider>
-    </QueryClientProvider>
-  )
-}
-
-beforeEach(() => {
-  graphState.platform = 'ios'
-  bridgeState.ready = true
-  environment = () => Promise.resolve('Production')
-  owned = () => Promise.resolve(false)
-  classicAccess = () => Promise.resolve(null)
-  stored = {}
-  emitPurchaseUpdated = null
-  localStorage.clear()
-  resetLocalStorageStores()
-  sessionStorage.clear()
-  queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, retryDelay: 0, staleTime: Infinity } },
-  })
-  installFakeBridge()
-})
-
-afterEach(async () => {
-  for (const reject of rejectNeverPromises) {
-    reject(new Error('test cleanup'))
-  }
-  rejectNeverPromises.clear()
-  await Promise.resolve()
+afterEach(() => {
   focusManager.setFocused(undefined)
-  setBridge(null)
-  queryClient.clear()
 })
+
+function iosServices() {
+  return createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    platform: createTestPlatformService({ appPlatform: 'ios' }),
+  })
+}
 
 describe('usePaywallGate', () => {
-  it('shows the paywall on an App Store install with no subscription', async () => {
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-  })
-
-  it('hides it for a TestFlight or development install', async () => {
-    environment = () => Promise.resolve('Sandbox')
-    // Never answered: the channel alone has to lift the gate.
-    owned = never
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('hides it for a StoreKit-configuration run', async () => {
-    environment = () => Promise.resolve('Xcode')
-    owned = never
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('treats an unrecognized channel as an App Store install', async () => {
-    environment = () => Promise.resolve('Moon')
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-  })
-
-  it('keeps the paywall when the probe fails', async () => {
-    environment = () => Promise.reject(new Error('no app transaction'))
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-  })
-
-  it('never waits for the probe', async () => {
-    environment = never
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-  })
-
-  it('honors an explicit request outside the App Store', async () => {
-    environment = () => Promise.resolve('Sandbox')
-    const { result, act } = await renderHook(
-      () => ({ gate: usePaywallGate(), requested: usePaywallRequested() }),
-      { wrapper },
-    )
-    await vi.waitFor(() => expect(result.current.gate).toBe('hide'))
-    await act(() => {
-      result.current.requested[1](true)
-    })
-    await vi.waitFor(() => expect(result.current.gate).toBe('show'))
-  })
-
-  describe('Reflect Classic access', () => {
-    function classicRecord(expiresAt: number): string {
-      return JSON.stringify({
-        token: 'token',
-        email: 'a@example.com',
-        expiresAt,
-        checkedAt: Date.now(),
-      })
-    }
-
-    it('lets a verified Reflect Classic subscriber through without StoreKit', async () => {
-      classicAccess = () => Promise.resolve(classicRecord(Date.now() + 60_000))
-      owned = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(result.current).toBe('hide'))
-    })
-
-    it('shows the paywall once the Reflect Classic access has ended', async () => {
-      classicAccess = () => Promise.resolve(classicRecord(Date.now() - 60_000))
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(result.current).toBe('show'))
-    })
-
-    it('decides from the keychain without waiting for the daily recheck', async () => {
-      classicAccess = () =>
-        Promise.resolve(
-          JSON.stringify({
-            token: 'token',
-            email: 'a@example.com',
-            expiresAt: Date.now() - 60_000,
-            checkedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
-          }),
-        )
-      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise(() => {}))
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(result.current).toBe('show'))
-      expect(fetch).toHaveBeenCalledWith('https://reflect.app/api/users/me', expect.anything())
-      fetch.mockRestore()
-    })
-
-    it('lifts the paywall when the daily recheck finds a paying account', async () => {
-      classicAccess = () =>
-        Promise.resolve(
-          JSON.stringify({
-            token: 'token',
-            email: 'a@example.com',
-            expiresAt: Date.now() - 60_000,
-            checkedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
-          }),
-        )
-      const fetch = vi
-        .spyOn(globalThis, 'fetch')
-        .mockImplementation(async () =>
-          Response.json({ email: 'a@example.com', subscription: { paid: true } }),
-        )
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(result.current).toBe('hide'))
-      fetch.mockRestore()
-    })
-
-    it('keeps the app visible while the keychain is still being read', async () => {
-      classicAccess = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(result.current).toBe('hide'))
-    })
-  })
-
-  it('lets a subscriber through in every channel', async () => {
-    owned = (productId) => Promise.resolve(productId.endsWith('.yearly'))
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('lets either confirmed subscription through without waiting on its sibling', async () => {
-    owned = (productId) =>
-      productId.endsWith('.yearly') ? Promise.resolve(true) : never<boolean>()
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('shows the app while StoreKit is pending, then the paywall after the timeout', async () => {
-    vi.useFakeTimers()
-    try {
-      let lookupCount = 0
-      owned = () => {
-        lookupCount += 1
-        return never()
-      }
-      const hook = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(hook.result.current).toBe('hide')
-      expect(lookupCount).toBe(2)
-
-      await hook.act(() => vi.advanceTimersByTimeAsync(15_000))
-      // The first deadline is retried once after a zero-delay sleep; the
-      // retry waits on the same still-pending native lookup, so no new
-      // StoreKit call is made.
-      expect(hook.result.current).toBe('hide')
-      await hook.act(() => vi.advanceTimersByTimeAsync(1))
-      await hook.act(() => vi.advanceTimersByTimeAsync(15_000))
-      // The observer hears about the timeout on TanStack's zero-delay notify
-      // timer, which a fake clock schedules for the next tick.
-      await hook.act(() => vi.advanceTimersByTimeAsync(1))
-      expect(hook.result.current).toBe('show')
-
-      void queryClient.refetchQueries({ queryKey: queryKeys.iap.entitlements })
-      await hook.act(() => vi.advanceTimersByTimeAsync(0))
-      expect(lookupCount).toBe(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('refetches entitlements through the TanStack focus path', async () => {
-    owned = () => Promise.resolve(false)
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-
-    const storeKit = deferred<boolean>()
-    owned = storeKit.answer
-    focusManager.setFocused(false)
-    focusManager.setFocused(true)
-    await vi.waitFor(() =>
-      expect(queryClient.getQueryState(queryKeys.iap.entitlements)?.fetchStatus).toBe('fetching'),
-    )
+  it('follows the paywall service gate', async () => {
+    const services = iosServices()
+    services.mobile.appStoreEnvironment.setState({ value: 'Production' })
+    const { result } = await renderHookInApp(() => usePaywallGate(), { app: services })
     expect(result.current).toBe('show')
 
-    storeKit.settle(true)
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('invalidates the entitlement prefix after a native purchase update', async () => {
-    owned = () => Promise.resolve(false)
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-    await vi.waitFor(() => expect(result.current).toBe('show'))
-    await vi.waitFor(() => expect(emitPurchaseUpdated).not.toBeNull())
-
-    owned = (productId) => Promise.resolve(productId.endsWith('.monthly'))
-    emitPurchaseUpdated?.({ productId: 'app.reflect.ios.pro.monthly' })
-    await vi.waitFor(() => expect(result.current).toBe('hide'))
-  })
-
-  it('stays out of the way off iOS', async () => {
-    graphState.platform = 'desktop'
-    const { result } = await renderHook(() => usePaywallGate(), { wrapper })
+    await act(() => {
+      services.mobile.appStoreEnvironment.setState({ value: 'Sandbox' })
+    })
     expect(result.current).toBe('hide')
   })
 
-  describe('with the last launch remembered', () => {
-    it('answers from the remembered channel before StoreKit says anything', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      owned = never
-      await runLaunch('hide')
+  it('starts the subscription, Reflect Classic, and install-channel checks', async () => {
+    const services = iosServices()
+    await renderHookInApp(() => usePaywallGate(), { app: services })
 
-      environment = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      // No `waitFor`: this is the whole point of the cache.
-      expect(result.current).toBe('hide')
+    await vi.waitFor(() => {
+      expect(services.mobile.subscription.calls()).toContain('activeSubscription')
+      expect(services.classicAccess.calls()).toContain('start')
+      expect(services.mobile.appStoreEnvironment.calls()).toContain('environment')
     })
+  })
 
-    it('keeps a remembered channel when the live probe fails', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      owned = never
-      await runLaunch('hide')
+  it('looks the subscription up again on window focus', async () => {
+    const services = iosServices()
+    await renderHookInApp(() => usePaywallGate(), { app: services })
 
-      environment = () => Promise.reject(new Error('no app transaction'))
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-      await vi.waitFor(() =>
-        expect(queryClient.getQueryState(queryKeys.appStore.environment)?.status).toBe('error'),
-      )
-      expect(result.current).toBe('hide')
-    })
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
 
-    it('verifies a remembered channel when the bridge becomes ready later', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      owned = never
-      await runLaunch('hide')
+    expect(services.mobile.subscription.calls()).toContain('refetch')
+  })
 
-      bridgeState.ready = false
-      environment = () => Promise.resolve('Production')
-      const { result, rerender } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-
-      bridgeState.ready = true
-      await rerender()
-      await vi.waitFor(() =>
-        expect(queryClient.getQueryData(queryKeys.appStore.environment)).toBe('Production'),
-      )
-    })
-
-    it('does not re-probe a live channel for a second observer', async () => {
-      let probeCount = 0
-      environment = async () => {
-        probeCount += 1
-        return 'Sandbox'
+  describe('over the real services', () => {
+    function realServices() {
+      const base = iosServices()
+      const iap = createTestIapService()
+      const appStore = createTestAppStoreService({ environment: 'Sandbox' })
+      const subscription = createSubscriptionService({
+        iap,
+        storage: base.storage,
+        clock: base.clock,
+        platform: base.platform,
+        logger: base.logger,
+      })
+      const classicAccess = createClassicAccessService({
+        secretStore: base.secretStore,
+        http: base.http,
+        webAuth: base.webAuth,
+        clock: base.clock,
+        id: base.id,
+        activity: base.activity,
+        platform: base.platform,
+        logger: base.logger,
+      })
+      const appStoreEnvironment = createAppStoreEnvironmentService({
+        appStore,
+        storage: base.storage,
+        platform: base.platform,
+      })
+      const paywall = createPaywallService({
+        subscription,
+        classicAccess,
+        appStoreEnvironment,
+        iap,
+        appStore,
+        platform: base.platform,
+        storage: base.storage,
+      })
+      return {
+        iap,
+        services: {
+          ...base,
+          iap,
+          appStore,
+          classicAccess,
+          mobile: { ...base.mobile, subscription, appStoreEnvironment, paywall },
+        },
       }
-      owned = never
+    }
 
-      const first = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() => expect(first.result.current).toBe('hide'))
-      expect(probeCount).toBe(1)
-
-      const second = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(second.result.current).toBe('hide')
-      expect(probeCount).toBe(1)
-    })
-
-    it('answers from a remembered subscription before StoreKit says anything', async () => {
-      owned = (productId) => Promise.resolve(productId.endsWith('.yearly'))
-      await runLaunch('hide')
-
-      environment = never
-      owned = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-    })
-
-    it('lets the live answer overrule a subscription that lapsed', async () => {
-      owned = (productId) => Promise.resolve(productId.endsWith('.yearly'))
-      await runLaunch('hide')
-
-      const storeKit = deferred<boolean>()
-      owned = storeKit.answer
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-      storeKit.settle(false)
-      await vi.waitFor(() => expect(result.current).toBe('show'))
-    })
-
-    it('forgets a subscription StoreKit has since dropped', async () => {
-      owned = (productId) => Promise.resolve(productId.endsWith('.yearly'))
-      await runLaunch('hide')
-      owned = () => Promise.resolve(false)
-      await runLaunch('show')
-
-      environment = never
-      owned = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      // A remembered `yearly` would have let this launch straight in.
-      expect(result.current).toBe('hide')
-    })
-
-    it('keeps the paywall hidden while verifying a remembered null', async () => {
-      await runLaunch('show')
-
-      environment = never
-      owned = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      await vi.waitFor(() =>
-        expect(queryClient.getQueryState(queryKeys.iap.entitlements)?.fetchStatus).toBe('fetching'),
+    it('shows the paywall on request outside the App Store, and lifts it after a purchase', async () => {
+      const { iap, services } = realServices()
+      const { result } = await renderHookInApp(
+        () => ({ gate: usePaywallGate(), requested: usePaywallRequested() }),
+        { app: services },
       )
-      expect(result.current).toBe('hide')
-    })
+      await vi.waitFor(() => {
+        expect(services.mobile.appStoreEnvironment.getState().value).toBe('Sandbox')
+      })
+      expect(result.current.gate).toBe('hide')
 
-    it('does not persist null when one entitlement fails and the sibling is negative', async () => {
-      owned = (productId) => Promise.resolve(productId.endsWith('.yearly'))
-      await runLaunch('hide')
+      await act(() => {
+        result.current.requested[1](true)
+      })
+      await vi.waitFor(() => expect(result.current.gate).toBe('show'))
 
-      owned = (productId) =>
-        productId.endsWith('.yearly')
-          ? Promise.reject(new Error('StoreKit unavailable'))
-          : Promise.resolve(false)
-      const failedLaunch = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(failedLaunch.result.current).toBe('hide')
-      await vi.waitFor(() =>
-        expect(queryClient.getQueryState(queryKeys.iap.entitlements)?.status).toBe('error'),
-      )
-      await failedLaunch.unmount()
-      queryClient.clear()
-
-      environment = never
-      owned = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-    })
-
-    it('drops a remembered channel the probe no longer recognizes', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      await runLaunch('hide')
-      environment = () => Promise.resolve('Moon')
-      await runLaunch('show')
-
-      environment = never
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      // A remembered `Sandbox` would have let this launch straight in.
-      await vi.waitFor(() => expect(result.current).toBe('show'))
-    })
-
-    it('corrects a remembered Sandbox once the build reaches the App Store', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      await runLaunch('hide')
-
-      const probe = deferred<string>()
-      environment = probe.answer
-      const { result } = await renderHook(() => usePaywallGate(), { wrapper })
-      expect(result.current).toBe('hide')
-      probe.settle('Production')
-      await vi.waitFor(() => expect(result.current).toBe('show'))
-    })
-
-    it('does not answer from a channel an older build remembered as Production', async () => {
-      // Written by hand: this build never remembers `Production`, because a
-      // remembered `Production` reads exactly like no seed at all.
-      localStorage.setItem('reflect.app-store.environment', JSON.stringify('Production'))
-      resetLocalStorageStores()
-      environment = never
-
-      await renderHook(() => usePaywallGate(), { wrapper })
-
-      expect(queryClient.getQueryData(queryKeys.appStore.environment)).toBeUndefined()
-    })
-
-    it('forgets a remembered channel once the probe answers Production', async () => {
-      environment = () => Promise.resolve('Sandbox')
-      await runLaunch('hide')
-      environment = () => Promise.resolve('Production')
-      await runLaunch('show')
-
-      environment = never
-      await renderHook(() => usePaywallGate(), { wrapper })
-
-      expect(queryClient.getQueryData(queryKeys.appStore.environment)).toBeUndefined()
+      await act(() => services.mobile.paywall.purchase(IAP_PRODUCT_IDS.monthly))
+      await vi.waitFor(() => expect(result.current.gate).toBe('hide'))
+      expect(iap.purchases()).toEqual([IAP_PRODUCT_IDS.monthly])
     })
   })
 })

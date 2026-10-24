@@ -23,7 +23,7 @@ pub const INDEX_FILE: &str = "index.sqlite";
 /// `user_version` after every migration has run. Read-only consumers compare
 /// this against `PRAGMA user_version` to detect an index written by a newer
 /// (or older) app than they were built for.
-pub const LATEST_SCHEMA_VERSION: usize = 22;
+pub const LATEST_SCHEMA_VERSION: usize = 23;
 
 /// The `index_meta` key holding the TS-owned projection version (the rows'
 /// derivation version, distinct from the schema version above).
@@ -36,9 +36,9 @@ mod schema {
     use std::path::Path;
     use std::sync::{LazyLock, OnceLock};
 
-    use rusqlite::ffi::{sqlite3, sqlite3_api_routines};
     use rusqlite::Connection;
-    use rusqlite_migration::{Migrations, M};
+    use rusqlite::ffi::{sqlite3, sqlite3_api_routines};
+    use rusqlite_migration::{M, Migrations};
 
     /// Ordered schema migrations, loaded from `migrations/*.sql`.
     static MIGRATIONS: LazyLock<Migrations<'static>> = LazyLock::new(|| {
@@ -67,6 +67,7 @@ mod schema {
             )),
             M::up(include_str!("../migrations/0021_note_has_content.sql")),
             M::up(include_str!("../migrations/0022_drop_note_text.sql")),
+            M::up(include_str!("../migrations/0023_task_ast_path.sql")),
         ])
     });
 
@@ -228,6 +229,6 @@ mod schema {
 
 #[cfg(feature = "vec")]
 pub use schema::{
-    migrate, migrate_to, open_in_memory, open_index_at, open_index_read_only_at,
-    register_sqlite_vec, validate, SchemaError,
+    SchemaError, migrate, migrate_to, open_in_memory, open_index_at, open_index_read_only_at,
+    register_sqlite_vec, validate,
 };

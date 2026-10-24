@@ -177,3 +177,10 @@ export function noteBasenameKey(path: string): string {
   const filename = path.split('/').at(-1) ?? path
   return foldKey(filename.replace(MARKDOWN_EXTENSION_RE, ''))
 }
+
+/**
+ * The refusal shown when a title resolves to `ambiguous`.
+ */
+export function ambiguousNoteTitleMessage(title: string): string {
+  return `Couldn’t safely choose one note matching “${title}”. Rename conflicting notes or wait for unavailable notes to become available, then try again.`
+}

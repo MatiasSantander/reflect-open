@@ -6,7 +6,6 @@ import { ChevronLeftIcon } from '@/components/icons/chevron-left-icon.tsx'
 import { ChevronRightIcon } from '@/components/icons/chevron-right-icon.tsx'
 import { ShortcutKeys } from '@/components/shortcut-keys.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
 import { keybindingFor } from '@/lib/commands/app-commands.ts'
 import { formatDayLabel } from '@/lib/dates.ts'
@@ -15,6 +14,7 @@ import { createDailyDatesQueryOptions } from '@/lib/query-options.ts'
 import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { useRouter } from '@/routing/router.tsx'
 import { isModEvent } from '@meowdown/core'
 
@@ -44,6 +44,7 @@ export function DayCalendar({ selectedDate, today }: DayCalendarProps): ReactEle
   const { navigate } = useRouter()
   const navigateNoteLink = useNoteLinkNavigation(selectedDate)
   const { graph } = useGraph()
+  const { dailyNotes } = useCoreServices()
   const { settings } = useSettings()
   const weekStartsOn = weekStartDow(settings.weekStartDay)
 
@@ -57,10 +58,9 @@ export function DayCalendar({ selectedDate, today }: DayCalendarProps): ReactEle
   }
 
   const grid = buildMonthGrid(month, weekStartsOn)
-  const bridgeReady = useBridgeReady()
   const { data: notedDates } = useQuery({
-    ...createDailyDatesQueryOptions(graph?.root, grid.start, grid.end),
-    enabled: bridgeReady && graph !== null,
+    ...createDailyDatesQueryOptions(dailyNotes, graph?.root, grid.start, grid.end),
+    enabled: graph !== null,
   })
   // The sidebar re-renders as the focused day scrolls through the stream; with
   // the query result reference-stable (structural sharing), rebuild the lookup
@@ -132,12 +132,12 @@ export function DayCalendar({ selectedDate, today }: DayCalendarProps): ReactEle
                     aria-label={formatDayLabel(cell.date, settings.dateFormat)}
                     aria-current={isToday ? 'date' : undefined}
                     aria-pressed={isSelected}
-                    onClick={(event) =>
+                    onClick={(event) => {
                       navigateNoteLink({
                         target: { kind: 'daily', date: cell.date },
                         openInNewWindow: isModEvent(event),
                       })
-                    }
+                    }}
                     className={cn(
                       'relative cursor-default py-1.5 text-xs',
                       // Today stays fully visible even as an adjacent-month

@@ -7,8 +7,9 @@ async BYOK transcription — see the desktop
 that pipeline over a native recorder: `plugins/tauri-plugin-recording`
 (AVAudioRecorder → a native staging directory, interruption/route-change/cap
 stops, 10 Hz metering events), the shared capture queue extracted to
-`apps/desktop/src/hooks/use-audio-memo-pipeline.ts`, and a mobile provider
-(`apps/desktop/src/mobile/audio-memo-provider.tsx`) that ingests staged
+`AudioMemoService.openPipeline` (`packages/core/src/audio/audio-memo-service.ts`),
+and a mobile session
+(`packages/core/src/audio/mobile-audio-memo-service.ts`) that ingests staged
 files — including an orphan scan on launch/foreground for stops the webview
 never saw. The reliability wave added `UIBackgroundModes: audio` (a memo
 keeps recording through screen lock and backgrounding; the audio session is

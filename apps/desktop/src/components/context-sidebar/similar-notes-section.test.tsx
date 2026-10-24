@@ -1,58 +1,53 @@
-import { render } from 'vitest-browser-react'
+import type { MaybePromise } from '@reflect/utils'
+import { createTestWindowService } from '@reflect/app/testing'
 import { userEvent } from 'vitest/browser'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RetrievalService } from '@reflect/core'
+import {
+  createTestCoreServices,
+  createTestNoteFileService,
+  createTestRetrievalService,
+} from '@reflect/core/testing'
 import type { ReactNode } from 'react'
-import { RouterProvider, useRouter } from '@/routing/router.tsx'
+import { deepLinkForRoute } from '@reflect/app'
+import { useRouter } from '@/routing/router.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { SimilarNotesSection } from './similar-notes-section.tsx'
 
-const relatedNotes = vi.hoisted(() => vi.fn())
-const readNote = vi.hoisted(() => vi.fn())
-const openRouteInNewWindow = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-  readNote,
-  relatedNotes,
-}))
-vi.mock('@/lib/windows/open-in-new-window.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/windows/open-in-new-window.ts')>()),
-  openRouteInNewWindow,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
-}))
-const semanticSetting = vi.hoisted(() => ({ enabled: true }))
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({
-    settings: { semanticSearchEnabled: semanticSetting.enabled },
-    updateSettings: () => {},
-  }),
-}))
+const relatedNotes = vi.fn<RetrievalService['relatedNotes']>()
+const openNoteWindow = vi.fn<(deepLink: string) => MaybePromise<boolean>>()
+let semanticSearchEnabled: boolean
 
 function RouteProbe(): ReactNode {
   const { route } = useRouter()
   return <output data-testid="route">{JSON.stringify(route)}</output>
 }
 
-function renderSimilar(path: string, probe: boolean = true) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider>
-        <SimilarNotesSection path={path} />
-        {probe ? <RouteProbe /> : null}
-      </RouterProvider>
-    </QueryClientProvider>,
+async function renderSimilar(path: string, probe: boolean = true) {
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    noteFile: createTestNoteFileService({ files: { 'daily/2026-06-09.md': '- daily entry\n' } }),
+    retrieval: createTestRetrievalService({ relatedNotes }),
+  })
+  return await renderInApp(
+    <>
+      <SimilarNotesSection path={path} />
+      {probe ? <RouteProbe /> : null}
+    </>,
+    {
+      app,
+      appServices: { window: createTestWindowService({ openNoteWindow }) },
+      graph: { root: '/g', name: 'g' },
+      settings: { semanticSearchEnabled },
+    },
   )
 }
 
 beforeEach(() => {
-  window.sessionStorage.clear()
-  semanticSetting.enabled = true
-  readNote.mockReset().mockResolvedValue('- daily entry\n')
+  semanticSearchEnabled = true
   relatedNotes.mockReset().mockResolvedValue([])
-  openRouteInNewWindow.mockReset().mockResolvedValue(true)
+  openNoteWindow.mockReset().mockResolvedValue(true)
 })
 
 describe('SimilarNotesSection', () => {
@@ -60,11 +55,10 @@ describe('SimilarNotesSection', () => {
     const view = await renderSimilar('daily/2026-06-09.md', false)
     await vi.waitFor(() => expect(relatedNotes).toHaveBeenCalledWith('daily/2026-06-09.md', 6))
     expect(view.container.firstChild).toBeNull()
-    await view.unmount()
   })
 
   it('neither queries nor renders while semantic search is disabled', async () => {
-    semanticSetting.enabled = false
+    semanticSearchEnabled = false
     relatedNotes.mockResolvedValue([
       {
         path: 'notes/rust.md',
@@ -80,7 +74,6 @@ describe('SimilarNotesSection', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(relatedNotes).not.toHaveBeenCalled()
     expect(view.container.firstChild).toBeNull()
-    await view.unmount()
   })
 
   it('renders the Similar notes section with one title-only row per neighbor', async () => {
@@ -112,7 +105,6 @@ describe('SimilarNotesSection', () => {
     // V1 rows are bare titles — snippets never render here.
     expect(view.getByText('borrow checker notes').query()).toBeNull()
     expect(view.getByText('comptime experiments').query()).toBeNull()
-    await view.unmount()
   })
 
   it('shows no more than six neighbors', async () => {
@@ -130,7 +122,6 @@ describe('SimilarNotesSection', () => {
     await expect.element(view.getByText('Note 6')).toBeInTheDocument()
     expect(view.getByText('Note 7').query()).toBeNull()
     expect(relatedNotes).toHaveBeenCalledWith('notes/languages.md', 6)
-    await view.unmount()
   })
 
   it('navigates to the clicked neighbor', async () => {
@@ -148,7 +139,6 @@ describe('SimilarNotesSection', () => {
     await userEvent.click(view.getByText('Gardening'))
     await expect.element(view.getByTestId('route')).toMatchTextContent('"kind":"note"')
     await expect.element(view.getByTestId('route')).toMatchTextContent('notes/gardening.md')
-    await view.unmount()
   })
 
   it('opens a ⌘-clicked neighbor in a new window', async () => {
@@ -166,13 +156,14 @@ describe('SimilarNotesSection', () => {
 
     await view.getByRole('button', { name: 'Gardening' }).click({ modifiers: ['ControlOrMeta'] })
 
-    await vi.waitFor(() =>
-      expect(openRouteInNewWindow).toHaveBeenCalledWith({
-        kind: 'note',
-        path: 'notes/gardening.md',
-      }),
-    )
+    await vi.waitFor(() => {
+      expect(openNoteWindow).toHaveBeenCalledWith(
+        deepLinkForRoute({
+          kind: 'note',
+          path: 'notes/gardening.md',
+        }),
+      )
+    })
     await expect.element(view.getByTestId('route')).toMatchTextContent('"kind":"today"')
-    await view.unmount()
   })
 })

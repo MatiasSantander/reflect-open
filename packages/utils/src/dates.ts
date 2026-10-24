@@ -4,8 +4,7 @@
  * UTC sidesteps daylight saving entirely: adding days or months can never skip
  * or repeat a day, so callers get correct calendar shifts without a
  * timezone-aware date library. "Today" is intentionally absent — it depends on
- * the local clock and belongs at the application edge (e.g. the desktop app's
- * `todayIso`).
+ * the local clock and belongs to `@reflect/core`'s `ClockService`.
  */
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/

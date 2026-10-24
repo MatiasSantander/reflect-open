@@ -13,12 +13,10 @@ import {
 } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
-import { deleteOpenNote } from '@/lib/note-delete.ts'
-import { renameTemplate } from '@/lib/note-templates.ts'
-import { startOperation } from '@/lib/operations.ts'
 import { createTemplatesQueryOptions } from '@/lib/query-options.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useNoteTemplates } from '@/providers/note-templates-provider.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 import { SettingsField } from './field.tsx'
 import { SettingsSection } from './section.tsx'
 import { isModEvent } from '@meowdown/core'
@@ -31,12 +29,13 @@ import { isModEvent } from '@meowdown/core'
  */
 export function TemplatesSection(): ReactElement {
   const { graph } = useGraph()
+  const { indexQuery } = useCoreServices()
   const navigateNoteLink = useNoteLinkNavigation()
   const { openTemplateCreate } = useNoteTemplates()
   const [renaming, setRenaming] = useState<TemplateEntry | null>(null)
   const [deleting, setDeleting] = useState<TemplateEntry | null>(null)
   const { data: templates } = useQuery({
-    ...createTemplatesQueryOptions(graph?.root),
+    ...createTemplatesQueryOptions(indexQuery, graph?.root),
     enabled: graph !== null,
   })
 
@@ -52,12 +51,12 @@ export function TemplatesSection(): ReactElement {
               <li key={template.path} className="group flex items-center gap-2 px-3 py-2">
                 <button
                   type="button"
-                  onClick={(event) =>
+                  onClick={(event) => {
                     navigateNoteLink({
                       target: { kind: 'note', path: template.path },
                       openInNewWindow: isModEvent(event),
                     })
-                  }
+                  }}
                   className="min-w-0 flex-1 text-left"
                 >
                   <span className="block truncate text-sm text-text hover:text-accent">
@@ -109,19 +108,18 @@ interface TemplateDialogProps {
 
 /** Rename = move onto the new name's slug and rewrite the authored title. */
 function TemplateRenameDialog({ template, onClose }: TemplateDialogProps): ReactElement {
-  const { graph } = useGraph()
+  const { templates } = useCoreServices()
   const [name, setName] = useState(template.title)
   const [error, setError] = useState<string | null>(null)
 
   const rename = async (): Promise<void> => {
-    const generation = graph?.generation
     const trimmed = name.trim()
-    if (generation === undefined || trimmed === '') {
+    if (trimmed === '') {
       return
     }
     setError(null)
     try {
-      await renameTemplate(template.path, trimmed, generation)
+      await templates.renameTemplate(template.path, trimmed)
       onClose()
     } catch (cause) {
       setError(errorMessage(cause))
@@ -178,18 +176,15 @@ function TemplateRenameDialog({ template, onClose }: TemplateDialogProps): React
 
 /** Delete = move the file to the trash (recoverable), confirmed first. */
 function TemplateDeleteDialog({ template, onClose }: TemplateDialogProps): ReactElement {
-  const { graph } = useGraph()
+  const { noteActions } = useCoreServices()
+  const { operations } = useAppServices()
   const [error, setError] = useState<string | null>(null)
 
   const trash = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
-    const operation = startOperation('Trashing template')
+    const operation = operations.start('Trashing template')
     setError(null)
     try {
-      await deleteOpenNote(template.path, generation)
+      await noteActions.trashOne(template.path)
       operation.done()
       onClose()
     } catch (cause) {

@@ -1,13 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import type { OpenTask } from '@reflect/core'
+import { getTaskKey, previousTaskKey, todaysDailyTarget, type OpenTask } from '@reflect/core'
 import { getIsComposing, isModEvent } from '@meowdown/core'
-import { taskKey } from '@/lib/tasks/task-identity.ts'
-import {
-  insertTargetForBucket,
-  insertTargetForTask,
-  previousTaskKey,
-  todaysDailyTarget,
-} from '@/lib/tasks/task-navigation.ts'
 import type { TaskActions } from '@/lib/tasks/use-task-actions.ts'
 import type { TaskSelection } from '@/lib/tasks/use-task-selection.ts'
 
@@ -127,11 +120,9 @@ export function useTaskKeyboard({
         return
       }
       const inSearch = target instanceof HTMLInputElement
-      // Resolve the active row that Return pivots from. Breadcrumb context takes
-      // precedence and can always be continued structurally; otherwise the bucket
-      // decides whether insertion is available (Current/note yes, aggregate
-      // Overdue/Upcoming no). The pivot must still be selected: `activeKey()` keeps
-      // pointing at the last touched row after deselection, which falls back to today.
+      // Resolve the active row that Return pivots from: the next task continues
+      // its list. The pivot must still be selected: `activeKey()` keeps pointing
+      // at the last touched row after deselection, which falls back to today.
       const activeTask = (): OpenTask | undefined => {
         const activeKey = selection.activeKey()
         return activeKey !== null && selection.selected.has(activeKey)
@@ -143,10 +134,11 @@ export function useTaskKeyboard({
         scrollToKey(key)
       }
       const mod = isModEvent(event)
-      const selectedTasks = (): OpenTask[] =>
-        [...selection.selected]
+      const selectedTasks = (): OpenTask[] => {
+        return [...selection.selected]
           .map((key) => tasksByKey.get(key))
           .filter((task): task is OpenTask => task !== undefined)
+      }
 
       if (inSearch) {
         if (event.key === 'Escape') {
@@ -166,26 +158,20 @@ export function useTaskKeyboard({
       } else if (event.key === 'Enter') {
         // Return adds a task (V1). A sole selection's editor owns Enter (it bailed
         // above via OWNS_KEYS and continues the entry there), so this fires from the
-        // list itself: insert, then select the new row to open its editor focused.
-        // A null target means the active row is Overdue/Upcoming — nothing to add to.
+        // list itself: continue the active row's list, or add to today's daily when
+        // nothing is selected, then select the new row to open its editor focused.
         // Skip while a write is in flight so a held/rapid Return can't append several
         // empty rows before the first insert's editor takes focus.
         event.preventDefault()
         const active = activeTask()
-        const taskTarget =
-          active === undefined
-            ? todaysDailyTarget(today)
-            : active.breadcrumbs.length > 0
-              ? insertTargetForTask(active)
-              : insertTargetForBucket(active, today)
-        if (taskTarget !== null && !actions.isPending) {
+        if (!actions.isPending) {
           const insertion =
-            active !== undefined && active.breadcrumbs.length > 0
-              ? actions.insertAfter(active, null, taskTarget)
-              : actions.insert(taskTarget)
+            active === undefined
+              ? actions.insert(todaysDailyTarget(today))
+              : actions.insertAfter(active, null)
           void insertion.then((created) => {
             if (created !== null) {
-              selectExclusively(taskKey(created))
+              selectExclusively(getTaskKey(created))
             }
           })
         }

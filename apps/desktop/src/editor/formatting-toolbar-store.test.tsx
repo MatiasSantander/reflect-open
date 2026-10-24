@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act } from '@/test-utils/act.ts'
 import { renderHook } from 'vitest-browser-react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -56,10 +56,10 @@ describe('formatting toolbar store', () => {
 
     const owner = makeOwner()
     const toolbar = makeToolbar()
-    act(() => publishFormattingToolbar(owner, toolbar))
+    await act(() => publishFormattingToolbar(owner, toolbar))
     expect(view.result.current).toBe(toolbar)
 
-    act(() => clearFormattingToolbar(owner))
+    await act(() => clearFormattingToolbar(owner))
     expect(view.result.current).toBeNull()
   })
 
@@ -67,24 +67,24 @@ describe('formatting toolbar store', () => {
     const view = await renderHook(() => useFormattingToolbar())
     const owner = makeOwner()
     const toolbar = makeToolbar()
-    act(() => publishFormattingToolbar(owner, toolbar))
+    await act(() => publishFormattingToolbar(owner, toolbar))
 
     // A caret move that changes nothing must keep the same snapshot object,
     // so the toolbar component never re-renders for it.
-    act(() =>
+    await act(() => {
       publishFormattingToolbar(owner, {
         capabilities: { ...toolbar.capabilities },
         commands: toolbar.commands,
-      }),
-    )
+      })
+    })
     expect(view.result.current).toBe(toolbar)
 
-    act(() =>
+    await act(() => {
       publishFormattingToolbar(owner, {
         capabilities: { ...toolbar.capabilities, canIndent: true },
         commands: toolbar.commands,
-      }),
-    )
+      })
+    })
     expect(view.result.current).not.toBe(toolbar)
     expect(view.result.current?.capabilities.canIndent).toBe(true)
   })
@@ -93,16 +93,16 @@ describe('formatting toolbar store', () => {
     const view = await renderHook(() => useFormattingToolbar())
     const first = makeOwner()
     const second = makeOwner()
-    act(() => publishFormattingToolbar(first, makeToolbar()))
+    await act(() => publishFormattingToolbar(first, makeToolbar()))
 
     const takeover = makeToolbar({ canIndent: true })
-    act(() => publishFormattingToolbar(second, takeover))
+    await act(() => publishFormattingToolbar(second, takeover))
     expect(view.result.current).toBe(takeover)
 
-    act(() => clearFormattingToolbar(first))
+    await act(() => clearFormattingToolbar(first))
     expect(view.result.current).toBe(takeover)
 
-    act(() => clearFormattingToolbar(second))
+    await act(() => clearFormattingToolbar(second))
     expect(view.result.current).toBeNull()
   })
 })

@@ -8,8 +8,7 @@ import {
   DrawerDescription,
   DrawerTitle,
 } from '@/components/ui/drawer.tsx'
-import { deleteOpenNote } from '@/lib/note-delete.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteDeleteDrawerProps {
   /** Graph-relative path of the regular note to move to trash. */
@@ -17,7 +16,7 @@ interface NoteDeleteDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Called after the note is safely in trash. */
-  onDeleted: () => void
+  onDeleted?: () => void
 }
 
 /**
@@ -31,7 +30,7 @@ export function NoteDeleteDrawer({
   onOpenChange,
   onDeleted,
 }: NoteDeleteDrawerProps): ReactElement {
-  const { graph } = useGraph()
+  const { noteActions } = useCoreServices()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const submittingRef = useRef(false)
@@ -47,17 +46,13 @@ export function NoteDeleteDrawer({
     if (submittingRef.current) {
       return
     }
-    if (graph === null) {
-      setError('No graph is open.')
-      return
-    }
     submittingRef.current = true
     setBusy(true)
     setError(null)
     try {
-      await deleteOpenNote(path, graph.generation)
+      await noteActions.trashOne(path)
       onOpenChange(false)
-      onDeleted()
+      onDeleted?.()
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {

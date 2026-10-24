@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { TRANSCRIPTION_PROVIDERS, type AiProviderInfo } from '@reflect/core'
-import { openUrlSync } from '@/lib/open-url.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
 import { PRIVACY_POLICY_URL } from '@/mobile/legal-urls.ts'
 
 const TRANSCRIBING_PROVIDER_IDS: readonly string[] = TRANSCRIPTION_PROVIDERS
@@ -22,6 +22,7 @@ export function AiProviderConsent({
   consented,
   onConsentedChange,
 }: AiProviderConsentProps): ReactElement {
+  const { opener } = useAppServices()
   const sendsAudio = TRANSCRIBING_PROVIDER_IDS.includes(provider.id)
   return (
     <div className="flex flex-col gap-2">
@@ -34,7 +35,7 @@ export function AiProviderConsent({
           type="button"
           className="underline"
           onClick={() => {
-            openUrlSync(PRIVACY_POLICY_URL)
+            opener.openUrlSync(PRIVACY_POLICY_URL)
           }}
         >
           Privacy policy

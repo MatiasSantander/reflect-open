@@ -1,17 +1,18 @@
-import { render, type RenderResult } from 'vitest-browser-react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { TestCoreServices } from '@reflect/core/testing'
+import { renderInApp, type InAppRenderResult } from '@/test-utils/render-in-app.tsx'
 import { DailyCaptureMenu } from './daily-capture-menu.tsx'
+import type { MobileAudioMemoContextValue } from '@/mobile/audio-memo-provider.tsx'
+import type { Mutable } from '@reflect/utils'
 
-const navigate = vi.hoisted(() => vi.fn())
-const hapticImpactLight = vi.hoisted(() => vi.fn())
-const memo = vi.hoisted(() => ({
-  phase: 'idle' as 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error',
+const memo = vi.hoisted((): Mutable<MobileAudioMemoContextValue> => ({
+  phase: 'idle',
   elapsedMs: 0,
   level: 0,
   pendingCount: 0,
   available: true,
   hasTranscriptionConfig: true,
-  error: null as string | null,
+  error: null,
   canRetry: false,
   drawerOpen: false,
   toggle: vi.fn(),
@@ -22,20 +23,12 @@ const memo = vi.hoisted(() => ({
   discard: vi.fn(),
 }))
 
-vi.mock('@/routing/router.tsx', () => ({
-  useRouter: () => ({ navigate }),
-}))
-
 vi.mock('@/mobile/audio-memo-provider.tsx', () => ({
   useMobileAudioMemo: () => ({ ...memo }),
 }))
 
-vi.mock('@/mobile/haptics.ts', () => ({
-  hapticImpactLight,
-}))
-
-function renderMenu(): Promise<RenderResult> {
-  return render(<DailyCaptureMenu />)
+function renderMenu(): Promise<InAppRenderResult<TestCoreServices>> {
+  return renderInApp(<DailyCaptureMenu />)
 }
 
 beforeEach(() => {
@@ -69,7 +62,7 @@ describe('DailyCaptureMenu', () => {
     const view = await renderMenu()
 
     await view.getByRole('button', { name: 'Show capture actions' }).click()
-    expect(hapticImpactLight).toHaveBeenCalledTimes(1)
+    expect(view.app.mobile.haptics.impacts()).toBe(1)
 
     await expect
       .element(view.getByRole('button', { name: 'Hide capture actions' }))
@@ -80,7 +73,7 @@ describe('DailyCaptureMenu', () => {
       .toBeInTheDocument()
 
     await view.getByRole('button', { name: 'Hide capture actions' }).click()
-    expect(hapticImpactLight).toHaveBeenCalledTimes(2)
+    expect(view.app.mobile.haptics.impacts()).toBe(2)
 
     await expect
       .element(view.getByRole('button', { name: 'Show capture actions' }))
@@ -105,9 +98,13 @@ describe('DailyCaptureMenu', () => {
 
     await view.getByRole('button', { name: 'New note' }).click()
 
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'note', path: expect.stringMatching(/^notes\/.+\.md$/) }),
-    )
+    const navigations = view.appServices.navigation.navigations()
+    expect(navigations).toHaveLength(1)
+    expect(navigations[0]?.route).toMatchObject({
+      kind: 'note',
+      path: expect.stringMatching(/^notes\/.+\.md$/) as string,
+    })
+    expect(navigations[0]?.options).toBeUndefined()
     await expect
       .element(view.getByRole('button', { name: 'Show capture actions' }))
       .toHaveAttribute('aria-expanded', 'false')
@@ -138,11 +135,8 @@ describe('DailyCaptureMenu', () => {
     await view.rerender(<DailyCaptureMenu />)
     await view.getByRole('button', { name: 'Show capture actions' }).click()
     await expect
-      .element(view.getByRole('button', { name: 'Record audio memo' }))
+      .element(view.getByRole('button', { name: 'Record audio memo' }).getByTestId('spinner'))
       .toBeInTheDocument()
-    expect(
-      view.container.querySelector('[data-slot="audio-memo-action"] .animate-spin'),
-    ).not.toBeNull()
     await view.getByRole('button', { name: 'Hide capture actions' }).click()
 
     memo.phase = 'error'

@@ -1,89 +1,152 @@
 # Testing
 
-JS tests run on [Vitest](https://vitest.dev). Anything that needs a DOM uses
-[Vitest browser mode](https://vitest.dev/guide/browser/) with the Playwright
-provider, so it runs in a real browser. Rust tests are plain `cargo test`
-(see `AGENTS.md`).
+JS tests run on [Vitest](https://vitest.dev). Rust tests are plain
+`cargo test` (see `AGENTS.md`).
 
 ## Test projects
 
-The root `vitest.config.ts` collects every app and package into one Vitest
-workspace. Two packages split themselves into a browser project and a node
-project:
+The root `vitest.config.ts` collects every app and package into one workspace.
 
-- **`apps/desktop/vitest.browser.config.ts` (`browser`)**:
-  `src/**/*.test.tsx`, executed in a real browser. Chromium by
-  default; WebKit on demand (see below). Test files run sequentially
-  (`fileParallelism: false`) because real keyboard focus is a per-page global.
-- **`apps/desktop/vitest.node.config.ts` (`node`)**:
-  `src/**/*.test.ts` plus `scripts/**/*.test.mjs`, executed in a plain node
-  environment.
-- **`packages/core/vitest.browser.config.ts` (`core-browser`)**:
-  `src/**/*.test.tsx`. Only `meta-scrape` lives here: `parsePageMeta` uses
-  the host's `DOMParser`, and in production that host is always a browser
-  (the Tauri webview, or the extension), never node.
-- **`packages/core/vitest.node.config.ts` (`core-node`)**: `src/**/*.test.ts`,
-  the rest of the package, in a plain node environment.
+| Project | Config | Files | Environment |
+| --- | --- | --- | --- |
+| `core` | `packages/core/vitest.config.ts` | `src/**/*.test.ts` | node |
+| `app` | `packages/app/vitest.config.ts` | `src/**/*.test.ts` | node |
+| `desktop-node` | `apps/desktop/vitest.node.config.ts` | `src/**/*.test.ts` | node |
+| `desktop-browser` | `apps/desktop/vitest.browser.config.ts` | `src/**/*.test.tsx` | Playwright browser |
 
-`packages/db`, `packages/utils` and `apps/extension` are pure node and have
-no config of their own.
+Every other app and package has its own `vitest.config.ts`, a node project named after the directory.
 
-The routing rule is the file extension, with no exception list: `.test.ts`
-means "pure logic, node environment", `.test.tsx` means "needs a DOM, real
-browser". A logic test that drives the DOM (through `renderHook` or document
-event listeners) is named `.test.tsx` for that reason alone. There is no
-jsdom anywhere.
+The file extension decides the environment: `.test.ts` runs in node,
+`.test.tsx` runs in a real browser. There is no jsdom. A test that needs a DOM
+therefore lives in `apps/desktop`, never in `packages/core` or `packages/app`.
 
-## Browsers
-
-Chromium is the default. WebKit matters because the production desktop app
-renders in a Tauri `WKWebView`, which is WebKit; CI runs both on every PR.
-Firefox is intentionally not part of the matrix.
-
-```bash
-# one-time: download the browsers
-pnpm --filter @reflect/desktop test:install
-
-# run the browser project on Chromium
-pnpm exec vitest run --project browser
-
-# same, on WebKit
-REFLECT_TEST_BROWSER=webkit pnpm exec vitest run --project browser
-
-# watch a headed browser window while debugging
-DEBUG=1 pnpm exec vitest --project browser path/to/test
-```
+Browser test files run in parallel. Each Vitest worker has its own Playwright
+page, and Playwright emulates focus per page. CI runs the browser project on Chromium
+and on WebKit, because the Tauri webview is WebKit.
+`pnpm --filter @reflect/desktop test:install` downloads both browsers.
+`REFLECT_TEST_BROWSER=webkit` selects WebKit, and `DEBUG=1` opens a headed browser.
 
 ## Console output fails tests
 
-`vitest-fail-on-console` turns any `console.warn` / `console.error` during a
-test into a failure, in every desktop project. Noise that predates the check
-is silenced by regex in `apps/desktop/src/test-utils/allowed-console.ts`.
-The rules:
+`vitest-fail-on-console` fails a test on any `console.warn` or `console.error`,
+in the core, app and desktop projects.
 
-- PRs may only shrink the allowlist (fix the warning, then delete its regex).
-- A new entry needs a stated reason in the PR.
-- An intentionally exercised error path should assert on the log instead:
-  `vi.spyOn(console, 'error').mockImplementation(() => {})`.
+- Fix the warning. Do not add to `apps/desktop/src/test-utils/allowed-console.ts`
+  without a measured reason in that file.
+- Code logs through `LoggerService`. A test of an error path passes
+  `createTestLoggerService()` and asserts `logger.getErrors()`.
+- In desktop tests, import `act` from `@/test-utils/act.ts`, not from `react`,
+  and always await it, so no act warning prints.
+
+## Testing a service
+
+Construct the service under test over test doubles. Doubles live in
+`packages/core/src/testing/` (`@reflect/core/testing`) and
+`packages/app/src/testing/` (`@reflect/app/testing`). A double exists only for
+a service that reaches the platform (files, IPC, HTTP, the clock), or whose
+answers a test scripts or whose calls a test observes. A `TestXxxService` is
+the service plus members that seed, drive or observe it.
+
+- Prefer a real service over doubles one layer down. To test `TaskService`,
+  use the real `NoteDocumentService` and fake only the files.
+- Do not use `vi.useFakeTimers`. The test clock starts at epoch 0, and
+  `clock.advance(ms)` runs the due timers.
+- `createNodeTestDatabaseService()` (Node.js) and `createWasmTestDatabaseService()`
+  (desktop browser tests, `@/test-utils/test-database.ts`) are real in-memory
+  SQLite indexes built from the production migrations. Seed notes and assert
+  query results, not SQL.
+
+## The service containers
+
+`createTestCoreServices({ database, ...overrides })` (`packages/core/src/testing/services.ts`)
+builds `CoreServices` through the production root, `composeCoreServices`, over
+test adapters. Services with a double get the double, every other service is
+real. The result also holds `CoreInternalServices` (e.g. `app.database`), the
+mobile services, and the `progress`, `activity` and `role` ports. Each
+override replaces the factory of its key, so every service built after it
+receives the override:
+
+```ts
+const noteFile = createTestNoteFileService({ files: { 'notes/a.md': '# A\n' } })
+const app = createTestCoreServices({ noteFile })
+```
+
+`createTestAppServices(core, overrides)` (`packages/app/src/testing/services.ts`)
+builds `AppServices` over `core`.
+It shares the core's test platform, activity port and `progress` port, and
+picks a note-window test window when `core.role` is `'note-window'`.
+
+## Testing React code
+
+Components read `useCoreServices()` and `useAppServices()`, which throw
+outside their providers. Every desktop test that renders goes through `renderInApp(ui, options)` or `renderHookInApp(hook, options)` in
+`apps/desktop/src/test-utils/render-in-app.tsx`. They mount both service
+providers, a query client, the real `GraphProvider` and `RouterProvider`, and
+register the app commands, as `main.tsx` does. The options are documented on
+`RenderInAppOptions`.
+
+The result holds two containers:
+
+- `app`: the core container (default: `createTestCoreServices()` over a wasm
+  database). Drive and
+  observe the graph, settings and progress here: `app.graphSession.setGraph()`,
+  `app.settings.saves()`, `app.progress.getAll()`.
+- `appServices`: the app layer, built with `createTestAppServices(app, options.appServices)`.
+  Assert navigation with `appServices.navigation.navigations()`.
+
+```tsx
+const { app } = await renderInApp(<RebuildIndexField />, { graph: { indexGeneration: 7 } })
+await page.getByRole('button', { name: /rebuild/i }).click()
+await vi.waitFor(() => expect(app.indexLifecycle.rebuilds()).toEqual([7]))
+```
+
+**Spy before the render.** The providers read `service.method` during the
+render and put that function in their context. A spy installed later is not
+the function the component calls. So build your own `app`, spy on it, and pass
+it in:
+
+```tsx
+const app = createTestCoreServices({ database: createWasmTestDatabaseService() })
+const rebuild = Promise.withResolvers<void>()
+vi.spyOn(app.indexLifecycle, 'rebuildVisibly').mockReturnValueOnce(rebuild.promise)
+await renderInApp(<RebuildIndexField />, { app, graph: { indexGeneration: 7 } })
+```
+
+With your own `app`, put the platform and the backup in it yourself. The
+helper throws if you also pass `platform` or `sync`.
+
+`database` is required: a Node.js test passes
+`createNodeTestDatabaseService()`, a desktop browser test passes
+`createWasmTestDatabaseService()`. `renderInApp` passes a wasm database when it
+builds the app itself.
+
+## `vi.mock`
+
+`eslint.config.js` allows `vi.mock` only for the specifiers in
+`DESKTOP_VI_MOCK_ALLOW` and `DESKTOP_VI_MOCK_ALLOW_BY_FILE`: pure UI children,
+heavy children, and `@tauri-apps/*` in adapter tests. `packages/` allows none.
+Never mock `@reflect/core`, `@reflect/app`, a service, or a provider that
+reads a service. Seed or spy on `app` instead. A new entry needs a reason next
+to it.
+
+## Timing pitfall
+
+Do not wait for work with one timer turn
+(`await new Promise((resolve) => setTimeout(resolve, 0))`). WebCrypto digests,
+wasm and IPC resolve on their own schedule, so one turn is sometimes enough,
+and the test flakes. Wait for the outcome with `vi.waitFor`, or count the work
+in flight as `flush()` in
+`packages/core/src/assets/asset-description-service.test.ts` does.
 
 ## Browser test conventions
 
 - Assert DOM state through locators with auto-retry:
-  `await expect.element(page.getByTestId('x')).toBeVisible()`. No
-  `document.querySelector`, no `vi.waitFor` around DOM reads (`vi.waitFor`
-  stays for spy assertions and geometry reads).
-- `page.locate('<css>')` (registered by `src/test-utils/locator.ts`) is the
-  escape hatch for CSS selectors; prefer semantic locators (`getByRole`,
-  `getByText`) or `data-testid`. Third-party intrinsic classes
-  (`.ProseMirror`) are fine to locate.
-- Counting matches needs `expectLocatorToHaveCount` from
-  `src/test-utils/expect.ts` (`expect.element` silently picks the first
-  match).
-- Mount React components with `render` from `vitest-browser-react`; drive
-  input with `userEvent` from `vitest/browser` (real key events, no
-  `setup()`).
-- The app stylesheet (`src/styles/index.css`, Tailwind included) is loaded in
-  every browser test via `src/test-utils/setup-browser.ts`, so layout is
-  real.
-- Platform-specific skips need a stated engine difference, not a convenience
-  skip.
+  `await expect.element(page.getByTestId('x')).toBeVisible()`. Do not use
+  `document.querySelector`.
+- Prefer `getByRole`, `getByText` or `data-testid`. `page.locate('<css>')`
+  (`test-utils/locator.ts`) is the escape hatch for CSS selectors.
+- Count matches with `expectLocatorToHaveCount` (`test-utils/expect.ts`).
+  `expect.element` picks the first match.
+- Drive input with `userEvent` from `vitest/browser`. `view.rerender(<X />)`
+  keeps the providers: pass only the bare element.
+- A platform-specific skip needs a stated engine difference.

@@ -85,8 +85,9 @@ export function WikiLinkHoverPreview({
         ) : (
           <MarkdownPreview
             content={markdown}
+            sourcePath={path}
             resolveImageUrl={resolveImageUrl}
-            {...(resolveWikiEmbed !== undefined ? { resolveWikiEmbed } : {})}
+            resolveWikiEmbed={resolveWikiEmbed}
             interactive={false}
             className="text-xs leading-relaxed"
           />

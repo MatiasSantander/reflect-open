@@ -5,13 +5,13 @@
 // `script-src 'self'`: inline scripts would be blocked.
 //
 // The persisted preference lives in the settings document, which only arrives
-// over IPC after the first paint, so `ThemeProvider`
-// (`src/providers/theme-provider.tsx`) mirrors it into localStorage for the
-// next launch. A pinned `light`/`dark` wins here; `system`, a first launch, and
-// an unreadable cache all fall back to the OS preference. ThemeProvider
-// re-applies the real value once settings load.
+// over IPC after the first paint, so `ThemeService`
+// (`packages/app/src/settings/theme-service.ts`) mirrors it into localStorage
+// for the next launch. A pinned `light`/`dark` wins here; `system`, a first
+// launch, and an unreadable cache all fall back to the OS preference.
+// ThemeProvider re-applies the real value once settings load.
 {
-  // Keep in sync with THEME_PREFERENCE_CACHE_KEY in src/lib/theme-cache.ts.
+  // Keep in sync with THEME_PREFERENCE_CACHE_KEY in packages/app/src/settings/theme-service.ts.
   const PREFERENCE_KEY = 'reflect.theme.preference'
 
   function pinnedTheme() {

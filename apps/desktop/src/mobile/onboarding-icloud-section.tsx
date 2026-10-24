@@ -5,14 +5,13 @@ import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
 import {
+  DEFAULT_GRAPH_NAME,
   cleanGraphName,
   graphNameFromRoot,
   graphRootForName,
   isGraphNameTaken,
 } from '@/lib/graph-names.ts'
 import { OnboardingIcloudHeader } from '@/mobile/onboarding-icloud-header.tsx'
-
-const DEFAULT_ICLOUD_NOTES_NAME = 'Notes'
 
 interface OnboardingIcloudSectionProps {
   /** The container is still resolving — render the pending row, not the form. */
@@ -46,7 +45,7 @@ export function OnboardingIcloudSection(props: OnboardingIcloudSectionProps): Re
   // Fresh iCloud setup still needs a user-editable graph name; keep the
   // friendly default, but only leave the field blank when creating alongside
   // existing iCloud notes where "Notes" would usually collide.
-  const name = typedName ?? (graphs.length > 0 ? '' : DEFAULT_ICLOUD_NOTES_NAME)
+  const name = typedName ?? (graphs.length > 0 ? '' : DEFAULT_GRAPH_NAME)
   const cleanName = cleanGraphName(name)
   const nameTaken = cleanName !== null && isGraphNameTaken(cleanName, graphs)
 

@@ -3,7 +3,6 @@ import { MAX_ASSET_TEXT_CHARS } from '../indexing/asset-description-text.ts'
 import { chunkAssetDescriptions, chunkNote } from './chunk.ts'
 
 const PATH = 'notes/a.md'
-
 describe('chunkNote', () => {
   it('chunks per heading section with whole-file offsets and stable hashes', async () => {
     const source = '# Alpha\n\nFirst section text.\n\n# Beta\n\nSecond section text.\n'

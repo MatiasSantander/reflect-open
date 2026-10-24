@@ -1,13 +1,13 @@
 import { useState, type ReactElement } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { UserRound } from 'lucide-react'
-import { errorMessage } from '@reflect/core'
+import { errorMessage, suggestedContactDetails } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { useSuggestedContact } from '@/hooks/use-suggested-contact.ts'
-import { addContactToNote, ignoreContactSuggestion } from '@/lib/note-contact.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface SuggestedContactCardProps {
   /** Graph-relative path of the note the card sits above. */
@@ -30,12 +30,12 @@ export function SuggestedContactCard({
 }: SuggestedContactCardProps): ReactElement | null {
   const { graph } = useGraph()
   const queryClient = useQueryClient()
+  const { contactSuggestions } = useCoreServices()
   const contact = useSuggestedContact(path)
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const generation = graph?.generation ?? null
 
-  if (contact === null || generation === null) {
+  if (contact === null) {
     return null
   }
 
@@ -58,9 +58,7 @@ export function SuggestedContactCard({
     }
   }
 
-  const details = [contact.emails[0], contact.phones[0]]
-    .filter((value): value is string => value !== undefined && value.trim() !== '')
-    .join(' · ')
+  const details = suggestedContactDetails(contact)
 
   return (
     <div
@@ -87,14 +85,14 @@ export function SuggestedContactCard({
         size="xs"
         variant="ghost"
         disabled={isBusy}
-        onClick={() => void resolve(() => ignoreContactSuggestion(path, contact, generation))}
+        onClick={() => void resolve(() => contactSuggestions.ignore(path, contact))}
       >
         Ignore
       </Button>
       <Button
         size="xs"
         disabled={isBusy}
-        onClick={() => void resolve(() => addContactToNote(path, contact, generation))}
+        onClick={() => void resolve(() => contactSuggestions.addToNote(path, contact))}
       >
         Add
       </Button>

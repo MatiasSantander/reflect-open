@@ -8,7 +8,6 @@ export {
   gistFrontmatterSchema,
   isPinned,
   pinnedOrder,
-  PARSED_NOTE_VERSION,
   type Frontmatter,
   type GistFrontmatter,
   type Span,
@@ -16,7 +15,6 @@ export {
   type MarkdownLink,
   type Heading,
   type AssetRef,
-  type TaskMarker,
   type ParsedNote,
 } from './model.ts'
 export {
@@ -30,55 +28,51 @@ export { parseBody } from './grammar.ts'
 export { parseNote, isTagName, hasAuthoredTitle } from './extract.ts'
 export {
   scanInlineWikiLinks,
-  scanInlineImages,
   scanInlineSegments,
   type InlineWikiLink,
-  type InlineImage,
   type InlineSegment,
 } from './scan.ts'
-export {
-  appendBlock,
-  appendListItem,
-  type ListItemKind,
-  appendTaskLine,
-  appendTaskToContext,
-  wikiLinkSafe,
-  editTaskLine,
-  removeTaskLine,
-  setTaskDueDate,
-  clearTaskDueDate,
-  taskLineToBullet,
-  toggleTaskMarker,
-  TaskStaleError,
-} from './edit.ts'
+export { appendBlock, wikiLinkSafe, setTaskDueDate, clearTaskDueDate } from './edit.ts'
 export { retitleWikiLinks, type WikiLinkRetitleOptions } from './retitle.ts'
 export { displayNoteTitle, wikiLinkTargetForTitle } from './note-title.ts'
-export { parseTaskMarker } from './task-marker.ts'
-export {
-  conflictMarkerBlockCount,
-  conflictMarkerLabels,
-  detectConflictMarkers,
-  parseConflictMarkers,
-  resolveConflictMarkers,
-  type ConflictMarkerLabels,
-  type ConflictResolution,
-  type ConflictSegment,
-  type ConflictSide,
-} from './conflict-markers.ts'
-export { canonicalEmail, canonicalEmails, extractEmailFields, foldEmail } from './email-fields.ts'
+export { canonicalEmail, canonicalEmails, extractEmailFields } from './email-fields.ts'
 export { foldFallbackTitleKey, foldKey, foldTag } from './keys.ts'
-export { documentLineEnding } from './line-endings.ts'
 export { gistBodyHash, gistFilename } from './gist.ts'
 export { slugForTitle } from './slug.ts'
 export { subjectAliases } from './subject-aliases.ts'
 export {
   normalizeWikiTarget,
   resolved,
-  resolveWikiLink,
-  resolveWikiLinkAsync,
   unresolved,
   type NormalizedTarget,
   type Resolution,
-  type WikiLookup,
-  type AsyncWikiLookup,
 } from './resolve.ts'
+export { renderInlineText } from './inline-text.ts'
+export { compareTaskPaths, decodeTaskPath, encodeTaskPath, isSameTaskPath } from './task-path.ts'
+export {
+  appendListItem,
+  linkSectionHeading,
+  type ListItemInsert,
+  type ListItemKind,
+  type SectionTarget,
+  applyTaskEdits,
+  findTaskMove,
+  getFirstParagraphMarkdown,
+  getRoundTasks,
+  getTaskDueDate,
+  isRoundTask,
+  NoteNotSerializableError,
+  projectTasks,
+  renderTaskSnapshot,
+  TaskStaleError,
+  type InsertPosition,
+  type TaskEdit,
+  type TaskEditInsert,
+  type TaskEditItem,
+  type TaskEditResult,
+  type TaskLogContext,
+  type TaskMove,
+  type TaskEntry,
+  type TaskRow,
+} from './task-ast.ts'
+export type { ParsedTask, TaskLocator, TaskSnapshot } from './task-model.ts'

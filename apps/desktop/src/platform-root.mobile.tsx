@@ -1,13 +1,12 @@
-import { parseEnvPlatform } from '@/lib/env.ts'
-import { warmMobileStorage } from '@/lib/mobile-boot-warm.ts'
+import { appServices, coreServices } from '@/boot.ts'
 import { MobileRoot } from '@/mobile/mobile-root.tsx'
 import type { ReactElement } from 'react'
 
-const platform = parseEnvPlatform() === 'ios' ? 'ios' : 'android'
+const platform = coreServices.platform.appPlatform === 'ios' ? 'ios' : 'android'
 
 /** Starts the slow iCloud-container resolve ahead of the first render. */
 export function warmPlatformRoot(): void {
-  warmMobileStorage()
+  appServices.mobileOnboarding.warm()
 }
 
 export function PlatformRoot(): ReactElement {

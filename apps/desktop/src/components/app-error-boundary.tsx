@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { ErrorBoundary, type FallbackProps } from 'react-error-boundary'
 import { Button } from '@/components/ui/button.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * Catches render-phase crashes on both surfaces. Without a boundary React
@@ -14,11 +15,12 @@ import { Button } from '@/components/ui/button.tsx'
  * drill this screen (`useCrashTest`).
  */
 export function AppErrorBoundary({ children }: { children: ReactNode }): ReactElement {
+  const { logger } = useCoreServices()
   return (
     <ErrorBoundary
       FallbackComponent={CrashFallback}
       onError={(error, info) => {
-        console.error('render crash:', error, info.componentStack)
+        logger.error('render crash:', { error, componentStack: info.componentStack })
       }}
     >
       {children}

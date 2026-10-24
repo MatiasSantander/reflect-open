@@ -32,7 +32,6 @@ const SAVED_PROMPT: AiPrompt = {
   label: 'Translate to French',
   body: 'Translate the following text to French.\n\n{{selectedText}}',
   mode: 'replace',
-  surface: 'selection',
 }
 
 beforeEach(() => {
@@ -74,7 +73,6 @@ describe('AiPromptDrawer', () => {
       label: 'Shorten',
       body: 'Shorten this: {{selectedText}}',
       mode: 'append',
-      surface: 'selection',
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
@@ -107,7 +105,6 @@ describe('AiPromptDrawer', () => {
       label: 'Translate to German',
       body: SAVED_PROMPT.body,
       mode: 'replace',
-      surface: 'selection',
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

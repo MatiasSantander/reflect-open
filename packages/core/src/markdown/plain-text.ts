@@ -23,6 +23,32 @@ export function unescapeMarkdownText(text: string): string {
   return text.replaceAll(MARKDOWN_ESCAPE_RE, '$1')
 }
 
+/**
+ * Strip the ATX marks from a heading line: up to six opening `#`s, the
+ * closing `#` sequence, and the spaces/tabs around them. Scans by index, so
+ * it runs in linear time on any input.
+ */
+export function stripAtxHeadingMarks(line: string): string {
+  let start = 0
+  while (start < 6 && line[start] === '#') {
+    start++
+  }
+  while (line[start] === ' ' || line[start] === '\t') {
+    start++
+  }
+  let end = line.length
+  while (end > start && (line[end - 1] === ' ' || line[end - 1] === '\t')) {
+    end--
+  }
+  while (end > start && line[end - 1] === '#') {
+    end--
+  }
+  while (end > start && (line[end - 1] === ' ' || line[end - 1] === '\t')) {
+    end--
+  }
+  return line.slice(start, end).trim()
+}
+
 function renderMarkdownText(text: string): string {
   return text
     .replaceAll(WIKI_INNER_RE, (_, inner: string) => inner.replaceAll('|', ' '))

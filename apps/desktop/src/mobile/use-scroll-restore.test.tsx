@@ -18,8 +18,10 @@ class FakeResizeObserver {
 
   readonly observed: Element[] = []
   disconnected = false
+  readonly #callback: ResizeObserverCallback
 
-  constructor(private readonly callback: ResizeObserverCallback) {
+  constructor(callback: ResizeObserverCallback) {
+    this.#callback = callback
     FakeResizeObserver.instances.push(this)
   }
 
@@ -37,22 +39,28 @@ class FakeResizeObserver {
     return []
   }
 
-  /** Simulate a content-growth notification (real observers go quiet once disconnected). */
+  /**
+   * Simulate a content-growth notification (real observers go quiet once disconnected).
+   */
   resize(): void {
     if (!this.disconnected) {
-      this.callback([], this as unknown as ResizeObserver)
+      this.#callback([], this)
     }
   }
 }
 
-/** The single observer the mounted restore created, or `undefined`. */
+/**
+ * The single observer the mounted restore created, or `undefined`.
+ */
 function observer(): FakeResizeObserver | undefined {
   return FakeResizeObserver.instances[0]
 }
 
 interface FakeScrollable {
   element: HTMLDivElement
-  /** Raise (or lower) the reachable scroll range, as content growth would. */
+  /**
+   * Raise (or lower) the reachable scroll range, as content growth would.
+   */
   setMaxScrollTop: (value: number) => void
 }
 
@@ -82,9 +90,13 @@ function scrollEventOn(element: HTMLElement): UIEvent<HTMLElement> {
 const KEY = '2026-06-12'
 
 interface MountOptions {
-  /** The remembered offset to restore; omitted = a fresh, never-scrolled day. */
+  /**
+   * The remembered offset to restore; omitted = a fresh, never-scrolled day.
+   */
   saved?: number
-  /** The initially reachable scroll range (content still loading). */
+  /**
+   * The initially reachable scroll range (content still loading).
+   */
   maxScrollTop?: number
 }
 
@@ -98,9 +110,9 @@ async function mountRestore(options: MountOptions = {}) {
   scrollable.element.appendChild(content)
   const containerRef = { current: scrollable.element }
   const contentRef = { current: content }
-  const hook = await renderHook(() =>
-    useScrollRestore({ key: KEY, memory, containerRef, contentRef }),
-  )
+  const hook = await renderHook(() => {
+    return useScrollRestore({ key: KEY, memory, containerRef, contentRef })
+  })
   return { memory, scrollable, content, hook }
 }
 
@@ -110,8 +122,8 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', FakeResizeObserver)
 })
 
-afterEach(() => {
-  cleanup()
+afterEach(async () => {
+  await cleanup()
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })

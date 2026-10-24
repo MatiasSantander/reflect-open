@@ -2,17 +2,27 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { PointerDrag, VelocitySampler } from '@/lib/pointer-drag.ts'
 import { usePrefersReducedMotion } from '@/mobile/use-reduced-motion.ts'
 
-/** Finger travel (px) before the gesture commits to horizontal swipe or vertical scroll. */
+/**
+ * Finger travel (px) before the gesture commits to horizontal swipe or vertical scroll.
+ */
 const DIRECTION_THRESHOLD = 10
-/** How far ahead the release velocity is projected when choosing open vs closed. */
+/**
+ * How far ahead the release velocity is projected when choosing open vs closed.
+ */
 const PROJECTED_MOMENTUM_MS = 100
-/** Duration of the settle transition that carries the row to its resting position. */
+/**
+ * Duration of the settle transition that carries the row to its resting position.
+ */
 const SETTLE_MS = 240
-/** iOS-feel settle curve: fast start, long decelerating tail. */
+/**
+ * iOS-feel settle curve: fast start, long decelerating tail.
+ */
 const SETTLE_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
 
 interface RowSwipeOptions {
-  /** Total width of the actions underneath the row. */
+  /**
+   * Total width of the actions underneath the row.
+   */
   actionWidth: number
   revealed: boolean
   onReveal: () => void
@@ -78,7 +88,7 @@ export function useRowSwipe({
   // A fresh callback every render, so React re-runs it each commit and the
   // resting presentation follows `revealed` without any hook state.
   const ref = (element: HTMLElement | null): void => {
-    if (element === null || drag.live) {
+    if (element === null || drag.isLive()) {
       return
     }
     element.style.touchAction = 'pan-y'
@@ -89,7 +99,7 @@ export function useRowSwipe({
     // An armed touch has no explicit pointer capture yet. If its release was
     // retargeted outside the row, let the next touch recover instead of
     // permanently rejecting every later swipe.
-    if (drag.dragging || !drag.arm(event)) {
+    if (drag.isDragging() || !drag.arm(event)) {
       return
     }
     // Let the list close any other revealed row right away.
@@ -125,7 +135,7 @@ export function useRowSwipe({
       return
     }
     const nextOffset = constrainOffset(
-      offsetRef.current.start + event.clientX - drag.startX,
+      offsetRef.current.start + event.clientX - drag.getStartX(),
       actionWidth,
     )
     offsetRef.current.current = nextOffset
@@ -152,7 +162,7 @@ export function useRowSwipe({
     }
     let targetOffset = restingOffset
     if (!interrupted) {
-      const releaseVelocity = velocity.stale ? 0 : velocity.velocity
+      const releaseVelocity = velocity.isStale() ? 0 : velocity.getVelocity()
       const projectedOffset = offsetRef.current.current + releaseVelocity * PROJECTED_MOMENTUM_MS
       if (projectedOffset < -actionWidth / 2) {
         targetOffset = -actionWidth
@@ -183,21 +193,27 @@ export function useRowSwipe({
   }
 }
 
-/** Presentation while settling or at rest: transition on (unless reduced motion), layer hint off. */
+/**
+ * Presentation while settling or at rest: transition on (unless reduced motion), layer hint off.
+ */
 function presentSettled(element: HTMLElement, offset: number, reducedMotion: boolean): void {
   element.style.willChange = ''
   element.style.transition = reducedMotion ? 'none' : `transform ${SETTLE_MS}ms ${SETTLE_EASING}`
   element.style.transform = `translate3d(${offset}px, 0, 0)`
 }
 
-/** Presentation while a touch owns the row: no transition so it tracks 1:1, layer hint on. */
+/**
+ * Presentation while a touch owns the row: no transition so it tracks 1:1, layer hint on.
+ */
 function presentDragging(element: HTMLElement, offset: number): void {
   element.style.willChange = 'transform'
   element.style.transition = 'none'
   element.style.transform = `translate3d(${offset}px, 0, 0)`
 }
 
-/** The row's live compositor translation, used to interrupt a settle cleanly. */
+/**
+ * The row's live compositor translation, used to interrupt a settle cleanly.
+ */
 function currentTranslateX(element: HTMLElement, fallback: number): number {
   const transform = getComputedStyle(element).transform
   if (transform === 'none') {
@@ -211,7 +227,9 @@ function currentTranslateX(element: HTMLElement, fallback: number): number {
   }
 }
 
-/** Soft resistance past either resting boundary, without enabling full-swipe delete. */
+/**
+ * Soft resistance past either resting boundary, without enabling full-swipe delete.
+ */
 function constrainOffset(offset: number, actionWidth: number): number {
   if (offset > 0) {
     return rubberBand(offset, actionWidth)

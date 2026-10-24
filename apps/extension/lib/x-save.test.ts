@@ -1,8 +1,9 @@
+import type { ExtensionCaptureWire } from '@reflect/core/capture-envelope'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { saveXPost } from './x-save.ts'
 import { enqueueCapture, flushQueue } from './flush.ts'
 
-const { get, sendMessage } = vi.hoisted(() => ({ get: vi.fn(), sendMessage: vi.fn() }))
+const { sendMessage, get } = vi.hoisted(() => ({ get: vi.fn(), sendMessage: vi.fn() }))
 vi.mock('wxt/browser', () => ({ browser: { tabs: { get, sendMessage } } }))
 vi.mock('./flush', () => ({ enqueueCapture: vi.fn(), flushQueue: vi.fn() }))
 const pageUrl = 'https://x.com/home'
@@ -16,7 +17,7 @@ beforeEach(() => {
 it('queues authenticated post data when the lookup succeeds', async () => {
   await saveXPost(1, '123')
   expect(enqueueCapture).toHaveBeenCalledWith(
-    { envelope: expect.objectContaining({ data: post }) },
+    { envelope: expect.objectContaining({ data: post }) as ExtensionCaptureWire['envelope'] },
     undefined,
   )
   expect(flushQueue).toHaveBeenCalledOnce()
@@ -39,7 +40,7 @@ it.each(['not-observed', 'page-changed', 'timeout', 'missing-bridge', 'wrong-pos
           version: 2,
           kind: 'x-bookmark',
           source: 'extension',
-          id: expect.any(String),
+          id: expect.any(String) as string,
           capturedAt: '2026-09-14T00:00:00Z',
           postId: '123',
         },
@@ -58,14 +59,14 @@ it('still refuses incognito capture', async () => {
 
 it.each([true, false])('preserves the like kind with snapshot available=%s', async (available) => {
   if (!available) sendMessage.mockRejectedValue(new Error('No receiver'))
-  const shouldAdmit = vi.fn(async () => true)
+  const shouldAdmit = vi.fn(() => Promise.resolve(true))
   await saveXPost(1, '123', '2026-09-14T00:00:00Z', { kind: 'x-like', shouldAdmit })
   expect(enqueueCapture).toHaveBeenCalledWith(
     {
       envelope: expect.objectContaining({
         kind: 'x-like',
         ...(available ? { data: post } : { postId: '123' }),
-      }),
+      }) as ExtensionCaptureWire['envelope'],
     },
     shouldAdmit,
   )

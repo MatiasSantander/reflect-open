@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { ErrorEvent } from '@sentry/react'
+import { createTestLoggerService } from '@reflect/core/testing'
+import type { BrowserOptions, ErrorEvent } from '@sentry/react'
 import {
+  createExceptionTelemetry,
   createExceptionTelemetryOptions,
+  type ExceptionTelemetrySdk,
   parseExceptionTelemetryDsn,
   scrubExceptionEvent,
 } from './exception-telemetry.ts'
@@ -268,5 +271,107 @@ describe('createExceptionTelemetryOptions', () => {
       stackFrameVariables: false,
       frameContextLines: 0,
     })
+  })
+})
+
+const DSN = 'https://0123456789abcdef0123456789abcdef@o463484.ingest.us.sentry.io/4511705649971200'
+
+interface HandledError {
+  readonly error: unknown
+  readonly componentStack: string | null
+  readonly callback: boolean
+}
+
+function createFakeSdk(options?: { initError?: Error }): ExceptionTelemetrySdk & {
+  inits: BrowserOptions[]
+  handled: HandledError[]
+} {
+  const inits: BrowserOptions[] = []
+  const handled: HandledError[] = []
+  return {
+    inits,
+    handled,
+    init(browserOptions) {
+      if (options?.initError !== undefined) {
+        throw options.initError
+      }
+      inits.push(browserOptions)
+    },
+    reactErrorHandler(callback) {
+      return (error, errorInfo) => {
+        handled.push({
+          error,
+          componentStack: errorInfo.componentStack ?? null,
+          callback: callback !== undefined,
+        })
+      }
+    },
+  }
+}
+
+describe('createExceptionTelemetry', () => {
+  it('initializes the SDK once with the release', () => {
+    const sdk = createFakeSdk()
+    const telemetry = createExceptionTelemetry({
+      dsn: DSN,
+      release: 'reflect@1.2.3',
+      sdk,
+      logger: createTestLoggerService(),
+    })
+
+    telemetry.install()
+    telemetry.install()
+
+    expect(sdk.inits).toHaveLength(1)
+    expect(sdk.inits[0]).toMatchObject({ dsn: DSN, release: 'reflect@1.2.3' })
+  })
+
+  it('logs an SDK that fails to initialize', () => {
+    const failure = new Error('init failed')
+    const logger = createTestLoggerService()
+    createExceptionTelemetry({
+      dsn: DSN,
+      release: 'reflect@1.2.3',
+      sdk: createFakeSdk({ initError: failure }),
+      logger,
+    }).install()
+
+    expect(logger.getErrors()).toEqual([
+      { message: '[reflect-open] Failed to initialize exception telemetry', cause: failure },
+    ])
+  })
+
+  it('reports React root errors through the SDK handlers', () => {
+    const sdk = createFakeSdk()
+    const options = createExceptionTelemetry({
+      dsn: DSN,
+      release: 'reflect@1.2.3',
+      sdk,
+      logger: createTestLoggerService(),
+    }).reactRootOptions()
+    const error = new Error('render failed')
+
+    options.onCaughtError?.(error, { componentStack: 'at App' })
+    options.onUncaughtError?.(error, {})
+
+    expect(sdk.handled).toEqual([
+      { error, componentStack: 'at App', callback: true },
+      { error, componentStack: null, callback: false },
+    ])
+  })
+
+  it('does nothing without a DSN', () => {
+    const sdk = createFakeSdk()
+    const telemetry = createExceptionTelemetry({
+      dsn: null,
+      release: 'reflect@1.2.3',
+      sdk,
+      logger: createTestLoggerService(),
+    })
+
+    telemetry.install()
+
+    expect(sdk.inits).toEqual([])
+    expect(telemetry.reactRootOptions()).toEqual({})
   })
 })

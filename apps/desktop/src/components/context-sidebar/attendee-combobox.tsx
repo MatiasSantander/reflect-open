@@ -1,15 +1,7 @@
 import { useDeferredValue, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import {
-  aliasHint,
-  contactLinkSuggestions,
-  displayNoteTitle,
-  foldKey,
-  isContactsReadable,
-  suggestWikiTargets,
-  type MeetingAttendee,
-} from '@reflect/core'
+import { aliasHint, displayNoteTitle, foldKey, type MeetingAttendee } from '@reflect/core'
 import { getIsComposing } from '@meowdown/core'
 import { CommandItem, CommandList } from '@/components/ui/command.tsx'
 import { INPUT_CLASS_NAME } from '@/components/ui/input.tsx'
@@ -18,11 +10,11 @@ import {
   buildAutocompleteEntries,
   type AutocompleteEntry,
 } from '@/editor/wiki-autocomplete-entries.ts'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { useContactsAuthorization } from '@/hooks/use-contacts-authorization.ts'
+import { useContactsState } from '@/hooks/use-contacts-state.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 const SUGGESTION_LIMIT = 6
 
@@ -74,9 +66,10 @@ function entryAttendee(entry: AutocompleteEntry): MeetingAttendee {
 export function AttendeeCombobox({ attendees, onAdd }: AttendeeComboboxProps): ReactElement {
   const { graph } = useGraph()
   const { settings } = useSettings()
-  const authorization = useContactsAuthorization()
-  const contactsInMenu =
-    settings.contactsEnabled && authorization !== null && isContactsReadable(authorization)
+  const { contacts, meetings } = useCoreServices()
+  // Re-render when the permission state changes; the gate reads it.
+  useContactsState()
+  const contactsInMenu = contacts.canLookup(settings)
 
   const [query, setQuery] = useState('')
   const [dismissed, setDismissed] = useState(false)
@@ -84,7 +77,6 @@ export function AttendeeCombobox({ attendees, onAdd }: AttendeeComboboxProps): R
   const anchorRef = useRef<HTMLInputElement>(null)
   const deferredQuery = useDeferredValue(query)
   const searchTerm = deferredQuery.trim()
-  const bridgeReady = useBridgeReady()
 
   const {
     data: fetched,
@@ -93,31 +85,23 @@ export function AttendeeCombobox({ attendees, onAdd }: AttendeeComboboxProps): R
   } = useQuery({
     queryKey: queryKeys.index.attendeeSuggestions(graph?.root, searchTerm, contactsInMenu),
     queryFn: async () => {
-      const [suggestions, contacts] = await Promise.all([
-        suggestWikiTargets(searchTerm, SUGGESTION_LIMIT),
-        // A contacts hiccup must cost only its own rows, never the note
-        // suggestions (the same containment as the editor's `[[` menu).
-        contactsInMenu
-          ? contactLinkSuggestions(searchTerm).catch((error: unknown) => {
-              console.error('contact link suggestions failed:', error)
-              return []
-            })
-          : Promise.resolve([]),
-      ])
-      return buildAutocompleteEntries(
+      // A contacts hiccup costs only its own rows, never the note suggestions,
+      // and daily notes are left out: both are the service's rules.
+      const { suggestions, contacts } = await meetings.attendeeSuggestions(
         searchTerm,
-        suggestions.filter((suggestion) => suggestion.date === null),
-        {
-          offerCreate: true,
-          contacts: contacts.map((contact) => ({
-            contact,
-            target: contact.fullName,
-            ownerPath: null,
-          })),
-        },
+        SUGGESTION_LIMIT,
+        contactsInMenu,
       )
+      return buildAutocompleteEntries(searchTerm, suggestions, {
+        offerCreate: true,
+        contacts: contacts.map((contact) => ({
+          contact,
+          target: contact.fullName,
+          ownerPath: null,
+        })),
+      })
     },
-    enabled: bridgeReady && graph !== null && searchTerm !== '',
+    enabled: graph !== null && searchTerm !== '',
     // Typing re-keys the query as the deferred value settles; holding the
     // previous rows avoids the list flashing closed between keystrokes.
     placeholderData: keepPreviousData,

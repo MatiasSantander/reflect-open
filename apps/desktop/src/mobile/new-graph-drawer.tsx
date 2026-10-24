@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerBody, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { cleanGraphName, graphRootForName, isGraphNameTaken } from '@/lib/graph-names.ts'
+import {
+  DEFAULT_GRAPH_NAME,
+  cleanGraphName,
+  graphRootForName,
+  isGraphNameTaken,
+} from '@/lib/graph-names.ts'
 
 interface NewGraphDrawerProps {
   open: boolean
@@ -41,7 +46,7 @@ export function NewGraphDrawer({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const name = typedName ?? (existingRoots.length > 0 ? '' : 'Notes')
+  const name = typedName ?? (existingRoots.length > 0 ? '' : DEFAULT_GRAPH_NAME)
   const cleanName = cleanGraphName(name)
   const nameTaken = cleanName !== null && isGraphNameTaken(cleanName, existingRoots)
   const canCreate = cleanName !== null && !nameTaken && !busy

@@ -21,15 +21,15 @@ interface ChatTurnProps {
  * Assistant text uses the same lightweight, read-only markdown preview while
  * streaming and after completion, including clickable `[[citation]]` chips.
  *
- * Wiki navigation passes a null generation deliberately: a clicked citation
- * that doesn't resolve must never *create* a note the model hallucinated.
+ * Wiki navigation is read-only deliberately: a clicked citation that doesn't
+ * resolve must never *create* a note the model hallucinated.
  *
  * A settled turn that produced answer text gets a copy button revealed by
  * hovering the response content or focusing the action; a turn that only ran
  * tools or errored has nothing to copy, so it gets none.
  */
 export function ChatTurn({ turn }: ChatTurnProps): ReactElement {
-  const navigateWikiLink = useWikiLinkNavigation(null)
+  const navigateWikiLink = useWikiLinkNavigation({ readOnly: true })
   const replyMarkdown = turn.status === 'done' ? assistantReplyMarkdown(turn) : null
 
   return (

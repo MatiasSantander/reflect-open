@@ -1,15 +1,10 @@
-import { act } from 'react'
-import { renderHook } from 'vitest-browser-react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act } from '@/test-utils/act.ts'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { NoteRow } from '@reflect/core'
-import {
-  applyNoteRowOverlay,
-  getNoteRowOverlay,
-  reconcileNoteRowOverlay,
-  resetNoteRowOverlays,
-  setNoteRowOverlay,
-  useNoteRowOverlay,
-} from './note-row-overlay.ts'
+import { createTestCoreServices, type TestCoreServices } from '@reflect/core/testing'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
+import { useNoteRowOverlay } from './note-row-overlay.ts'
 
 function noteRow(overrides: Partial<NoteRow> = {}): NoteRow {
   return {
@@ -17,7 +12,6 @@ function noteRow(overrides: Partial<NoteRow> = {}): NoteRow {
     title: 'A',
     dailyDate: null,
     isPrivate: false,
-    hasConflict: false,
     gistUrl: null,
     gistStale: false,
     ...overrides,
@@ -27,128 +21,81 @@ function noteRow(overrides: Partial<NoteRow> = {}): NoteRow {
 const URL = 'https://gist.github.com/alex/g1'
 const GEN = 1
 
+let app: TestCoreServices
+
+/**
+ * Render the overlay hook for `path` over the shared `app`.
+ */
+async function mount(path: string) {
+  return await renderHookInApp(() => useNoteRowOverlay(path), { app })
+}
+
 beforeEach(() => {
-  resetNoteRowOverlays()
-})
-afterEach(() => {
-  resetNoteRowOverlays()
-})
-
-describe('applyNoteRowOverlay', () => {
-  it('merges overlay fields over the row', async () => {
-    expect(
-      applyNoteRowOverlay(noteRow({ gistStale: true }), {
-        gistUrl: URL,
-        gistStale: false,
-      }),
-    ).toMatchObject({
-      gistUrl: URL,
-      gistStale: false,
-    })
-  })
-
-  it('passes a null row through — the overlay only sharpens an existing row', async () => {
-    expect(applyNoteRowOverlay(null, { gistUrl: URL })).toBeNull()
-  })
-
-  it('returns the same row reference when there is no overlay', async () => {
-    const row = noteRow({ gistUrl: 'kept' })
-    expect(applyNoteRowOverlay(row, null)).toBe(row)
-  })
-})
-
-describe('setNoteRowOverlay', () => {
-  it('ignores an empty or all-undefined patch (no non-reconcilable entry)', async () => {
-    setNoteRowOverlay('notes/a.md', GEN, {})
-    setNoteRowOverlay('notes/a.md', GEN, { gistUrl: undefined })
-    expect(getNoteRowOverlay('notes/a.md', GEN)).toBeNull()
-  })
-
-  it('scopes the overlay to the writing generation', async () => {
-    setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL })
-    expect(getNoteRowOverlay('notes/a.md', GEN)?.gistUrl).toBe(URL)
-    // A reader on a different graph generation never sees it.
-    expect(getNoteRowOverlay('notes/a.md', GEN + 1)).toBeNull()
-    expect(getNoteRowOverlay('notes/a.md', undefined)).toBeNull()
-  })
-
-  it('lets a newer generation replace an older overlay', async () => {
-    setNoteRowOverlay('notes/a.md', GEN, { gistUrl: 'old' })
-    setNoteRowOverlay('notes/a.md', GEN + 1, { gistUrl: 'new' })
-    expect(getNoteRowOverlay('notes/a.md', GEN + 1)?.gistUrl).toBe('new')
-    expect(getNoteRowOverlay('notes/a.md', GEN)).toBeNull()
-  })
-
-  it('ignores an older generation late write, keeping the newer overlay', async () => {
-    setNoteRowOverlay('notes/a.md', GEN + 1, { gistUrl: 'new' })
-    setNoteRowOverlay('notes/a.md', GEN, { gistUrl: 'stale' }) // older graph, resolved late
-    expect(getNoteRowOverlay('notes/a.md', GEN + 1)?.gistUrl).toBe('new')
-    expect(getNoteRowOverlay('notes/a.md', GEN)).toBeNull()
-  })
+  app = createTestCoreServices({ database: createWasmTestDatabaseService() })
 })
 
 describe('useNoteRowOverlay', () => {
   it('reflects a set overlay and scopes it to the path', async () => {
-    const { result } = await renderHook(() => useNoteRowOverlay('notes/a.md', GEN))
-    const other = await renderHook(() => useNoteRowOverlay('notes/b.md', GEN))
+    const { result } = await mount('notes/a.md')
+    const other = await mount('notes/b.md')
     expect(result.current).toBeNull()
 
-    act(() => setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL }))
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL }))
     expect(result.current?.gistUrl).toBe(URL)
     expect(other.result.current).toBeNull()
   })
 
   it('retires overlay fields independently as the index catches up', async () => {
-    const { result } = await renderHook(() => useNoteRowOverlay('notes/a.md', GEN))
-    act(() => setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL, gistStale: false }))
+    const { result } = await mount('notes/a.md')
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL, gistStale: false }))
 
-    act(() =>
-      reconcileNoteRowOverlay('notes/a.md', GEN, noteRow({ gistUrl: URL, gistStale: true })),
-    )
+    await act(() => {
+      app.noteRows.reconcile('notes/a.md', noteRow({ gistUrl: URL, gistStale: true }))
+    })
     expect(result.current).toEqual({ gistStale: false })
 
-    act(() =>
-      reconcileNoteRowOverlay('notes/a.md', GEN, noteRow({ gistUrl: URL, gistStale: false })),
-    )
+    await act(() => {
+      app.noteRows.reconcile('notes/a.md', noteRow({ gistUrl: URL, gistStale: false }))
+    })
     expect(result.current).toBeNull()
   })
 })
 
 describe('reconcileNoteRowOverlay', () => {
   it('holds the overlay while the index still lags, retires it once they agree', async () => {
-    const { result } = await renderHook(() => useNoteRowOverlay('notes/a.md', GEN))
-    act(() => setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL }))
+    const { result } = await mount('notes/a.md')
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL }))
 
-    act(() => reconcileNoteRowOverlay('notes/a.md', GEN, noteRow({ gistUrl: null })))
+    await act(() => app.noteRows.reconcile('notes/a.md', noteRow({ gistUrl: null })))
     expect(result.current?.gistUrl).toBe(URL) // index hasn't caught up
 
-    act(() => reconcileNoteRowOverlay('notes/a.md', GEN, noteRow({ gistUrl: URL })))
+    await act(() => app.noteRows.reconcile('notes/a.md', noteRow({ gistUrl: URL })))
     expect(result.current).toBeNull() // index agrees → retired
   })
 
   it('holds the overlay against a null row (nothing to compare yet)', async () => {
-    const { result } = await renderHook(() => useNoteRowOverlay('notes/a.md', GEN))
-    act(() => setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL }))
-    act(() => reconcileNoteRowOverlay('notes/a.md', GEN, null))
+    const { result } = await mount('notes/a.md')
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL }))
+    await act(() => app.noteRows.reconcile('notes/a.md', null))
     expect(result.current?.gistUrl).toBe(URL)
-  })
-
-  it('holds an overlay whose generation does not match the reconciling read', async () => {
-    setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL })
-    // A reconcile on a *different* generation can't retire this overlay — even
-    // when the row's value matches — so a stale-graph read never drops it.
-    reconcileNoteRowOverlay('notes/a.md', GEN + 1, noteRow({ gistUrl: URL }))
-    expect(getNoteRowOverlay('notes/a.md', GEN)?.gistUrl).toBe(URL)
   })
 })
 
 describe('resetNoteRowOverlays', () => {
   it('drops every overlay (e.g. on a graph switch)', async () => {
-    const { result } = await renderHook(() => useNoteRowOverlay('notes/a.md', GEN))
-    act(() => setNoteRowOverlay('notes/a.md', GEN, { gistUrl: URL }))
+    const { result } = await mount('notes/a.md')
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL }))
     expect(result.current?.gistUrl).toBe(URL)
 
-    act(() => resetNoteRowOverlays())
+    await act(() => app.noteRows.reset())
+    expect(result.current).toBeNull()
+  })
+
+  it('hides the overlays of a graph once another graph opens', async () => {
+    const { result } = await mount('notes/a.md')
+    await act(() => app.noteRows.setOverlay('notes/a.md', GEN, { gistUrl: URL }))
+
+    await act(() => app.graphSession.setGraph({ root: '/graphs/other', generation: GEN + 1 }))
     expect(result.current).toBeNull()
   })
 })

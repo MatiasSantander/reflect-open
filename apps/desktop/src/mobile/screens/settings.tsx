@@ -1,34 +1,36 @@
-import { useId, useState, type ReactElement } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useId, useState, type ReactElement, type ReactNode } from 'react'
+import { getMobileSyncStatus, type MobileSyncDetail } from '@reflect/app'
+import { useQuery } from '@tanstack/react-query'
 import {
   aiProvider,
   aiProviderRequiresApiKey,
   errorMessage,
-  listNotes,
+  githubRepoOf,
+  redactRemoteUrl,
+  marketingVersion,
   CHAT_SYSTEM_PROMPT_MAX_LENGTH,
   TRANSCRIPTION_PROMPT_MAX_LENGTH,
   normalizeChatSystemPrompt,
   normalizeTranscriptionPrompt,
-  presentOfferCodeRedeemSheet,
-  syncAppStore,
   type AiPrompt,
   type AiProviderConfig,
+  type DateFormat,
   type EditorTextSize,
   type ThemePreference,
+  type TimeFormat,
+  type WeekStartDay,
 } from '@reflect/core'
 import { useAiPrompts } from '@/hooks/use-ai-prompts.ts'
 import { useAiProviders } from '@/hooks/use-ai-providers.ts'
 import { useAppVersion } from '@/hooks/use-app-version.ts'
 import { usePaywallRequested } from '@/hooks/use-paywall-requested.ts'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { useCrashTest, useDebugUnlockTap } from '@/hooks/use-debug-unlock.ts'
-import { marketingVersion } from '@/lib/marketing-version.ts'
-import { openUrlSync } from '@/lib/open-url.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { AddAiProviderDrawer } from '@/mobile/add-ai-provider-drawer.tsx'
 import { AiPromptDrawer } from '@/mobile/ai-prompt-drawer.tsx'
 import { AiProviderActionsDrawer } from '@/mobile/ai-provider-actions-drawer.tsx'
 import { ConnectGithubDrawer } from '@/mobile/connect-github-drawer.tsx'
+import { GithubSignInDrawer } from '@/mobile/github-sign-in-drawer.tsx'
 import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '@/mobile/legal-urls.ts'
 import { MobileScreenHeader } from '@/mobile/screen-header.tsx'
 import { TextSettingDrawer } from '@/mobile/text-setting-drawer.tsx'
@@ -37,25 +39,25 @@ import {
   SettingsGroup,
   SettingsNavRow,
   SettingsSegmentedRow,
+  SettingsSelectRow,
   SettingsSwitchRow,
   SettingsValueRow,
   type SegmentedOption,
 } from '@/mobile/settings-list.tsx'
-import {
-  refetchActiveSubscription,
-  useActiveSubscription,
-} from '@/mobile/use-active-subscription.ts'
+import { useActiveSubscription } from '@/mobile/use-active-subscription.ts'
 import { useAppStoreEnvironment } from '@/mobile/use-app-store-environment.ts'
 import {
   classicAccessMessage,
-  formatClassicDate,
   useClassicAccess,
   useClassicSignOut,
 } from '@/mobile/use-classic-access.ts'
-import { useMobileSyncStatus } from '@/mobile/use-sync-status.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
+import { formatFullDate } from '@/lib/dates.ts'
 import { useSettings } from '@/providers/settings-provider.tsx'
-import { useSyncContext } from '@/providers/sync-provider.tsx'
+import { CountdownText } from '@/components/countdown-text.tsx'
+import { useGitSyncContext } from '@/providers/sync-provider.tsx'
 import { useRouter } from '@/routing/router.tsx'
 
 const THEME_OPTIONS: readonly SegmentedOption<ThemePreference>[] = [
@@ -78,6 +80,30 @@ const TEXT_SIZE_OPTIONS: readonly SegmentedOption<EditorTextSize>[] = [
   { value: 'large', label: 'Large' },
 ]
 
+const DATE_FORMATS: readonly DateFormat[] = ['mdy', 'dmy', 'iso']
+
+const WEEK_START_OPTIONS: readonly SegmentedOption<WeekStartDay>[] = [
+  { value: 'sunday', label: 'Sunday' },
+  { value: 'monday', label: 'Monday' },
+  { value: 'saturday', label: 'Saturday' },
+]
+
+const TIME_FORMAT_OPTIONS: readonly SegmentedOption<TimeFormat>[] = [
+  { value: '12h', label: '12-hour' },
+  { value: '24h', label: '24-hour' },
+]
+
+function SyncDetail({ detail }: { detail: MobileSyncDetail }): ReactNode {
+  if (detail.kind === 'message') {
+    return detail.text
+  }
+  return (
+    <>
+      Backs up in <CountdownText until={detail.until} />
+    </>
+  )
+}
+
 /**
  * The mobile Settings screen — a pushed card (route kind `settings`) in the
  * iOS inset-grouped idiom, replacing the old bottom-sheet hodgepodge. The
@@ -94,7 +120,8 @@ export function MobileSettings(): ReactElement {
   const subscription = useActiveSubscription()
   const classicAccess = useClassicAccess()
   const classicSignOut = useClassicSignOut()
-  const queryClient = useQueryClient()
+  const { paywall, noteList, logger } = useMobileAppServices()
+  const { opener } = useAppServices()
   const [, setPaywallRequested] = usePaywallRequested()
   const [restorePending, setRestorePending] = useState(false)
   const [redeemPending, setRedeemPending] = useState(false)
@@ -104,8 +131,7 @@ export function MobileSettings(): ReactElement {
     setRestorePending(true)
     setSubscriptionMessage(null)
     try {
-      await syncAppStore()
-      const found = await refetchActiveSubscription(queryClient)
+      const found = await paywall.restore()
       if (found === null) {
         setSubscriptionMessage('No previous purchase found for this Apple account.')
       }
@@ -120,10 +146,7 @@ export function MobileSettings(): ReactElement {
     setRedeemPending(true)
     setSubscriptionMessage(null)
     try {
-      await presentOfferCodeRedeemSheet()
-      // A redeemed code normally arrives as a purchaseUpdated event; the
-      // refetch here covers a sheet that closed without emitting one.
-      subscription.invalidate()
+      await paywall.redeemCode()
     } catch {
       setSubscriptionMessage('Could not open the redemption sheet. Try again.')
     } finally {
@@ -131,17 +154,15 @@ export function MobileSettings(): ReactElement {
     }
   }
   const { settings, updateSettings } = useSettings()
+  const [today] = useState(() => new Date())
   const version = useAppVersion()
   const { unlocked: debugUnlocked, tap: versionTap } = useDebugUnlockTap()
   const crashTest = useCrashTest()
   const environment = useAppStoreEnvironment()
-  const sync = useSyncContext()
-  // Shared with the status pill (one hook, one query cache entry) — and null
-  // until the conflict count is known, so the row never claims `Backed up`
-  // over conflict markers already on disk and then flips.
-  const status = useMobileSyncStatus()
+  const sync = useGitSyncContext()
   const [disconnecting, setDisconnecting] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
+  const [signInOpen, setSignInOpen] = useState(false)
   const { providers, defaultProvider, addProvider, removeProvider, makeDefault, setDefaultModel } =
     useAiProviders()
   const [addProviderOpen, setAddProviderOpen] = useState(false)
@@ -158,23 +179,32 @@ export function MobileSettings(): ReactElement {
   const [managedProvider, setManagedProvider] = useState<AiProviderConfig | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
 
-  const bridgeReady = useBridgeReady()
   const { data: notes } = useQuery({
     queryKey: queryKeys.index.mobileNoteCount(graph?.root),
-    queryFn: () => listNotes(),
-    enabled: bridgeReady && graph !== null,
+    queryFn: () => noteList.listNotes(),
+    enabled: graph !== null,
   })
 
-  const backup = sync?.backup ?? null
-  const repo = backup !== null && backup.phase === 'connected' ? backup.repo : null
+  const gitSync = sync?.state ?? null
+  const status = getMobileSyncStatus(gitSync)
+  // A graph with a remote, connected or waiting for its sign-in.
+  const remote =
+    gitSync !== null && (gitSync.phase === 'connected' || gitSync.phase === 'needsCredential')
+      ? gitSync
+      : null
+  const repo = remote !== null ? githubRepoOf(remote.remote) : null
+  // A GitHub remote whose sign-in is gone resumes with a sign-in alone.
+  const needsGithubSignIn =
+    gitSync !== null && gitSync.phase === 'needsCredential' && gitSync.remote.kind === 'github'
   // The connect entry point is local-graph-only (iCloud sync and a Git remote
   // are mutually exclusive per graph, Plan 21) and waits out the controller's
   // `loading` phase so the row never flashes on a graph that turns out to be
   // connected.
-  const canConnect = mobileStorageKind === 'local' && backup?.phase === 'disconnected'
+  const canConnect = mobileStorageKind === 'local' && gitSync?.phase === 'disconnected'
 
-  // Stop backing this graph up and forget the GitHub credential (one graph
-  // per device — unlinking is signing out). The local clone stays; the
+  // Stop backing this graph up and, for a GitHub remote, forget the GitHub
+  // credential (one graph per device — unlinking is signing out). A host
+  // sign-in stays in the keychain, as on desktop. The local clone stays; the
   // controller restarts into its disconnected state, and re-connecting
   // re-onboards.
   async function disconnect(): Promise<void> {
@@ -184,9 +214,11 @@ export function MobileSettings(): ReactElement {
     setDisconnecting(true)
     try {
       await sync.disconnectGraph()
-      await sync.signOut()
+      if (repo !== null) {
+        await sync.signOut()
+      }
     } catch (err) {
-      console.error('GitHub disconnect failed:', errorMessage(err))
+      logger.error('Disconnect failed:', errorMessage(err))
     } finally {
       setDisconnecting(false)
     }
@@ -236,13 +268,42 @@ export function MobileSettings(): ReactElement {
             />
           </SettingsGroup>
 
+          <SettingsGroup
+            header="Date format"
+            footer="The style for dates shown throughout Reflect, including daily note titles."
+          >
+            {DATE_FORMATS.map((dateFormat) => (
+              <SettingsSelectRow
+                key={dateFormat}
+                label={formatFullDate(today, dateFormat)}
+                selected={settings.dateFormat === dateFormat}
+                onPress={() => updateSettings({ dateFormat })}
+              />
+            ))}
+          </SettingsGroup>
+
+          <SettingsGroup header="Week and time">
+            <SettingsSegmentedRow
+              label="Week start"
+              value={settings.weekStartDay}
+              options={WEEK_START_OPTIONS}
+              onChange={(weekStartDay) => updateSettings({ weekStartDay })}
+            />
+            <SettingsSegmentedRow
+              label="Time format"
+              value={settings.timeFormat}
+              options={TIME_FORMAT_OPTIONS}
+              onChange={(timeFormat) => updateSettings({ timeFormat })}
+            />
+          </SettingsGroup>
+
           <SettingsGroup header="Editor">
             <SettingsSwitchRow
               label="Smooth caret animation"
               checked={settings.editorSmoothCaretAnimation}
-              onCheckedChange={(editorSmoothCaretAnimation) =>
+              onCheckedChange={(editorSmoothCaretAnimation) => {
                 updateSettings({ editorSmoothCaretAnimation })
-              }
+              }}
             />
             <SettingsSwitchRow
               label="Start with a bullet"
@@ -252,9 +313,9 @@ export function MobileSettings(): ReactElement {
             <SettingsSwitchRow
               label="Bullet after a heading"
               checked={settings.editorBulletAfterHeading}
-              onCheckedChange={(editorBulletAfterHeading) =>
+              onCheckedChange={(editorBulletAfterHeading) => {
                 updateSettings({ editorBulletAfterHeading })
-              }
+              }}
             />
           </SettingsGroup>
 
@@ -328,25 +389,32 @@ export function MobileSettings(): ReactElement {
             />
           </SettingsGroup>
 
-          {repo !== null || status !== null || canConnect ? (
+          {remote !== null || status !== null || canConnect ? (
             <SettingsGroup
               header="Backup"
               footer={
-                canConnect
-                  ? 'Sync notes with Reflect on your other devices.'
-                  : (status?.detail ?? null)
+                canConnect ? (
+                  'Sync notes with Reflect on your other devices.'
+                ) : status === null || status.detail === null ? null : (
+                  <SyncDetail detail={status.detail} />
+                )
               }
             >
               {repo !== null ? (
                 <SettingsValueRow label="GitHub" value={`${repo.owner}/${repo.name}`} />
+              ) : remote !== null ? (
+                <SettingsValueRow label="Remote" value={redactRemoteUrl(remote.remoteUrl)} />
               ) : null}
               {status !== null ? <SettingsValueRow label="Status" value={status.label} /> : null}
               {canConnect ? (
                 <SettingsActionRow label="Connect GitHub" onPress={() => setConnectOpen(true)} />
               ) : null}
-              {repo !== null ? (
+              {needsGithubSignIn ? (
+                <SettingsActionRow label="Sign in to GitHub" onPress={() => setSignInOpen(true)} />
+              ) : null}
+              {remote !== null ? (
                 <SettingsActionRow
-                  label="Disconnect GitHub"
+                  label={repo !== null ? 'Disconnect GitHub' : 'Stop backing up'}
                   tone="destructive"
                   pending={disconnecting}
                   onPress={() => void disconnect()}
@@ -368,7 +436,7 @@ export function MobileSettings(): ReactElement {
                     : subscription.value === 'yearly'
                       ? 'Yearly'
                       : classicAccess.active && classicAccess.value !== null
-                        ? `Reflect Classic, until ${formatClassicDate(classicAccess.value.expiresAt)}`
+                        ? `Reflect Classic, until ${formatFullDate(new Date(classicAccess.value.expiresAt), settings.dateFormat)}`
                         : subscription.isLoading || classicAccess.isLoading
                           ? 'Checking…'
                           : 'Not subscribed'
@@ -389,7 +457,7 @@ export function MobileSettings(): ReactElement {
                 <SettingsActionRow
                   label="Manage Subscription"
                   onPress={() => {
-                    openUrlSync('https://apps.apple.com/account/subscriptions')
+                    opener.openUrlSync('https://apps.apple.com/account/subscriptions')
                   }}
                 />
               ) : null}
@@ -426,7 +494,7 @@ export function MobileSettings(): ReactElement {
               <SettingsActionRow
                 label="Terms of Use"
                 onPress={() => {
-                  openUrlSync(TERMS_OF_USE_URL)
+                  opener.openUrlSync(TERMS_OF_USE_URL)
                 }}
               />
             </SettingsGroup>
@@ -442,10 +510,14 @@ export function MobileSettings(): ReactElement {
               value={version === null ? '…' : marketingVersion(version)}
               onPress={versionTap}
             />
+            <SettingsNavRow
+              label="Open Source Licenses"
+              onPress={() => navigate({ kind: 'licenses' })}
+            />
             <SettingsActionRow
               label="Privacy Policy"
               onPress={() => {
-                openUrlSync(PRIVACY_POLICY_URL)
+                opener.openUrlSync(PRIVACY_POLICY_URL)
               }}
             />
           </SettingsGroup>
@@ -471,6 +543,7 @@ export function MobileSettings(): ReactElement {
         </div>
       </main>
       <ConnectGithubDrawer open={connectOpen} onOpenChange={setConnectOpen} />
+      <GithubSignInDrawer open={signInOpen} onOpenChange={setSignInOpen} />
       <AddAiProviderDrawer
         open={addProviderOpen}
         onOpenChange={setAddProviderOpen}

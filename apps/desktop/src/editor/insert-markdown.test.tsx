@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { page } from 'vitest/browser'
-import { render } from 'vitest-browser-react'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { NoteEditor, type NoteEditorHandle } from './note-editor.tsx'
 
 const pmRoot = page.locate('.ProseMirror')
@@ -9,7 +9,7 @@ const pmRoot = page.locate('.ProseMirror')
 describe('NoteEditorHandle.insertMarkdown', () => {
   it('inserts the fragment into the document through the meowdown handle', async () => {
     let handle: NoteEditorHandle | null = null
-    await render(
+    await renderInApp(
       <NoteEditor
         initialContent=""
         handleRef={(grabbed) => {

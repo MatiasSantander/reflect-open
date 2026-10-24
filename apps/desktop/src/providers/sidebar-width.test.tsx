@@ -1,26 +1,15 @@
-import { render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Settings } from '@reflect/core'
 import { activeSidebarWidthDrags } from '@/hooks/use-sidebar-resize.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { SidebarWidthEffect } from './sidebar-width.tsx'
 
-const settingsState = vi.hoisted(() => ({ sidebarWidth: 260, contextSidebarWidth: 320 }))
+const WIDTHS = { sidebarWidth: 260, contextSidebarWidth: 320 }
 
-vi.mock('@/providers/meeting-recording-provider.tsx', () => ({
-  useMeetingRecording: () => ({
-    recording: false,
-    detectedAs: null,
-    startingAt: null,
-    error: null,
-    toggle: vi.fn(),
-    cancelStart: vi.fn(),
-  }),
-  MeetingRecordingProvider: ({ children }: { children: unknown }) => children,
-}))
-
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({ settings: settingsState }),
-}))
+async function render(settings: Partial<Settings> = WIDTHS) {
+  return await renderInApp(<SidebarWidthEffect />, { settings })
+}
 
 function rootVariable(name: string): string {
   return document.documentElement.style.getPropertyValue(name)
@@ -29,8 +18,6 @@ function rootVariable(name: string): string {
 afterEach(async () => {
   document.documentElement.style.removeProperty('--sidebar-width')
   document.documentElement.style.removeProperty('--context-sidebar-width')
-  settingsState.sidebarWidth = 260
-  settingsState.contextSidebarWidth = 320
   activeSidebarWidthDrags.clear()
   await page.viewport(900, 600)
 })
@@ -38,23 +25,19 @@ afterEach(async () => {
 describe('SidebarWidthEffect', () => {
   it('mirrors the live settings onto the document root', async () => {
     await page.viewport(1600, 600)
-    const view = await render(<SidebarWidthEffect />)
+    const { app } = await render()
     expect(rootVariable('--sidebar-width')).toBe('260px')
     expect(rootVariable('--context-sidebar-width')).toBe('320px')
 
-    settingsState.sidebarWidth = 340
-    settingsState.contextSidebarWidth = 400
-    await view.rerender(<SidebarWidthEffect />)
+    app.settings.update({ sidebarWidth: 340, contextSidebarWidth: 400 })
 
-    expect(rootVariable('--sidebar-width')).toBe('340px')
+    await vi.waitFor(() => expect(rootVariable('--sidebar-width')).toBe('340px'))
     expect(rootVariable('--context-sidebar-width')).toBe('400px')
   })
 
   it('scales the rails to the viewport and restores them when it widens', async () => {
     await page.viewport(1600, 600)
-    settingsState.sidebarWidth = 480
-    settingsState.contextSidebarWidth = 480
-    await render(<SidebarWidthEffect />)
+    await render({ sidebarWidth: 480, contextSidebarWidth: 480 })
     expect(rootVariable('--sidebar-width')).toBe('480px')
     expect(rootVariable('--context-sidebar-width')).toBe('480px')
 
@@ -72,23 +55,21 @@ describe('SidebarWidthEffect', () => {
 
   it('leaves a variable with a live drag alone when settings hydrate', async () => {
     await page.viewport(1600, 600)
-    const view = await render(<SidebarWidthEffect />)
+    const { app } = await render()
     expect(rootVariable('--sidebar-width')).toBe('260px')
 
     // A drag is in flight on the workspace rail when the async settings load
     // lands: the dragged variable must not be yanked, the other still updates.
     activeSidebarWidthDrags.add('--sidebar-width')
     document.documentElement.style.setProperty('--sidebar-width', '345px')
-    settingsState.sidebarWidth = 300
-    settingsState.contextSidebarWidth = 400
-    await view.rerender(<SidebarWidthEffect />)
+    app.settings.update({ sidebarWidth: 300, contextSidebarWidth: 400 })
 
-    expect(rootVariable('--context-sidebar-width')).toBe('400px')
+    await vi.waitFor(() => expect(rootVariable('--context-sidebar-width')).toBe('400px'))
     expect(rootVariable('--sidebar-width')).toBe('345px')
   })
 
   it('removes the overrides on unmount so the token defaults apply', async () => {
-    const view = await render(<SidebarWidthEffect />)
+    const view = await render()
     expect(rootVariable('--sidebar-width')).toBe('260px')
 
     await view.unmount()

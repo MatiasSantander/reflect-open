@@ -5,7 +5,7 @@ import { defineConfig } from 'vite'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 // The single version source; tauri.conf.json's `version` also points here.
-import pkg from './package.json'
+import pkg from './package.json' with { type: 'json' }
 
 const host: string | undefined = process.env.TAURI_DEV_HOST
 
@@ -55,8 +55,9 @@ export default defineConfig({
     __REFLECT_VERSION__: JSON.stringify(pkg.version),
   },
 
-  // If the target is below Safari 17.5, Lightning CSS downlevels `light-dark()` to a broken polyfill.
-  build: { cssTarget: 'safari17.5', sourcemap: 'hidden' },
+  // The JS target lowers syntax that Safari 16.4 introduced (class static blocks).
+  // If the CSS target is below Safari 17.5, Lightning CSS downlevels `light-dark()` to a broken polyfill.
+  build: { target: 'safari16', cssTarget: 'safari17.5', sourcemap: 'hidden' },
 
   resolve: {
     alias: {

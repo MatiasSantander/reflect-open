@@ -1,0 +1,137 @@
+name: Release
+
+# Stable and beta Release PRs share master but use separate lifecycle labels
+# and head branches. A merged PR in one channel therefore cannot block the
+# other channel from refreshing its open PR. Beta versions use a prerelease
+# suffix (X.Y.Z-beta.N); publish-desktop.yml derives the prerelease/latest flags
+# from that suffix.
+#
+# Everything runs on GITHUB_TOKEN. Tags created with that token do not trigger
+# tag-push workflows, so publishing is called directly through job outputs.
+
+on:
+  push:
+    branches: [master]
+
+# Each job grants only what it needs. The publish jobs must grant
+# `contents: write` explicitly: a called workflow cannot exceed its caller.
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Maintain the Release PRs
+    if: github.repository == 'team-reflect/reflect-open'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    # The desktop package lives at the repo root ("."), so its outputs have
+    # no path prefix. The channels never release from the same push:
+    # a push merges at most one Release PR, and the two passes only create
+    # releases for merged PRs on their own head branch (the component in the
+    # branch name tells them apart).
+    outputs:
+      stable_created: ${{ steps.stable.outputs.releases_created }}
+      stable_tag: ${{ steps.stable.outputs.tag_name }}
+      stable_commit: ${{ steps.stable.outputs.sha }}
+      beta_created: ${{ steps.beta.outputs.releases_created }}
+      beta_tag: ${{ steps.beta.outputs.tag_name }}
+      beta_commit: ${{ steps.beta.outputs.sha }}
+      extension_created: ${{ steps.extension.outputs['apps/extension--release_created'] }}
+      extension_tag: ${{ steps.extension.outputs['apps/extension--tag_name'] }}
+      extension_commit: ${{ steps.extension.outputs['apps/extension--sha'] }}
+    steps:
+      # Stable runs first because a stable promotion advances
+      # manifest.beta.json. Creating the stable tag before the beta pass gives
+      # beta a valid anchor for the next prerelease cycle. Separate lifecycle
+      # labels also let this pass refresh the stable PR immediately after a
+      # beta PR is merged, before beta creates its tag below.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: stable
+        with:
+          target-branch: master
+          config-file: .github/release-please/config.stable.json
+          manifest-file: .github/release-please/manifest.stable.json
+
+      # After a stable promotion, beta reads the new stable tag and manifest
+      # before the superseded beta PR is closed below. After a beta release,
+      # this pass creates the beta tag and clears beta's pending label.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: beta
+        with:
+          target-branch: master
+          config-file: .github/release-please/config.beta.json
+          manifest-file: .github/release-please/manifest.beta.json
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: extension
+        with:
+          target-branch: master
+          config-file: .github/release-please/config.extension.json
+          manifest-file: .github/release-please/manifest.extension.json
+
+  publish-browser-extension:
+    name: Submit the Chrome extension
+    needs: release-please
+    if: needs.release-please.outputs.extension_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-browser-extension.yml
+    with:
+      tag: ${{ needs.release-please.outputs.extension_tag }}
+      commit: ${{ needs.release-please.outputs.extension_commit }}
+    secrets:
+      CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+      CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL: ${{ secrets.CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL }}
+      CHROME_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_PRIVATE_KEY }}
+
+  # Merging a Release PR makes its channel's pass above create a draft release
+  # and output its tag. Chain straight into the desktop pipeline with the tag
+  # resolved to its immutable commit once; publish-desktop.yml builds every
+  # platform into the draft and then publishes it.
+  publish-desktop-stable:
+    name: Publish the stable desktop release
+    needs: release-please
+    if: needs.release-please.outputs.stable_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-desktop.yml
+    with:
+      tag: ${{ needs.release-please.outputs.stable_tag }}
+      commit: ${{ needs.release-please.outputs.stable_commit }}
+    secrets:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+  publish-desktop-beta:
+    name: Publish the beta desktop release
+    needs: release-please
+    if: needs.release-please.outputs.beta_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-desktop.yml
+    with:
+      tag: ${{ needs.release-please.outputs.beta_tag }}
+      commit: ${{ needs.release-please.outputs.beta_commit }}
+    secrets:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

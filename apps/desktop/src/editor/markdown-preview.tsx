@@ -1,10 +1,10 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
-import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
+import { useYouTubeVideoResolver } from '@/editor/youtube-video-resolver.ts'
 import { useCallback, useEffect, useRef, type ReactElement } from 'react'
 import type { ImageUrlResolver, WikiEmbedResolver } from '@meowdown/core'
 import { MarkdownView } from '@meowdown/react'
-import { useOpenExternalLink } from '@/editor/open-external-link.ts'
-import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
+import { useMarkdownLinkClick } from '@/editor/use-markdown-link-click.ts'
+import { useWikilinkResolver } from '@/editor/resolve-wikilink.ts'
 import { cn } from '@/lib/utils.ts'
 
 /**
@@ -22,6 +22,12 @@ interface MarkdownPreviewProps {
   /** The markdown body to render (callers strip frontmatter first). */
   content: string
   /**
+   * Graph-relative path of the note `content` comes from; relative Markdown
+   * links and attachment links resolve from it. `null` when the content
+   * belongs to no note.
+   */
+  sourcePath: string | null
+  /**
    * Resolve `![…](…)` sources to displayable URLs, possibly later; unresolved
    * images are skipped. Pass a stable function.
    */
@@ -30,7 +36,7 @@ interface MarkdownPreviewProps {
    * Classify Obsidian `![[target]]` embeds (images, file pills, note chips);
    * omitted, embeds stay literal text. Pass a stable function.
    */
-  resolveWikiEmbed?: WikiEmbedResolver
+  resolveWikiEmbed?: WikiEmbedResolver | undefined
   /**
    * Navigate a clicked `[[wiki link]]` target. Omitted, links render as
    * inert chips (the palette preview's behavior). `event` carries the
@@ -43,23 +49,33 @@ interface MarkdownPreviewProps {
    * or remote embeds.
    */
   interactive?: boolean
+  /**
+   * Render `content` as one paragraph of inline Markdown. A block prefix at
+   * the start (`+ [ ] `, `# `, `> `) stays text instead of opening a block.
+   * Task rows pass this: their content is one paragraph by definition.
+   */
+  singleParagraph?: boolean
   /** Extra classes for the rendered root. */
   className?: string
 }
 
 export function MarkdownPreview({
   content,
+  sourcePath,
+  singleParagraph = false,
   resolveImageUrl,
   resolveWikiEmbed,
   onWikiLinkClick,
   interactive = true,
   className,
 }: MarkdownPreviewProps): ReactElement {
-  const openExternalLink = useOpenExternalLink()
+  const onLinkClick = useMarkdownLinkClick(sourcePath)
   // The click handler is read through a ref so a changing prop never gives
   // MarkdownView a new callback identity (which would re-render its whole
   // tree).
+  const resolveYouTubeVideo = useYouTubeVideoResolver()
   const resolveXPost = useXPostResolver()
+  const resolveWikilink = useWikilinkResolver()
   const navigateRef = useRef(onWikiLinkClick)
   useEffect(() => {
     navigateRef.current = onWikiLinkClick
@@ -72,8 +88,9 @@ export function MarkdownPreview({
   const navigates = interactive && onWikiLinkClick != null
 
   const onWikilinkClickStable = useCallback(
-    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) =>
-      navigateRef.current?.({ target: payload.target, openInNewWindow: payload.mod }),
+    (payload: { target: string; event: MouseEvent | KeyboardEvent; mod: boolean }) => {
+      return navigateRef.current?.({ target: payload.target, openInNewWindow: payload.mod })
+    },
     [],
   )
 
@@ -83,12 +100,13 @@ export function MarkdownPreview({
       resolveYouTubeVideo={resolveYouTubeVideo}
       mediaUrlProtocols={X_MEDIA_URL_PROTOCOLS}
       markdown={content}
+      singleParagraph={singleParagraph}
       markMode="hide"
       interactive={interactive}
       resolveWikilink={resolveWikilink}
-      {...(resolveImageUrl !== undefined ? { resolveImageUrl } : {})}
-      {...(resolveWikiEmbed !== undefined ? { resolveWikiEmbed } : {})}
-      {...(interactive ? { onLinkClick: openExternalLink } : {})}
+      resolveImageUrl={resolveImageUrl}
+      resolveWikiEmbed={resolveWikiEmbed}
+      {...(interactive ? { onLinkClick } : {})}
       {...(navigates ? { onWikilinkClick: onWikilinkClickStable } : {})}
       className={cn('reflect-editor', className)}
     />

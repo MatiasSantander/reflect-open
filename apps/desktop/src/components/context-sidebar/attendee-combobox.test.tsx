@@ -1,29 +1,24 @@
-import { render } from 'vitest-browser-react'
 import { page, userEvent, type Locator } from 'vitest/browser'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ContactMatch, MeetingAttendee, WikiSuggestion } from '@reflect/core'
+import type {
+  ContactMatch,
+  MeetingAttendee,
+  SuggestionService,
+  WikiSuggestion,
+} from '@reflect/core'
+import {
+  createTestCoreServices,
+  createTestContactsService,
+  type TestContactsService,
+} from '@reflect/core/testing'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { AttendeeCombobox } from './attendee-combobox.tsx'
 
-const suggestWikiTargets = vi.hoisted(() => vi.fn<() => Promise<WikiSuggestion[]>>(async () => []))
-const contactLinkSuggestions = vi.hoisted(() =>
-  vi.fn<() => Promise<ContactMatch[]>>(async () => []),
-)
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-  suggestWikiTargets,
-  contactLinkSuggestions,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
-}))
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({ settings: { contactsEnabled: true }, updateSettings: () => {} }),
-}))
-vi.mock('@/hooks/use-contacts-authorization.ts', () => ({
-  useContactsAuthorization: () => 'authorized',
-}))
+// The note suggestions are the seam: one case needs a fetch that never settles.
+const suggestWikiTargets = vi.fn<SuggestionService['suggestWikiTargets']>(() => [])
+
+let contacts: TestContactsService
 
 function noteSuggestion(title: string, overrides: Partial<WikiSuggestion> = {}): WikiSuggestion {
   return { target: title, path: `notes/${title}.md`, title, alias: null, date: null, ...overrides }
@@ -36,12 +31,21 @@ function contact(fullName: string, email: string): ContactMatch {
 const onAdd = vi.fn<(attendee: MeetingAttendee) => void>()
 
 async function renderCombobox(attendees: MeetingAttendee[] = []): Promise<Locator> {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  await render(
-    <QueryClientProvider client={client}>
-      <AttendeeCombobox attendees={attendees} onAdd={onAdd} />
-    </QueryClientProvider>,
-  )
+  const base = createTestCoreServices({ database: createWasmTestDatabaseService() })
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    contacts,
+    meetings: createTestCoreServices({
+      database: createWasmTestDatabaseService(),
+      suggestions: { ...base.suggestions, suggestWikiTargets },
+      contacts,
+    }).meetings,
+  })
+  await renderInApp(<AttendeeCombobox attendees={attendees} onAdd={onAdd} />, {
+    app,
+    graph: { root: '/g', name: 'g' },
+    settings: { contactsEnabled: true },
+  })
   return page.getByPlaceholder('Add attendee')
 }
 
@@ -57,7 +61,7 @@ async function findHighlighted(text: string): Promise<Locator> {
 
 beforeEach(() => {
   suggestWikiTargets.mockReset().mockResolvedValue([])
-  contactLinkSuggestions.mockReset().mockResolvedValue([])
+  contacts = createTestContactsService()
   onAdd.mockClear()
 })
 
@@ -75,7 +79,7 @@ describe('AttendeeCombobox', () => {
   })
 
   it('a picked contact carries all emails for identity resolution', async () => {
-    contactLinkSuggestions.mockResolvedValue([
+    contacts.setContacts([
       {
         ...contact('Grace Hopper', 'grace@example.com'),
         emails: ['grace@example.com', 'grace@work.example'],
@@ -105,7 +109,7 @@ describe('AttendeeCombobox', () => {
   })
 
   it('blur does not bypass an exact Contact row', async () => {
-    contactLinkSuggestions.mockResolvedValue([contact('Grace Hopper', 'grace@example.com')])
+    contacts.setContacts([contact('Grace Hopper', 'grace@example.com')])
     const input = await renderCombobox()
 
     await input.fill('Grace Hopper')

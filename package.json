@@ -6,22 +6,28 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
+    "build:ios": "pnpm --filter @reflect/desktop build:ios",
+    "build:linux": "pnpm --filter @reflect/desktop build:linux",
+    "build:macos": "pnpm --filter @reflect/desktop build:macos",
+    "build:windows": "pnpm --filter @reflect/desktop build:windows",
     "typecheck": "tsc -b",
     "test": "vitest",
-    "lint": "pnpm run lint:oxfmt && pnpm run lint:oxlint && pnpm run lint:eslint",
+    "test:browser": "vitest run --project '*browser*'",
+    "test:node": "vitest run --project '!*browser*'",
+    "lint": "pnpm run lint:oxfmt && pnpm run lint:oxlint && pnpm run lint:eslint && pnpm run lint:knip",
     "lint:oxfmt": "oxfmt --check",
     "lint:oxlint": "oxlint --max-warnings 0 apps packages",
     "lint:eslint": "eslint --cache --max-warnings 0",
+    "lint:knip": "knip",
     "fix": "pnpm run fix:oxfmt && pnpm run fix:oxlint && pnpm run fix:eslint",
     "fix:oxfmt": "oxfmt",
     "fix:oxlint": "oxlint --max-warnings 0 --fix apps packages",
     "fix:eslint": "eslint --cache --max-warnings 0 --fix",
     "check": "pnpm typecheck && pnpm lint",
+    "gen:licenses": "pnpm --filter @reflect/desktop gen:licenses",
     "tauri": "pnpm --filter @reflect/desktop tauri",
-    "release:ios": "pnpm --filter @reflect/desktop release:ios",
-    "release:macos": "pnpm --filter @reflect/desktop release:macos",
-    "release:testflight": "pnpm --filter @reflect/desktop release:ios testflight",
-    "release:windows": "pnpm --filter @reflect/desktop release:windows",
+    "release:manifest": "pnpm --filter @reflect/desktop release:manifest",
+    "upload:testflight": "pnpm --filter @reflect/desktop upload:testflight",
     "tauri:dev": "pnpm --filter @reflect/desktop tauri:dev",
     "tauri:ios:dev": "pnpm --filter @reflect/desktop tauri:ios:dev",
     "tauri:ios:dev:sim": "pnpm --filter @reflect/desktop tauri:ios:dev:sim",
@@ -30,17 +36,18 @@
     "postinstall": "simple-git-hooks"
   },
   "devDependencies": {
-    "@ocavue/eslint-config": "^4.18.0",
+    "@ocavue/eslint-config": "^4.21.0",
     "@ocavue/tsconfig": "^0.7.1",
-    "@types/node": "^24.13.4",
-    "eslint": "^10.10.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.13.0",
+    "knip": "^6.41.0",
     "nano-staged": "^1.0.2",
-    "oxfmt": "^0.70.0",
-    "oxlint": "^1.82.0",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
     "simple-git-hooks": "^2.14.0",
-    "turbo": "^2.11.4",
+    "turbo": "^2.11.9",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.5"
   },
   "simple-git-hooks": {
     "pre-commit": "./node_modules/.bin/nano-staged --allow-empty -u"
@@ -48,5 +55,5 @@
   "nano-staged": {
     "*": "oxfmt --no-error-on-unmatched-pattern"
   },
-  "packageManager": "pnpm@11.27.1"
+  "packageManager": "pnpm@11.28.6"
 }

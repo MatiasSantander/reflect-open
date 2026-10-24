@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { queryClient, queryKeys, throttledInvalidateIndexQueries } from './query-client.ts'
 
-const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+let invalidateSpy: MockInstance<typeof queryClient.invalidateQueries>
 
 /** Grows per test: the throttle keeps module-level state, so each case must
  * start well past the previous one's window to begin on a cold leading edge. */
@@ -11,8 +11,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   clockOffsetMs += 120_000
   vi.setSystemTime(Date.now() + clockOffsetMs)
-  invalidateSpy.mockClear()
-  invalidateSpy.mockResolvedValue(undefined)
+  invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
 })
 
 afterEach(() => {

@@ -7,7 +7,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::{redirect, Client, StatusCode, Url};
+use reqwest::{Client, StatusCode, Url, redirect};
 
 use crate::error::{AppError, AppResult};
 
@@ -202,7 +202,7 @@ struct DnsLookupPermit;
 impl DnsLookupPermit {
     fn acquire() -> io::Result<Self> {
         ACTIVE_DNS_LOOKUPS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < MAX_CONCURRENT_DNS_LOOKUPS).then_some(active + 1)
             })
             .map(|_| Self)

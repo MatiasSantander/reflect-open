@@ -47,15 +47,19 @@ commit message and, for `feat`/`fix`, the user-facing changelog entry.
 ## Where code goes
 
 - **Business logic → `packages/core`.** No file/DB/AI logic in React
-  components, hooks, or Tauri command handlers. Components call typed
-  `@reflect/core` bindings; Rust commands are thin wrappers over native
-  primitives.
+  components, hooks, or Tauri command handlers. Desktop components call
+  `@reflect/core` and `@reflect/app` services, read with `useCoreServices()`,
+  `useAppServices()` or `useGraphServices()`
+  (`apps/desktop/src/services/services-provider.tsx`); Rust commands are
+  thin wrappers over native primitives.
 - **Rust owns capabilities, TypeScript owns policy.** A Rust command never
   encodes a product rule beyond the primitive it exposes (e.g. the watcher
   emits events; *what* to reindex is decided in core).
 - **`@reflect/core` and `@reflect/db` never import Tauri.** Native access goes
-  through the injected bridge (`setBridge`); tests install fakes instead of
-  module mocks.
+  through the adapters the app passes to `createAppServices(adapters)`. Core
+  has no global instances: a service gets what it needs through its `deps`,
+  and tests construct services over the test doubles in
+  `@reflect/core/testing` instead of module mocks.
 
 ## Conventions that are checked in review
 
@@ -81,12 +85,19 @@ commit message and, for `feat`/`fix`, the user-facing changelog entry.
 
 Step-by-step walkthroughs for the most common kinds of change:
 
+- [Adding a service](docs/contributing/services.md) — interface and factory,
+  `deps`, events, the composition root, the test double, and React.
 - [Adding a native command](docs/contributing/adding-a-command.md) — the full
-  Rust → bridge → zod → React path, with conventions and a checklist.
+  Rust → IPC → zod → service → React path, with conventions and a checklist.
 - [Adding a user setting](docs/contributing/adding-a-setting.md) — schema key,
   defaults-by-construction, the settings screen. (No Rust involved.)
 - [Editor architecture](docs/contributing/editor-architecture.md) — the
   session/adapter split, the save loop, and where new editor code goes.
+- [Testing](docs/contributing/testing.md) — the test projects, testing a
+  service over test doubles, and rendering components with `renderInApp`.
+- [Upgrading dependencies](docs/contributing/upgrading-dependencies.md) —
+  age gates, manifests, local checks, draft PRs.
+- [Logging](docs/contributing/logging.md): log sinks and conventions.
 
 ## "Plan NN" in comments?
 

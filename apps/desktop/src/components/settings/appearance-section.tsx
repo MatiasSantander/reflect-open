@@ -21,7 +21,7 @@ const THEME_OPTIONS: ThemeOption[] = [
 
 /**
  * Theme picker as radio cards (the original app's idiom). Edits the settings
- * document directly — the ThemeProvider applies whatever is persisted, so
+ * document directly — the ThemeEffect applies whatever is persisted, so
  * this section needs no theme context of its own.
  */
 export function AppearanceSection(): ReactElement {

@@ -52,8 +52,8 @@ output is a rename storm across every graph — a failure there is a deliberate
 breaking-change gate, not a test to update casually.
 
 Collisions take a numeric suffix: `meeting.md`, then `meeting-2.md`, `-3`, ….
-The probe (`packages/core/src/indexing/note-paths.ts`) checks the index *and*
-the disk (`note_exists`), so a file the watcher hasn't indexed yet can't be
+The probe (`NotePathService`, `packages/core/src/indexing/note-path-service.ts`)
+checks the index *and* the disk (`note_exists`), so a file the watcher hasn't indexed yet can't be
 clobbered. A note's own path always counts as available — a note never
 collides with itself, and a note already at `meeting-2.md` doesn't "tighten"
 to `meeting.md` when it frees up.
@@ -62,11 +62,12 @@ to `meeting.md` when it frees up.
 
 - **Created with a title** (the `[[` autocomplete's create row, clicking an
   unresolved link): the file is born at its slug path with `id:` frontmatter
-  and the title as H1 (`apps/desktop/src/lib/create-note.ts`).
+  and the title as H1 (`NoteCreationService`,
+  `packages/core/src/graph/note-creation-service.ts`).
 - **Created untitled** (⌘N): no title exists yet, so the file gets a ULID
   placeholder name (`untitledNotePath`). The lazy-create seed — an empty H1
-  the caret lands in (ghosted "Untitled" by
-  `apps/desktop/src/editor/title-placeholder.ts`) plus a fresh `id:` —
+  the caret lands in (ghosted "Untitled" by the `titlePlaceholder` prop of
+  `apps/desktop/src/editor/note-editor.tsx`) plus a fresh `id:` —
   reaches disk only when the user actually types. When the first title
   settles, a **birth** fires (a rename with `from: null`): no links to
   rewrite, no alias to record, the file just sheds its placeholder for the
@@ -81,20 +82,20 @@ keeps existing vault layouts intact. Settled in-app retitles of any editable
 regular note still maintain known wiki links and preserve the old title as an
 alias; link consistency does not imply filename ownership.
 
-The settled-title tracker (`apps/desktop/src/editor/title-rename.ts`, Plan
+The settled-title tracker (`packages/core/src/documents/title-rename-tracker.ts`, Plan
 07b) watches saves and fires after 5 seconds of quiet, or immediately on
 blur/pane teardown/quit. The rename coordinator
-(`apps/desktop/src/editor/rename-coordinator.ts`) then runs three phases, each
+(`packages/core/src/documents/title-rename-service.ts`) then runs three phases, each
 failing independently with an honest report (`rename-failure.ts`):
 
 1. **Rewrite** inbound `[[old title]]` targets and pipe displays that still
    mirror the old title on links resolving to this note.
 2. **Alias** the old title onto the note (`alias-placement.ts`), so anything
    the rewrite missed still resolves.
-3. **Move** the file onto the new title's slug (`move-note.ts`), only when the
+3. **Move** the file onto the new title's slug (`note-move-service.ts`), only when the
    note is Reflect-managed. Adopted and stable-path notes stop after phase 2.
 
-The move itself (`moveNoteCarryingSession`) is ordering-as-mechanism: flush
+The move itself (`NoteMoveService.moveNote`) is ordering-as-mechanism: flush
 the session, retarget it to the new path (so any later save writes the new
 home), re-key the open-documents registry (identity-guarded — it can never
 grab another pane's document), then call `note_move_indexed`. On the Rust
@@ -114,16 +115,18 @@ gate.) Drift is cosmetic by design: resolution never reads filenames.
 
 After a successful move, the app follows the file:
 
-- `emitNoteMoved` (`apps/desktop/src/lib/note-moves.ts`) announces it.
+- `NoteMoveService` announces it to its `onMoved` subscribers
+  (`packages/core/src/documents/note-move-service.ts`).
 - The router rewrites every history entry pointing at the old path — the
   current route follows without an arrival, and back/forward can never land
   on a dead path (`apps/desktop/src/routing/router.tsx`).
 - The pane **adopts** its retargeted session instead of recreating it: the
   editor is keyed on `sessionEpoch`, not the path, so the cursor, selection,
   and undo history survive the rename
-  (`apps/desktop/src/editor/document-binding.ts` owns the
-  create/adopt/teardown/hand-off protocol; `use-note-document.ts` is a thin
-  React adapter over it).
+  (`packages/core/src/documents/document-binding.ts` owns the
+  create/adopt/teardown/hand-off protocol;
+  `apps/desktop/src/editor/use-note-document.ts` is a thin React adapter over
+  it).
 
 The watcher's echo of the move (`remove(old)` + `upsert(new)`) is benign by
 construction: the rows moved before the file did, so the remove finds nothing
@@ -158,7 +161,7 @@ tests in `src-tauri/src/git/tests.rs`):
 - **Rename on one device + edit on another** converges cleanly — libgit2's
   default rename detection lands the edit in the moved file.
 - **Same title created on two devices offline** collides on one path and
-  surfaces through the existing conflict-marker flow (this was impossible
+  is merged by the conflict ladder (this was impossible
   under ULID names; accepted as rare and recoverable).
 - **The same note retitled differently on two devices** forks into two files
   sharing one id. Nothing wedges, both files survive, and the fork surfaces
@@ -186,16 +189,16 @@ tests in `src-tauri/src/git/tests.rs`):
 | Concern | Where |
 |---|---|
 | Slug rules (frozen) | `packages/core/src/markdown/slug.ts` + golden corpus in `slug.test.ts` |
-| Collision probe / rename target | `packages/core/src/indexing/note-paths.ts` |
-| Creation (titled + ⌘N seed/path) | `apps/desktop/src/lib/create-note.ts` |
-| Settled-title detection, births | `apps/desktop/src/editor/title-rename.ts` |
-| Rename orchestration | `apps/desktop/src/editor/rename-coordinator.ts` (+ `alias-placement.ts`, `rename-failure.ts`) |
-| The move (session-carrying + healed) | `apps/desktop/src/editor/move-note.ts` |
-| Pane lifecycle (create/adopt/hand-off) | `apps/desktop/src/editor/document-binding.ts` |
-| Move announcements → router/panes | `apps/desktop/src/lib/note-moves.ts`, `apps/desktop/src/routing/router.tsx` |
+| Collision probe / rename target | `packages/core/src/indexing/note-path-service.ts` |
+| Creation (titled + ⌘N seed/path) | `packages/core/src/graph/note-creation-service.ts` |
+| Settled-title detection, births | `packages/core/src/documents/title-rename-tracker.ts` |
+| Rename orchestration | `packages/core/src/documents/title-rename-service.ts` (+ `alias-placement.ts`, `rename-failure.ts`) |
+| The move (session-carrying + healed) | `packages/core/src/documents/note-move-service.ts` |
+| Pane lifecycle (create/adopt/hand-off) | `packages/core/src/documents/document-binding.ts` |
+| Move announcements → router/panes | `NoteMoveService.onMoved`, `apps/desktop/src/routing/router.tsx` |
 | Row move + fs rename (Rust) | `apps/desktop/src-tauri/src/db/mod.rs` (`note_move_indexed`, `index_move`), `db/write.rs` (`move_note`), `fs/mod.rs` (`move_note_file`) |
-| Id-based healing | `packages/core/src/indexing/move-detection.ts`, `move-healing.ts`, wired in `indexer.ts` + `live.ts` → `followHealedMove` |
-| Sync fork surface | `apps/desktop/src/components/settings/sync-fork-notice.tsx`, `getDuplicateNoteIds` in `packages/core/src/indexing/queries.ts` |
+| Id-based healing | `packages/core/src/indexing/move-detection.ts`, `move-healing.ts`, wired in `indexer.ts` + `live.ts` → `IndexLifecycleService.onMoved` → `NoteMoveService.followHealedMove` |
+| Sync fork surface | `apps/desktop/src/components/settings/sync-fork-notice.tsx`, `getDuplicateNoteIds` in `packages/core/src/indexing/index-query-service.ts` |
 | Merge-shape tests | `apps/desktop/src-tauri/src/git/tests.rs` (rename matrix) |
 
 Plan and decision history: [docs/plans/17-readable-filenames.md](plans/17-readable-filenames.md).

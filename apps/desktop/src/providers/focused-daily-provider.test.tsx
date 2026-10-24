@@ -1,7 +1,8 @@
-import { renderHook } from 'vitest-browser-react'
+import { act } from '@/test-utils/act.ts'
 import { describe, expect, it } from 'vitest'
 import type { ReactNode } from 'react'
-import { RouterProvider, useRouter } from '@/routing/router.tsx'
+import { useRouter } from '@/routing/router.tsx'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
 import {
   FocusedDailyProvider,
   useDailyContextTarget,
@@ -9,7 +10,7 @@ import {
   useSetFocusedDailyDate,
 } from './focused-daily-provider.tsx'
 
-function wrapper({ children }: { children: ReactNode }) {
+function wrapper(children: ReactNode) {
   return <FocusedDailyProvider>{children}</FocusedDailyProvider>
 }
 
@@ -19,7 +20,7 @@ function useFocusedDaily() {
 
 describe('FocusedDailyProvider', () => {
   it('reads back the focused day, and clears it with null', async () => {
-    const { result, act } = await renderHook(useFocusedDaily, { wrapper })
+    const { result } = await renderHookInApp(useFocusedDaily, { wrapper })
     expect(result.current.date).toBeNull()
 
     await act(() => result.current.set('2026-06-01'))
@@ -30,7 +31,7 @@ describe('FocusedDailyProvider', () => {
   })
 
   it('defaults to null with a no-op setter when no provider is mounted', async () => {
-    const { result, act } = await renderHook(useFocusedDaily)
+    const { result } = await renderHookInApp(useFocusedDaily)
     expect(result.current.date).toBeNull()
     await act(() => result.current.set('2026-06-01'))
     expect(result.current.date).toBeNull()
@@ -42,13 +43,7 @@ describe('useDailyContextTarget', () => {
 
   // The router sits above the focus provider in the real tree (GraphWorkspace).
   // A fixed daily route keeps the assertions clock-independent.
-  function routed({ children }: { children: ReactNode }) {
-    return (
-      <RouterProvider initialRoute={ROUTED}>
-        <FocusedDailyProvider>{children}</FocusedDailyProvider>
-      </RouterProvider>
-    )
-  }
+  const routed = { route: ROUTED, wrapper }
 
   function useHarness() {
     return {
@@ -59,7 +54,7 @@ describe('useDailyContextTarget', () => {
   }
 
   it('follows the focused day, then snaps to the new routed day on navigation', async () => {
-    const { result, act } = await renderHook(useHarness, { wrapper: routed })
+    const { result } = await renderHookInApp(useHarness, routed)
     // Nothing focused yet → the routed subject.
     expect(result.current.target).toEqual(ROUTED)
 
@@ -72,7 +67,7 @@ describe('useDailyContextTarget', () => {
   })
 
   it('resets even when re-targeting the current entry (⌘D / calendar pick on it)', async () => {
-    const { result, act } = await renderHook(useHarness, { wrapper: routed })
+    const { result } = await renderHookInApp(useHarness, routed)
     await act(() => result.current.setFocused('2026-06-01'))
     expect(result.current.target).toEqual({ kind: 'daily', date: '2026-06-01' })
 
@@ -83,7 +78,7 @@ describe('useDailyContextTarget', () => {
   })
 
   it('ignores the focused day off the daily views (a note route keeps its note)', async () => {
-    const { result, act } = await renderHook(useHarness, { wrapper: routed })
+    const { result } = await renderHookInApp(useHarness, routed)
     await act(() => result.current.navigate({ kind: 'note', path: 'notes/a.md' }))
     // Focus set while on a note route is irrelevant — the sidebar stays the note.
     await act(() => result.current.setFocused('2026-06-01'))

@@ -1,8 +1,8 @@
-import { render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import { describe, expect, it, vi } from 'vitest'
 import { isModEvent } from '@meowdown/core'
 import type { BacklinkSource } from '@/lib/group-backlinks.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { BacklinkSourceGroup } from './backlink-source-group.tsx'
 
 const SOURCE: BacklinkSource = {
@@ -14,7 +14,7 @@ const SOURCE: BacklinkSource = {
 type OnOpen = (path: string, event?: { metaKey: boolean; ctrlKey: boolean }) => void
 
 function mount(onOpen: OnOpen) {
-  return render(
+  return renderInApp(
     <BacklinkSourceGroup
       source={SOURCE}
       first

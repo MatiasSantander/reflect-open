@@ -5,13 +5,12 @@ export default defineConfig({
   test: {
     retry: process.env.CI ? 3 : 0,
     slowTestThreshold: 10_000,
-    fileParallelism: false,
+    isolate: false,
     projects: [
       './apps/desktop/vitest.*.config.ts',
-      './apps/extension',
-      './packages/core/vitest.*.config.ts',
-      './packages/db',
-      './packages/utils',
+      './apps/extension/vitest.config.ts',
+      './design-system/vitest.config.ts',
+      './packages/*/vitest.config.ts',
     ],
   },
 })

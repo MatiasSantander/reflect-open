@@ -1,5 +1,5 @@
 import { parseNote, splitFrontmatter } from '../markdown/index.ts'
-import { hashContent } from '../indexing/hash.ts'
+import { sha256Hex } from '@reflect/utils'
 import {
   MAX_ASSET_TEXT_CHARS,
   type AssetDescriptionBody,
@@ -73,7 +73,7 @@ async function chunkRun(text: string, base: number, heading: string | null): Pro
       posFrom: chunkFrom,
       posTo: chunkTo,
       text: chunkText,
-      contentHash: await hashContent(chunkText),
+      contentHash: await sha256Hex(chunkText),
     })
     chunkFrom = -1
   }
@@ -116,7 +116,7 @@ async function mergeRuntTail(
       posFrom: prev.posFrom,
       posTo: last.posTo,
       text,
-      contentHash: await hashContent(text),
+      contentHash: await sha256Hex(text),
     },
   ]
 }
@@ -193,9 +193,9 @@ export async function chunkAssetDescriptions(
     const text = body.slice(0, budget)
     budget -= text.length
     const heading = assetBasename(assetPath)
-    const bodyChunks = await mergeRuntTail(await chunkRun(text, offset, heading), (from, to) =>
-      text.slice(from - offset, to - offset),
-    )
+    const bodyChunks = await mergeRuntTail(await chunkRun(text, offset, heading), (from, to) => {
+      return text.slice(from - offset, to - offset)
+    })
     chunks.push(...bodyChunks)
     offset += text.length + 2 // as if joined by the FTS fold's blank line
   }

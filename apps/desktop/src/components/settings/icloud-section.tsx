@@ -1,8 +1,6 @@
 import { useState, type ReactElement } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { errorMessage, icloudAdoptGraph, icloudPendingCount, icloudStatus } from '@reflect/core'
-import { ConflictedNoteLinks } from '@/components/settings/conflicted-note-links.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
+import { isICloudRoot } from '@reflect/core'
 import { SettingsField } from '@/components/settings/field.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -15,15 +13,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog.tsx'
-import { isICloudRoot } from '@/lib/icloud-controller.ts'
 import { queryKeys } from '@/lib/query-client.ts'
-import {
-  createConflictedNotesQueryOptions,
-  createDuplicateNoteIdsQueryOptions,
-} from '@/lib/query-options.ts'
-import { isMacosDesktop } from '@/lib/platform.ts'
+import { createDuplicateNoteIdsQueryOptions } from '@/lib/query-options.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-import { useSync } from '@/providers/sync-provider.tsx'
+import { useGitSync } from '@/providers/sync-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 const PENDING_NOTES_REFETCH_MS = 5_000
 
@@ -43,18 +37,11 @@ function pendingNotesLine(count: number): string {
     : `${count} notes are still downloading from iCloud.`
 }
 
-function reviewLine(conflictCount: number, forkCount: number): string {
-  if (conflictCount === 0 && forkCount === 0) {
-    return 'No notes need review.'
+function forkLine(forkCount: number): string {
+  if (forkCount === 0) {
+    return 'No sync forks.'
   }
-  const parts: string[] = []
-  if (conflictCount > 0) {
-    parts.push(conflictCount === 1 ? '1 note needs review' : `${conflictCount} notes need review`)
-  }
-  if (forkCount > 0) {
-    parts.push(forkCount === 1 ? '1 sync fork' : `${forkCount} sync forks`)
-  }
-  return parts.join(', ')
+  return forkCount === 1 ? '1 sync fork' : `${forkCount} sync forks`
 }
 
 /**
@@ -71,85 +58,55 @@ function reviewLine(conflictCount: number, forkCount: number): string {
  */
 export function IcloudSettingsField(): ReactElement | null {
   const { graph, openRecent } = useGraph()
-  const { backup, disconnectGraph } = useSync()
+  const { state, disconnectGraph } = useGitSync()
+  const { icloudMigration: migration, icloudNative, indexQuery, platform } = useCoreServices()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const bridgeAvailable = useBridgeReady()
   const hosted = graph !== null && isICloudRoot(graph.root)
   const { data: status } = useQuery({
     queryKey: queryKeys.icloud.status,
-    queryFn: icloudStatus,
-    enabled: bridgeAvailable && isMacosDesktop,
+    queryFn: () => icloudNative.status(),
+    enabled: platform.isMacosDesktop,
   })
   const pendingNotes = useQuery({
     queryKey: queryKeys.icloud.pendingNotes(graph?.root),
-    queryFn: () => (graph === null ? Promise.resolve(0) : icloudPendingCount(graph.root, 'notes')),
-    enabled: bridgeAvailable && isMacosDesktop && hosted,
+    queryFn: () => {
+      return graph === null ? Promise.resolve(0) : icloudNative.pendingCount(graph.root, 'notes')
+    },
+    enabled: platform.isMacosDesktop && hosted,
     staleTime: PENDING_NOTES_REFETCH_MS,
     refetchInterval: (query) => {
       const count = query.state.data
       return typeof count === 'number' && count > 0 ? PENDING_NOTES_REFETCH_MS : false
     },
   })
-  const conflicted = useQuery({
-    ...createConflictedNotesQueryOptions(graph?.root),
-    enabled: bridgeAvailable && hosted,
-  })
   const duplicateIds = useQuery({
-    ...createDuplicateNoteIdsQueryOptions(graph?.root),
-    enabled: bridgeAvailable && hosted,
+    ...createDuplicateNoteIdsQueryOptions(indexQuery, graph?.root),
+    enabled: hosted,
   })
 
   // The navigator hides the entry off macOS through the same gate — the two
   // must agree (see use-visible-settings-sections).
-  if (!isMacosDesktop || graph === null) {
+  if (!platform.isMacosDesktop || graph === null) {
     return null
   }
-  const backupConnected = backup.phase === 'connected'
-  const conflictCount = conflicted.data?.length
+  const gitSyncConnected = state.phase === 'connected'
   const forkCount = duplicateIds.data?.length
-  const hasReviewIssues =
-    conflictCount !== undefined && forkCount !== undefined && (conflictCount > 0 || forkCount > 0)
 
   async function moveToICloud(): Promise<void> {
-    if (graph === null) {
-      return
-    }
     setBusy(true)
     setError(null)
     try {
-      // Copy first: if it fails, nothing changed — the backup is still
-      // connected and the graph untouched.
-      const newRoot = await icloudAdoptGraph(graph.generation)
-      if (backupConnected) {
-        try {
-          await disconnectGraph()
-        } catch (caught) {
-          // The iCloud copy has no .git, so exclusivity holds for the new
-          // graph regardless; the original folder keeping its backup is the
-          // recovery copy working as intended. Tell the user, don't block.
-          setError(
-            `The graph moved to iCloud, but GitHub sync could not be disconnected from the original folder: ${errorMessage(caught)}`,
-          )
-        }
-      }
-      setConfirmOpen(false)
-      const opened = await openRecent(newRoot)
-      if (!opened) {
-        // Append rather than replace: a disconnect failure above must stay
-        // visible alongside this one — both tell the user something distinct.
-        setError((previous) =>
-          [
-            previous,
-            'The copy landed in iCloud but could not be opened — open it from Saved graphs.',
-          ]
-            .filter(Boolean)
-            .join(' '),
-        )
-      }
-    } catch (caught) {
-      setError(errorMessage(caught))
+      const failure = await migration.moveGraph({
+        disconnectGitSync: gitSyncConnected ? disconnectGraph : null,
+        openGraph: openRecent,
+        onCopied: (failureSoFar) => {
+          setError(failureSoFar)
+          setConfirmOpen(false)
+        },
+      })
+      setError(failure)
     } finally {
       setBusy(false)
     }
@@ -161,7 +118,7 @@ export function IcloudSettingsField(): ReactElement | null {
         legend="iCloud Drive"
         description={
           hosted
-            ? 'This graph lives in iCloud Drive — edits sync to your other devices, and conflicts resolve automatically where possible.'
+            ? 'This graph lives in iCloud Drive. Edits sync to your other devices, and the app merges concurrent edits where possible.'
             : status?.available === true
               ? 'Copy this graph into iCloud Drive to sync it with your other devices.'
               : 'iCloud Drive isn’t reachable from this app — sign in to iCloud, or use a build with iCloud enabled.'
@@ -171,11 +128,10 @@ export function IcloudSettingsField(): ReactElement | null {
           <div className="mt-3 flex flex-col gap-1 text-xs text-text-muted">
             {pendingNotes.isPending ? <p>Checking downloaded notes...</p> : null}
             {pendingNotes.data !== undefined ? <p>{pendingNotesLine(pendingNotes.data)}</p> : null}
-            {conflictCount !== undefined && forkCount !== undefined ? (
-              <div className={hasReviewIssues ? 'text-amber-700 dark:text-amber-300' : undefined}>
-                <p>{reviewLine(conflictCount, forkCount)}</p>
-                <ConflictedNoteLinks notes={conflicted.data ?? []} />
-              </div>
+            {forkCount !== undefined ? (
+              <p className={forkCount > 0 ? 'text-amber-700 dark:text-amber-300' : undefined}>
+                {forkLine(forkCount)}
+              </p>
             ) : null}
           </div>
         ) : status?.available === true ? (
@@ -199,7 +155,7 @@ export function IcloudSettingsField(): ReactElement | null {
                   <DialogDescription>
                     Your notes are copied into iCloud Drive and the graph reopens there. The current
                     folder stays on disk, untouched, as a recovery copy.
-                    {backupConnected
+                    {gitSyncConnected
                       ? ' GitHub sync is disconnected from the recovery copy; you can reconnect GitHub sync after the iCloud graph opens.'
                       : ''}
                   </DialogDescription>

@@ -1,18 +1,15 @@
 import { Fragment, type MouseEvent, type ReactElement, type ReactNode } from 'react'
 import { CalendarDays, FileText, History, Paperclip, Search } from 'lucide-react'
-import {
-  displayNoteTitle,
-  isTagName,
-  isToolPending,
-  type AssistantPart,
-  type NoteHitSummary,
-} from '@reflect/core'
+import { isTagName, isToolPending, type AssistantPart, type NoteHitSummary } from '@reflect/core'
 import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
 import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
 import { routeForPath } from '@/routing/route.ts'
 import { useRouter } from '@/routing/router.tsx'
 import { isModEvent } from '@meowdown/core'
+import { useDateFormat } from '@/hooks/use-date-format.ts'
+import { useNoteLabel } from '@/hooks/use-note-label.ts'
+import { formatShortDate } from '@/lib/dates.ts'
 
 interface ChatToolChipProps {
   part: Extract<AssistantPart, { kind: 'tool' }>
@@ -50,6 +47,7 @@ interface NoteLinksProps {
 }
 
 function NoteLinks({ notes, onOpen }: NoteLinksProps): ReactElement | null {
+  const noteLabel = useNoteLabel()
   if (notes.length === 0) {
     return null
   }
@@ -65,7 +63,7 @@ function NoteLinks({ notes, onOpen }: NoteLinksProps): ReactElement | null {
             onClick={(event) => onOpen(note.path, event)}
             className="underline-offset-2 hover:text-text hover:underline"
           >
-            {displayNoteTitle(note.title)}
+            {noteLabel(note)}
           </button>
         </Fragment>
       ))}
@@ -87,6 +85,8 @@ export function ChatToolChip({ part }: ChatToolChipProps): ReactElement {
     navigateNoteLink({ target: routeForPath(path), openInNewWindow: isModEvent(event) })
   }
   const pending = isToolPending(part)
+  const noteLabel = useNoteLabel()
+  const dateFormat = useDateFormat()
   const call = part.call
 
   if (call.tool === 'search') {
@@ -134,7 +134,8 @@ export function ChatToolChip({ part }: ChatToolChipProps): ReactElement {
     const result = part.result?.tool === 'dailies' ? part.result : null
     return (
       <ChipFrame pending={pending} icon={<CalendarDays aria-hidden className="size-3.5" />}>
-        Listed daily notes {call.start} – {call.end}
+        Listed daily notes {formatShortDate(call.start, dateFormat)} –{' '}
+        {formatShortDate(call.end, dateFormat)}
         {result !== null ? countSuffix(result.days.length, 'day') : ''}
         {result !== null ? <NoteLinks notes={result.days} onOpen={openNote} /> : null}
       </ChipFrame>
@@ -186,7 +187,8 @@ export function ChatToolChip({ part }: ChatToolChipProps): ReactElement {
     <ChipFrame pending={pending} icon={<FileText aria-hidden className="size-3.5" />}>
       Read{' '}
       {notes.map((note, index) => {
-        const label = note.title !== null ? displayNoteTitle(note.title) : note.path
+        const label =
+          note.title !== null ? noteLabel({ path: note.path, title: note.title }) : note.path
         return (
           <Fragment key={`${note.path}-${index}`}>
             {index > 0 ? ', ' : ''}

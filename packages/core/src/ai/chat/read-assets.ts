@@ -1,16 +1,18 @@
-import { getXArchiveOwners } from '../../x-archive.ts'
 import { z } from 'zod'
-import { classifyAssetFromNotes } from '../../actions/asset-privacy.ts'
+
 import { isAppError } from '../../errors.ts'
 import { descriptionPathFor, isAssetPath } from '../../graph/paths.ts'
 import { canonicalAssetPath } from '../../markdown/extract.ts'
 import { splitFrontmatter } from '../../markdown/frontmatter.ts'
+import type { AssetPrivacyService } from '../../assets/asset-privacy-service.ts'
+import type { AssetReferences } from '../../indexing/asset-refs.ts'
 import {
-  cloudSafeAssetDescription,
   isPrivateNoteError,
   type CloudAssetDescription,
   type CloudSafe,
-} from '../../privacy/checkers.ts'
+  type PrivacyService,
+} from '../../privacy/privacy-service.ts'
+import type { XArchiveService } from '../../embeds/x-archive-service.ts'
 
 /**
  * The read_assets tool's executor (Plan 20 meets Plan 10): resolve an
@@ -65,10 +67,15 @@ export const readAssetsInput = z.object({
     ),
 })
 
-/** The effects {@link buildReadOneAsset} needs, already defaulted by the caller. */
+/**
+ * The effects {@link buildReadOneAsset} needs.
+ */
 export interface ReadAssetDeps {
-  readNoteFn: (path: string) => Promise<string>
-  assetReferencingNotePathsFn: (assetPath: string, owners?: readonly string[]) => Promise<string[]>
+  readNote: (path: string) => Promise<string>
+  assetReferences: AssetReferences
+  assetPrivacy: AssetPrivacyService
+  xArchive: XArchiveService
+  privacy: PrivacyService
 }
 
 /**
@@ -91,7 +98,7 @@ export function buildReadOneAsset(deps: ReadAssetDeps) {
     }
     let source: string
     try {
-      source = await deps.readNoteFn(descriptionPathFor(canonical))
+      source = await deps.readNote(descriptionPathFor(canonical))
     } catch (cause) {
       if (isAppError(cause) && cause.kind === 'notFound') {
         return { ok: false, path, error: NO_ASSET_DESCRIPTION_ERROR }
@@ -99,12 +106,17 @@ export function buildReadOneAsset(deps: ReadAssetDeps) {
       throw cause
     }
     const body = splitFrontmatter(source).body.trim()
-    const owners = await getXArchiveOwners(canonical)
-    const candidates = await deps.assetReferencingNotePathsFn(canonical, owners)
-    const verdict = await classifyAssetFromNotes(canonical, candidates, deps.readNoteFn, owners)
+    const owners = await deps.xArchive.owners(canonical)
+    const candidates = await deps.assetReferences.notePaths(canonical, owners)
+    const verdict = await deps.assetPrivacy.classifyAssetFromNotes(
+      canonical,
+      candidates,
+      deps.readNote,
+      owners,
+    )
     const truncated = body.length > MAX_ASSET_DESCRIPTION_CHARS
     try {
-      const asset = cloudSafeAssetDescription({
+      const asset = deps.privacy.cloudSafeAssetDescription({
         path: canonical,
         isPrivate: verdict !== 'send',
         description: truncated ? body.slice(0, MAX_ASSET_DESCRIPTION_CHARS) : body,

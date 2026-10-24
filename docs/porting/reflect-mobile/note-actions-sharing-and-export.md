@@ -38,7 +38,7 @@ export on mobile.
   payload is the note's markdown, which in v2 is simply the file content.
 - **Trash** goes to graph-local `.reflect/trash/` (recoverable,
   sync-ignored) instead of V1's soft-delete flag or desktop's OS trash
-  (`apps/desktop/src/mobile/note-delete.ts`).
+  (`NoteActionsService.trash` in `packages/core/src/documents/note-actions-service.ts`).
 - **Publish is not ported** — publishing conflicts with local-first file
   assumptions and is deferred product-wide (see the desktop
   [product vision](../../reflect-v2-product-vision.md)).

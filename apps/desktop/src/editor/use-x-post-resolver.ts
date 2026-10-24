@@ -1,58 +1,20 @@
-import type { GraphInfo } from '@reflect/core'
+import type { EmbedMediaService, GraphInfo } from '@reflect/core'
 import type { XPostResolver } from '@meowdown/core'
 import { queryOptions } from '@tanstack/react-query'
-import { convertFileSrc } from '@tauri-apps/api/core'
-import { mapXPostMediaUrls, parseXPostId } from '@post-embed/schema'
-import type { XPost } from '@post-embed/types'
-import {
-  createArchivedPost,
-  fetchSyndicationPost,
-  resolveArchivedPost,
-  saveArchivedPost,
-} from '@reflect/core/x-archive'
+import { parseXPostId } from '@post-embed/schema'
 import { queryClient, queryKeys } from '@/lib/query-client.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useMaybeGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 export const X_MEDIA_URL_PROTOCOLS = ['reflect-asset:']
 
 // An archive no note shows is dropped this long after its last read.
 const X_POST_GC_TIME_MS = 30 * 60 * 1000
 
-function xSyndicationQueryOptions(id: string) {
+export function xPostQueryOptions(embedMedia: EmbedMediaService, root: string, id: string) {
   return queryOptions({
-    queryKey: queryKeys.xSyndication.post(id),
-    queryFn: () => fetchSyndicationPost(id),
-    // X is asked once per post and app session; a failed request runs again.
-    staleTime: Infinity,
-    gcTime: Infinity,
-    retry: false,
-  })
-}
-
-async function fetchAndArchiveXPost(generation: number, id: string) {
-  const post = await queryClient.query(xSyndicationQueryOptions(id))
-  if (!post) return null
-  await saveArchivedPost(generation, createArchivedPost(post, new Date().toISOString()))
-  return await resolveArchivedPost(generation, id)
-}
-
-async function loadArchivedXPost(generation: number, id: string): Promise<XPost | null> {
-  const result =
-    (await resolveArchivedPost(generation, id)) ?? (await fetchAndArchiveXPost(generation, id))
-  if (!result) return null
-  const local = new Map(
-    result.resources.map((resource) => [
-      resource.url,
-      convertFileSrc(generation + '/x-media/' + id + '/' + resource.hash, 'reflect-asset'),
-    ]),
-  )
-  return mapXPostMediaUrls(result.archive.data, (source) => local.get(source))
-}
-
-export function xPostQueryOptions(generation: number, id: string) {
-  return queryOptions({
-    queryKey: queryKeys.xPost.archive(generation, id),
-    queryFn: () => loadArchivedXPost(generation, id),
+    queryKey: queryKeys.xPost.archive(root, id),
+    queryFn: () => embedMedia.loadXPost(id),
     // A found archive stays fresh until a capture invalidates it; a missing one is read again.
     staleTime: (query) => (query.state.data == null ? 0 : Infinity),
     gcTime: X_POST_GC_TIME_MS,
@@ -60,11 +22,11 @@ export function xPostQueryOptions(generation: number, id: string) {
   })
 }
 
-export function createXPostResolver(generation: number | null): XPostResolver {
+export function createXPostResolver(embedMedia: EmbedMediaService, root: string): XPostResolver {
   return (url) => {
     const id = parseXPostId(url)
-    if (!id || generation === null) return
-    const options = xPostQueryOptions(generation, id)
+    if (!id) return
+    const options = xPostQueryOptions(embedMedia, root, id)
     const state = queryClient.getQueryState(options.queryKey)
     if (state?.data && !state.isInvalidated) return state.data
     return queryClient.query(options).then((post) => post ?? undefined)
@@ -73,18 +35,22 @@ export function createXPostResolver(generation: number | null): XPostResolver {
 
 // One resolver per graph keeps the editor's `resolveXPost` prop stable.
 const resolvers = new WeakMap<GraphInfo, XPostResolver>()
-const emptyResolver = createXPostResolver(null)
+const emptyResolver: XPostResolver = () => undefined
 
-export function getXPostResolver(graph: GraphInfo | null): XPostResolver {
+export function getXPostResolver(
+  embedMedia: EmbedMediaService,
+  graph: GraphInfo | null,
+): XPostResolver {
   if (!graph) return emptyResolver
   let resolver = resolvers.get(graph)
   if (!resolver) {
-    resolver = createXPostResolver(graph.generation)
+    resolver = createXPostResolver(embedMedia, graph.root)
     resolvers.set(graph, resolver)
   }
   return resolver
 }
 
 export function useXPostResolver() {
-  return getXPostResolver(useGraph({ optional: true })?.graph ?? null)
+  const { embedMedia } = useCoreServices()
+  return getXPostResolver(embedMedia, useMaybeGraph()?.graph ?? null)
 }

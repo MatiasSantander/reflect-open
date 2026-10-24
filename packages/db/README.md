@@ -7,9 +7,10 @@ The Kysely schema and dialect for Reflect's local SQLite index.
 SQLite runs **in Rust** (it's a native capability); this package only gives
 TypeScript a typed query *builder* over it. `createDb(runQuery)` returns a
 Kysely instance whose dialect compiles each query to `{ sql, parameters }` and
-hands it to the injected runner — in the desktop app that's the `db_query` IPC
-command, in tests an in-memory fake. The package itself has no transport
-dependency.
+hands it to the injected runner — in the app that's `@reflect/core`'s
+`DatabaseService` over the `db_query` IPC command, in tests a real in-memory
+SQLite index (`createNodeTestDatabaseService()` from `@reflect/core/testing`). The
+package itself has no transport dependency.
 
 Two properties are load-bearing:
 
@@ -23,8 +24,8 @@ Two properties are load-bearing:
   translates casing.
 
 Timestamps surface as **epoch-millisecond numbers** (SQLite has no date type);
-booleans as **`0 | 1` integers** — readers map them to real booleans at the
-getter layer (see `NoteRow.isPrivate` in `@reflect/core`).
+booleans as **`0 | 1` integers** — readers map them to real booleans in the
+read services (see `NoteRow.isPrivate` in `@reflect/core`).
 
 ## Schema generation
 

@@ -8,7 +8,7 @@
 //!
 //! Protocol discipline: stdout carries nothing but length-prefixed JSON acks;
 //! all logging goes to stderr. The wire shapes mirror the zod schemas in
-//! `@reflect/core` (`actions/capture-envelope.ts`) — that TS file is the
+//! `@reflect/core` (`capture/capture-envelope.ts`) — that TS file is the
 //! source of truth.
 
 pub mod envelope;

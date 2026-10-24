@@ -1,35 +1,21 @@
-import { hasBridge, setBridge, type AppPlatform } from '@reflect/core'
+import type { IpcBridge } from '@reflect/core'
 
+import { coreServices, pendingDevIpc } from '@/boot.ts'
 import { createDevBridge } from '@/dev/dev-bridge.ts'
 import { createDevFileStore } from '@/dev/dev-file-store.ts'
 import { createDevIndexDb } from '@/dev/dev-index-db.ts'
 import { seedGraphFiles } from '@/dev/seed-graph.ts'
-import { parseEnvPlatform } from '@/lib/env.ts'
 
-const appPlatform: AppPlatform = (() => {
-  if (import.meta.env.DEV && typeof window !== 'undefined') {
-    const query = new URLSearchParams(window.location.search).get('platform')
-    switch (query) {
-      case 'ios':
-        return 'ios'
-      case 'android':
-        return 'android'
-      case 'desktop':
-        return 'desktop'
-    }
-    if (query) {
-      console.warn('[reflect-open] Unknown platform override in query string:', query)
-    }
-  }
-
-  return parseEnvPlatform()
-})()
-
-if (!hasBridge()) {
+async function createDevIpc(): Promise<IpcBridge> {
   const index = await createDevIndexDb()
   const files = createDevFileStore(seedGraphFiles())
-  const devBridge = createDevBridge({ files, index })
-  setBridge(devBridge)
+  return createDevBridge({ files, index })
+}
+
+const { appPlatform } = coreServices.platform
+
+if (pendingDevIpc !== null) {
+  pendingDevIpc.connect(await createDevIpc())
 }
 
 const { PlatformRoot, warmPlatformRoot } = await (async () => {

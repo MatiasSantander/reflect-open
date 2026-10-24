@@ -1,65 +1,73 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  getAppStoreEnvironment,
+  createAppStoreService,
+  createIapService,
+  createIpcBridgeService,
   IAP_PRODUCT_IDS,
-  iapGetProducts,
-  iapIsOwned,
-  iapPurchase,
-  presentOfferCodeRedeemSheet,
-  setBridge,
-  syncAppStore,
+  type AppStoreService,
+  type IapService,
 } from '@reflect/core'
+import { createTestLoggerService } from '@reflect/core/testing'
 import { createDevBridge } from '@/dev/dev-bridge.ts'
 import { createDevFileStore } from '@/dev/dev-file-store.ts'
 import { createDevIndexDb } from '@/dev/dev-index-db.ts'
 
-async function installPreview(): Promise<void> {
-  setBridge(
-    createDevBridge({
+let appStore: AppStoreService
+let iap: IapService
+
+/**
+ * The App Store and IAP services over a fresh dev bridge.
+ */
+async function openPreview(): Promise<void> {
+  const logger = createTestLoggerService()
+  const ipc = createIpcBridgeService({
+    transport: createDevBridge({
       files: createDevFileStore({}),
       index: await createDevIndexDb(),
     }),
-  )
+    logger,
+  })
+  appStore = createAppStoreService({ ipc })
+  iap = createIapService({ ipc, logger })
 }
 
-beforeEach(installPreview)
-afterEach(() => setBridge(null))
+beforeEach(openPreview)
 
 describe('dev bridge App Store and IAP bindings', () => {
   it('starts in Sandbox with offers and no purchases', async () => {
-    await expect(getAppStoreEnvironment()).resolves.toBe('Sandbox')
-    const products = await iapGetProducts(Object.values(IAP_PRODUCT_IDS))
+    await expect(appStore.environment()).resolves.toBe('Sandbox')
+    const products = await iap.getProducts(Object.values(IAP_PRODUCT_IDS))
     expect(products.map((product) => product.productId).sort()).toEqual(
       Object.values(IAP_PRODUCT_IDS).sort(),
     )
     for (const product of products) {
       expect(product.formattedPrice).toEqual(expect.any(String))
-      await expect(iapIsOwned(product.productId)).resolves.toBe(false)
+      await expect(iap.isOwned(product.productId)).resolves.toBe(false)
     }
-    await expect(syncAppStore()).resolves.toBeUndefined()
-    await expect(presentOfferCodeRedeemSheet()).resolves.toBeUndefined()
-    await expect(iapGetProducts([IAP_PRODUCT_IDS.monthly, 'unknown'])).resolves.toEqual([
+    await expect(appStore.sync()).resolves.toBeUndefined()
+    await expect(appStore.presentOfferCodeRedeemSheet()).resolves.toBeUndefined()
+    await expect(iap.getProducts([IAP_PRODUCT_IDS.monthly, 'unknown'])).resolves.toEqual([
       expect.objectContaining({ productId: IAP_PRODUCT_IDS.monthly }),
     ])
   })
 
   it('purchases, switches plans, and owns only within the current preview', async () => {
-    await iapPurchase(IAP_PRODUCT_IDS.yearly)
-    await expect(iapIsOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(true)
+    await iap.purchase(IAP_PRODUCT_IDS.yearly)
+    await expect(iap.isOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(true)
 
-    await iapPurchase(IAP_PRODUCT_IDS.monthly)
-    await iapPurchase(IAP_PRODUCT_IDS.monthly)
-    await expect(iapIsOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(false)
-    await expect(iapIsOwned(IAP_PRODUCT_IDS.monthly)).resolves.toBe(true)
+    await iap.purchase(IAP_PRODUCT_IDS.monthly)
+    await iap.purchase(IAP_PRODUCT_IDS.monthly)
+    await expect(iap.isOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(false)
+    await expect(iap.isOwned(IAP_PRODUCT_IDS.monthly)).resolves.toBe(true)
 
-    await installPreview()
-    await expect(iapIsOwned(IAP_PRODUCT_IDS.monthly)).resolves.toBe(false)
+    await openPreview()
+    await expect(iap.isOwned(IAP_PRODUCT_IDS.monthly)).resolves.toBe(false)
   })
 
   it('rejects unknown purchases without losing the current subscription', async () => {
-    await iapPurchase(IAP_PRODUCT_IDS.yearly)
-    await expect(iapPurchase('unknown')).rejects.toMatchObject({ kind: 'notFound' })
-    await expect(iapIsOwned('unknown')).resolves.toBe(false)
-    await expect(iapIsOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(true)
+    await iap.purchase(IAP_PRODUCT_IDS.yearly)
+    await expect(iap.purchase('unknown')).rejects.toMatchObject({ kind: 'notFound' })
+    await expect(iap.isOwned('unknown')).resolves.toBe(false)
+    await expect(iap.isOwned(IAP_PRODUCT_IDS.yearly)).resolves.toBe(true)
   })
 })

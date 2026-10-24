@@ -100,7 +100,8 @@ macOS.
   index remains a pure projection of markdown and deleting it still loses
   nothing. No sync state means no `Syncing contacts...`, no stale counts,
   no error badges.
-- **TypeScript owns policy.** `@reflect/core` exposes bridge methods and
+- **TypeScript owns policy.** `@reflect/core` exposes the lookups as a service
+  (`ContactsService`, `packages/core/src/contacts/contacts-service.ts`) and
   the matching logic (which note titles count as person-like, how attendee
   emails map to person notes); the suggested-contact card and the meeting
   flow consume them. Per-note "ignore" dismissals persist in the note's

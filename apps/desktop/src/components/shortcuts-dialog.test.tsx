@@ -1,19 +1,9 @@
-import { render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { ShortcutsDialog } from './shortcuts-dialog.tsx'
 import { ShortcutsProvider, useShortcuts } from '@/providers/shortcuts-provider.tsx'
-
-const isApplePlatform = vi.hoisted(() => vi.fn(() => false))
-vi.mock('@/lib/keybindings.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/keybindings.ts')>()),
-  isApplePlatform,
-}))
-
-beforeEach(() => {
-  isApplePlatform.mockReturnValue(false)
-})
 
 function OpenButton() {
   const { openShortcuts } = useShortcuts()
@@ -24,12 +14,13 @@ function OpenButton() {
   )
 }
 
-function renderDialog() {
-  return render(
+function renderDialog(isApplePlatform = false) {
+  return renderInApp(
     <ShortcutsProvider>
       <OpenButton />
       <ShortcutsDialog />
     </ShortcutsProvider>,
+    { platform: { isApplePlatform } },
   )
 }
 
@@ -59,8 +50,7 @@ describe('ShortcutsDialog', () => {
   })
 
   it('lists the AI menu shortcut with the Apple command chord', async () => {
-    isApplePlatform.mockReturnValue(true)
-    await renderDialog()
+    await renderDialog(true)
     await openDialog()
 
     const row = page.getByText('Open the AI menu on the selection').element().closest('li')

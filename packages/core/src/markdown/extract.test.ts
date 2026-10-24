@@ -47,6 +47,19 @@ describe('parseNote — headings & title', () => {
     ])
   })
 
+  it('strips the closing sequence of ATX headings', () => {
+    expect(parse('# Title ##').headings[0]?.text).toBe('Title')
+    expect(parse('# Title #   ').headings[0]?.text).toBe('Title')
+    expect(parse('# foo#').headings[0]?.text).toBe('foo')
+    expect(parse('#   ').headings[0]?.text).toBe('')
+    expect(parse('# ##').headings[0]?.text).toBe('')
+  })
+
+  it('handles a heading with a long run of spaces in linear time', () => {
+    const spaces = ' '.repeat(5_000)
+    expect(parse(`# a${spaces}b`).headings[0]?.text).toBe(`a${spaces}b`)
+  })
+
   it('renders markdown escapes in headings and derived titles', () => {
     const note = parse('# www\\.reddit.com/r/test\n\nbody')
     expect(note.title).toBe('www.reddit.com/r/test')
@@ -170,103 +183,77 @@ describe('parseNote — links, assets, tags, text', () => {
 })
 
 describe('parseNote — tasks', () => {
-  it('extracts open and checked round task checkboxes with text, raw, marker offset', () => {
+  it('projects open and checked round tasks with their path and Markdown', () => {
     const note = parse('+ [ ] buy milk\n+ [x] call mum\n')
     expect(note.tasks).toEqual([
-      {
-        text: 'buy milk',
-        breadcrumbs: [],
-        raw: '[ ] buy milk',
-        checked: false,
-        markerOffset: 2,
-        dueDate: null,
-      },
-      {
-        text: 'call mum',
-        breadcrumbs: [],
-        raw: '[x] call mum',
-        checked: true,
-        markerOffset: 17,
-        dueDate: null,
-      },
+      { astPath: [0], markdown: 'buy milk', breadcrumbs: [], checked: false, dueDate: null },
+      { astPath: [1], markdown: 'call mum', breadcrumbs: [], checked: true, dueDate: null },
     ])
   })
 
   it('treats an uppercase [X] marker as checked', () => {
     const note = parse('+ [X] done\n')
     expect(note.tasks).toEqual([
-      {
-        text: 'done',
-        breadcrumbs: [],
-        raw: '[X] done',
-        checked: true,
-        markerOffset: 2,
-        dueDate: null,
-      },
+      { astPath: [0], markdown: 'done', breadcrumbs: [], checked: true, dueDate: null },
     ])
   })
 
-  it('strips inline syntax from text but keeps it verbatim in raw', () => {
+  it('keeps inline syntax verbatim in markdown', () => {
     const note = parse('+ [ ] call [[Bob]] about **billing**\n')
-    const item = note.tasks[0]!
-    expect(item.text).toBe('call Bob about billing')
-    expect(item.raw).toBe('[ ] call [[Bob]] about **billing**')
-    // markerOffset points at the `[` of the checkbox, not the wiki link.
-    expect(item.checked).toBe(false)
-    expect(item.markerOffset).toBe(2)
+    expect(note.tasks[0]).toMatchObject({
+      markdown: 'call [[Bob]] about **billing**',
+      checked: false,
+    })
   })
 
-  it('offsets the marker past frontmatter', () => {
-    const source = '---\nid: abc\n---\n+ [ ] later\n'
-    const note = parse(source)
-    const item = note.tasks[0]!
-    expect(item.markerOffset).toBe(source.indexOf('[ ]'))
-    expect(source.slice(item.markerOffset, item.markerOffset + item.raw.length)).toBe(item.raw)
+  it('addresses tasks relative to the body, past frontmatter', () => {
+    const note = parse('---\nid: abc\n---\n\nIntro\n\n+ [ ] later\n')
+    expect(note.tasks.map((task) => task.astPath)).toEqual([[1]])
   })
 
   it('captures nested sub-tasks as their own rows', () => {
     const note = parse('+ [ ] parent\n  + [x] child\n')
-    expect(note.tasks.map((task) => ({ text: task.text, checked: task.checked }))).toEqual([
-      { text: 'parent', checked: false },
-      { text: 'child', checked: true },
+    expect(note.tasks.map((task) => [task.astPath, task.markdown, task.checked])).toEqual([
+      [[0], 'parent', false],
+      [[0, 1], 'child', true],
     ])
   })
 
-  it('captures parent outline items as task breadcrumbs', () => {
+  it('captures parent outline items as task breadcrumbs, as Markdown', () => {
     const note = parse('+ Project [[Alpha]]\n  + **Phase one**\n    + [ ] ship it\n')
     expect(note.tasks).toEqual([
       expect.objectContaining({
-        text: 'ship it',
-        breadcrumbs: ['Project Alpha', 'Phase one'],
+        markdown: 'ship it',
+        breadcrumbs: ['Project [[Alpha]]', '**Phase one**'],
       }),
     ])
   })
 
   it('keeps wrapped parent text in a single breadcrumb label', () => {
     const note = parse('+ **Project Alpha**\n  continues on this line\n  + [ ] ship it\n')
-    expect(note.tasks[0]?.breadcrumbs).toEqual(['Project Alpha continues on this line'])
+    expect(note.tasks[0]?.breadcrumbs).toEqual(['**Project Alpha**\ncontinues on this line'])
   })
 
   it('uses parent task rows as breadcrumbs for nested subtasks', () => {
     const note = parse('+ [ ] parent task\n  + [x] child task\n')
-    expect(note.tasks.map((task) => ({ text: task.text, breadcrumbs: task.breadcrumbs }))).toEqual([
-      { text: 'parent task', breadcrumbs: [] },
-      { text: 'child task', breadcrumbs: ['parent task'] },
+    expect(
+      note.tasks.map((task) => ({ markdown: task.markdown, breadcrumbs: task.breadcrumbs })),
+    ).toEqual([
+      { markdown: 'parent task', breadcrumbs: [] },
+      { markdown: 'child task', breadcrumbs: ['parent task'] },
     ])
   })
 
   it('ignores checkboxes inside fenced code', () => {
     const note = parse('+ [ ] real\n\n```\n+ [ ] not a task\n```\n')
     expect(note.tasks).toEqual([
-      {
-        text: 'real',
-        breadcrumbs: [],
-        raw: '[ ] real',
-        checked: false,
-        markerOffset: 2,
-        dueDate: null,
-      },
+      { astPath: [0], markdown: 'real', breadcrumbs: [], checked: false, dueDate: null },
     ])
+  })
+
+  it('includes a round task inside a blockquote', () => {
+    const note = parse('> + [ ] quoted\n')
+    expect(note.tasks.map((task) => [task.astPath, task.markdown])).toEqual([[[0, 0], 'quoted']])
   })
 
   it('ignores square checklist and ordered checkbox items', () => {
@@ -296,9 +283,9 @@ describe('parseNote — tasks', () => {
 
   it('does not borrow a due-date link from a nested child task', () => {
     const note = parse('+ [ ] parent\n  + [ ] child [[2026-07-01]]\n')
-    expect(note.tasks.map((task) => ({ text: task.text, dueDate: task.dueDate }))).toEqual([
-      { text: 'parent', dueDate: null },
-      { text: 'child 2026-07-01', dueDate: '2026-07-01' },
+    expect(note.tasks.map((task) => ({ markdown: task.markdown, dueDate: task.dueDate }))).toEqual([
+      { markdown: 'parent', dueDate: null },
+      { markdown: 'child [[2026-07-01]]', dueDate: '2026-07-01' },
     ])
   })
 })

@@ -1,19 +1,17 @@
-import { render } from 'vitest-browser-react'
 import { describe, expect, it, vi } from 'vitest'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { MarkdownPreview } from './markdown-preview.tsx'
-
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 7 } }),
-}))
 
 describe('MarkdownPreview wiki-link chips', () => {
   it('labels chips through the host resolver and reports the full target', async () => {
     const onWikiLinkClick = vi.fn()
-    const view = await render(
+    const view = await renderInApp(
       <MarkdownPreview
         content={'see [[Tim MacCaw // Dad|Dad]] and [[Tim MacCaw // Dad]]'}
+        sourcePath={null}
         onWikiLinkClick={onWikiLinkClick}
       />,
+      { graph: { root: '/g', name: 'g', generation: 7 } },
     )
     const chips = view.getByTestId('wikilink')
     await expect.element(chips.first()).toMatchTextContent(/^Dad$/)
@@ -23,6 +21,5 @@ describe('MarkdownPreview wiki-link chips', () => {
       target: 'Tim MacCaw // Dad',
       openInNewWindow: false,
     })
-    await view.unmount()
   })
 })

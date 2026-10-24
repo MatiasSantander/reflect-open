@@ -8,7 +8,7 @@ import {
   type AiProviderConfig,
 } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
-import { startOperation } from '@/lib/operations.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
 import { ModelCombobox } from './model-combobox.tsx'
 
 interface AiProviderRowProps {
@@ -36,6 +36,7 @@ export function AiProviderRow({
   onSetDefaultModel,
   onRemove,
 }: AiProviderRowProps): ReactElement {
+  const { operations } = useAppServices()
   const provider = aiProvider(config.provider)
   const providerLabel = provider.label
   const modelLabel = aiModelLabel(config.provider, config.model)
@@ -44,7 +45,7 @@ export function AiProviderRow({
 
   const remove = (): void => {
     onRemove(config.id).catch((error: unknown) => {
-      startOperation(`Removing ${name}`).fail(errorMessage(error))
+      operations.start(`Removing ${name}`).fail(errorMessage(error))
     })
   }
 

@@ -70,6 +70,9 @@ targets:
     sources:
       - path: Sources
       - path: Assets.xcassets
+      # Icon Composer documents; ASSETCATALOG_COMPILER_APPICON_NAME picks one.
+      - path: ../../icons/AppIcon.icon
+      - path: ../../icons-dev/AppIcon-Dev.icon
       # Build artifacts (libapp.a) land here; without an explicit `none`,
       # regenerating after a build sweeps them into Copy Bundle Resources,
       # shipping the Rust static archive inside the app bundle.
@@ -333,7 +336,7 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     # The widget needs no capability of its own, but the release pipeline
-    # asserts every appex carries the App Group (release-ios.mjs), and the
+    # asserts every appex carries the App Group (build-ios.ts), and the
     # skip-codesign ad-hoc phase below must have entitlements to preserve —
     # exactly like ShareExtension (including the hand-maintained per-config
     # entitlement files; see the main target's comment).

@@ -17,43 +17,77 @@ import type { FileMeta } from './schemas.ts'
  * basename — a same-named file found in the catalog.
  */
 
-/** The vault's attachment files, indexed for synchronous lookups. */
+/**
+
+ * The vault's attachment files, indexed for synchronous lookups.
+
+ */
 export interface AttachmentCatalog {
-  /** Does a cataloged attachment live at this graph-relative path? */
+  /**
+   * Does a cataloged attachment live at this graph-relative path?
+   */
   has(path: string): boolean
-  /** Size in bytes of the cataloged attachment at this path, if any. */
+  /**
+   * Size in bytes of the cataloged attachment at this path, if any.
+   */
   size(path: string): number | undefined
-  /** Graph-relative paths of every cataloged attachment with this filename. */
+  /**
+   * Graph-relative paths of every cataloged attachment with this filename.
+   */
   named(filename: string): readonly string[]
 }
 
-/** Image formats the editor renders inline; other attachments render as file pills. */
+/**
+
+ * Image formats the editor renders inline; other attachments render as file pills.
+
+ */
 const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp'])
 
-/** Build a catalog from an attachment listing (`listAttachments`). */
-export function createAttachmentCatalog(
-  files: readonly Pick<FileMeta, 'path' | 'size'>[],
-): AttachmentCatalog {
-  const sizes = new Map<string, number>()
-  const byName = new Map<string, string[]>()
-  for (const { path, size } of files) {
-    sizes.set(path, size)
-    const name = filename(path)
-    const named = byName.get(name)
-    if (named === undefined) {
-      byName.set(name, [path])
-    } else {
-      named.push(path)
+class AttachmentCatalogImpl implements AttachmentCatalog {
+  readonly #sizes = new Map<string, number>()
+  readonly #byName = new Map<string, string[]>()
+
+  constructor(files: readonly Pick<FileMeta, 'path' | 'size'>[]) {
+    for (const { path, size } of files) {
+      this.#sizes.set(path, size)
+      const name = filename(path)
+      const named = this.#byName.get(name)
+      if (named === undefined) {
+        this.#byName.set(name, [path])
+      } else {
+        named.push(path)
+      }
     }
   }
-  return {
-    has: (path) => sizes.has(path),
-    size: (path) => sizes.get(path),
-    named: (name) => byName.get(name) ?? [],
+
+  has(path: string): boolean {
+    return this.#sizes.has(path)
+  }
+
+  size(path: string): number | undefined {
+    return this.#sizes.get(path)
+  }
+
+  named(filename: string): readonly string[] {
+    return this.#byName.get(filename) ?? []
   }
 }
 
-/** Does this graph-relative attachment path render as an inline image? */
+/**
+ * Build a catalog from an attachment listing (`listAttachments`).
+ */
+export function createAttachmentCatalog(
+  files: readonly Pick<FileMeta, 'path' | 'size'>[],
+): AttachmentCatalog {
+  return new AttachmentCatalogImpl(files)
+}
+
+/**
+
+ * Does this graph-relative attachment path render as an inline image?
+
+ */
 export function isImageAttachmentPath(path: string): boolean {
   const dot = path.lastIndexOf('.')
   return dot !== -1 && IMAGE_EXTENSIONS.has(path.slice(dot + 1).toLowerCase())

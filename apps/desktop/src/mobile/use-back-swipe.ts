@@ -8,45 +8,73 @@ import {
 } from 'react'
 import { PointerDrag, VelocitySampler } from '@/lib/pointer-drag.ts'
 
-/** How far from the leading edge a touch may start and still arm the gesture. */
+/**
+ * How far from the leading edge a touch may start and still arm the gesture.
+ */
 const EDGE_WIDTH_PX = 32
-/** Horizontal travel that commits an armed touch to the gesture. */
+/**
+ * Horizontal travel that commits an armed touch to the gesture.
+ */
 const ACTIVATE_DX_PX = 8
-/** Vertical travel that disarms an edge touch — it's a scroll, not a swipe. */
+/**
+ * Vertical travel that disarms an edge touch — it's a scroll, not a swipe.
+ */
 const DISARM_DY_PX = 16
-/** Fraction of the screen width past which a release pops. */
+/**
+ * Fraction of the screen width past which a release pops.
+ */
 const POP_FRACTION = 0.4
-/** A rightward flick (px/ms) pops even short of the distance threshold... */
+/**
+ * A rightward flick (px/ms) pops even short of the distance threshold...
+ */
 const POP_VELOCITY_PX_PER_MS = 0.35
-/** ...as long as the finger actually travelled somewhere. */
+/**
+ * ...as long as the finger actually travelled somewhere.
+ */
 const MIN_FLICK_DX_PX = 24
 
-/** How long a released screen takes to settle on- or off-screen. */
+/**
+ * How long a released screen takes to settle on- or off-screen.
+ */
 export const BACK_SWIPE_SETTLE_MS = 300
 
 export type BackSwipeState =
   | { phase: 'idle' }
-  /** An edge touch that hasn't shown horizontal intent yet — nothing moves. */
+  /**
+   * An edge touch that hasn't shown horizontal intent yet — nothing moves.
+   */
   | { phase: 'armed' }
-  /** The finger owns the screen: `deltaX` is how far it has dragged it. */
+  /**
+   * The finger owns the screen: `deltaX` is how far it has dragged it.
+   */
   | { phase: 'dragging'; width: number; deltaX: number }
-  /** Released — the screen is animating off (`pop`) or back home (`cancel`). */
+  /**
+   * Released — the screen is animating off (`pop`) or back home (`cancel`).
+   */
   | { phase: 'settling'; action: 'pop' | 'cancel'; width: number }
 
 const IDLE: BackSwipeState = { phase: 'idle' }
 
-/** The gesture-scoped scroll blocker: one native listener on one node. */
+/**
+ * The gesture-scoped scroll blocker: one native listener on one node.
+ */
 interface ScrollBlocker {
   readonly node: HTMLElement
   readonly block: (event: TouchEvent) => void
 }
 
 export interface BackSwipeOptions {
-  /** Arm the gesture only on stacked screens with no transition running. */
+  /**
+   * Arm the gesture only on stacked screens with no transition running.
+   */
   enabled: boolean
-  /** Skip the settle animation and commit the pop on release. */
+  /**
+   * Skip the settle animation and commit the pop on release.
+   */
   reducedMotion: boolean
-  /** Commit the pop once the screen has settled offscreen. */
+  /**
+   * Commit the pop once the screen has settled offscreen.
+   */
   onPop: () => void
   /** The stack container — gets a non-passive scroll blocker while a touch
    *  owns the gesture (armed through dragging), never between gestures. */
@@ -61,7 +89,9 @@ export interface BackSwipe {
     onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void
     onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void
   }
-  /** Complete a settle — call from `transitionend` (a timer backstops it). */
+  /**
+   * Complete a settle — call from `transitionend` (a timer backstops it).
+   */
   finishSettle: () => void
 }
 
@@ -146,7 +176,6 @@ export function useBackSwipe({
   // never paints a dragged frame. The ref write must be visible to this same
   // render (the router's currentId does the same; see router.tsx).
   if (!enabled && state.phase !== 'idle') {
-    // eslint-disable-next-line react-hooks/refs
     stateRef.current = IDLE
     setState(IDLE)
   }
@@ -182,7 +211,7 @@ export function useBackSwipe({
         commit(IDLE)
         return
       }
-      const deltaX = Math.max(0, event.clientX - drag.startX)
+      const deltaX = Math.max(0, event.clientX - drag.getStartX())
       if (step === 'started') {
         const width = event.currentTarget.getBoundingClientRect().width || window.innerWidth
         velocity.reset(deltaX)
@@ -213,9 +242,9 @@ export function useBackSwipe({
       // A flick only counts if the finger was still moving near release —
       // a stale sample means it stopped (holding emits no move events).
       const flicked =
-        velocity.velocity > POP_VELOCITY_PX_PER_MS &&
+        velocity.getVelocity() > POP_VELOCITY_PX_PER_MS &&
         current.deltaX > MIN_FLICK_DX_PX &&
-        !velocity.stale
+        !velocity.isStale()
       const pops = !interrupted && (current.deltaX > current.width * POP_FRACTION || flicked)
       if (reducedMotion) {
         commit(IDLE)

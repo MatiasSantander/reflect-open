@@ -3,7 +3,7 @@
 //! meta-scrape fetch, and the native-messaging plumbing (pointer file +
 //! browser host manifests) that lets the `reflect-capture-host` sidecar spool
 //! captures while this app is closed. Policy — what gets written where, the
-//! privacy gate, enrichment — lives in `@reflect/core` (`actions/capture`);
+//! privacy gate, enrichment — lives in `@reflect/core` (`capture/`);
 //! this module only moves bytes.
 
 use std::fs;
@@ -14,7 +14,7 @@ use std::time::Duration;
 use tauri::State;
 
 use crate::error::{AppError, AppResult};
-use crate::fs::{current_root, modified_ms, root_for_generation, FileMeta, GraphState};
+use crate::fs::{FileMeta, GraphState, current_root, modified_ms, root_for_generation};
 #[cfg(test)]
 use crate::web_fetch::classify_fetch_status;
 use crate::web_fetch::{fetch_capture_html, fetch_capture_json};
@@ -545,7 +545,7 @@ const OEMBED_FETCH_MAX_BYTES: usize = 64 * 1024;
 
 /// Fetch an oEmbed endpoint's JSON answer for the capture meta scrape. Which
 /// URLs are oEmbed endpoints is policy and lives in `@reflect/core`
-/// (`actions/oembed`), behind the same privacy gate as `capture_meta_fetch`;
+/// (`embeds/oembed`), behind the same privacy gate as `capture_meta_fetch`;
 /// this side only bounds the transport, strictly tighter than the HTML
 /// fetch: https only, JSON only, a small byte cap, and no redirects (oEmbed
 /// endpoints answer directly, so a redirect is a failure).
@@ -776,11 +776,13 @@ mod tests {
 
         assert_eq!(relayed, 0);
         assert!(!shared_inbox.join("big.json").exists());
-        assert!(shared
-            .path()
-            .join(SHARED_REJECTED_DIR)
-            .join("big.json")
-            .is_file());
+        assert!(
+            shared
+                .path()
+                .join(SHARED_REJECTED_DIR)
+                .join("big.json")
+                .is_file()
+        );
         assert!(!graph.path().join(INBOX_DIR).join("big.json").exists());
     }
 

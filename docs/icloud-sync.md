@@ -19,12 +19,14 @@ edit the same note while apart.
   iCloud…*, which copies it into the container (verified file-by-file) and
   reopens it there; the original folder stays on disk, untouched, as a
   recovery copy.
-- **iCloud or GitHub, not both.** A graph syncs through iCloud Drive *or* a
-  Git remote. Two sync engines merging the same files fight each other, and a
-  `.git` directory must never ride a file-sync provider (object-store
-  corruption). Moving a graph to iCloud disconnects its GitHub backup first,
-  and `.git`/`.reflect` are always marked local-only as a belt-and-braces
-  guard.
+- **One sync method per graph (recommended).** A graph syncs through iCloud
+  Drive *or* a Git remote. Two sync engines merging the same files fight each
+  other, and a `.git` directory must never ride a file-sync provider
+  (object-store corruption). Moving a graph to iCloud disconnects its GitHub
+  backup first, and `.git`/`.reflect` are always marked local-only as a
+  belt-and-braces guard. A graph that has both still works: Reflect commits
+  locally as you type, and pushes only after five quiet minutes with no
+  pending iCloud downloads.
 
 ## What happens on a conflict
 
@@ -32,24 +34,35 @@ When both devices change the same note while apart, Reflect resolves it
 itself where that is safe, in this order (deterministic — both devices
 resolving the same conflict produce identical bytes and converge):
 
-1. **Same content** (or only whitespace differs) — nothing to do.
-2. **Different parts of the note** — merged three-ways over the note's last
+1. **Same content** (or only whitespace differs): nothing to do.
+2. **A merge keeps coming back**: when the same two merge results collide
+   again, the loop breaker keeps the newer side.
+3. **Different parts of the note**: merged three-ways over the note's last
    synced state.
-3. **Only metadata differs** (pinned on the Mac, marked private on the
-   phone) — merged key-by-key.
-4. **Both devices appended** — the daily-note case, and the most common one:
-   both tails are kept, oldest first. Two devices creating the same day's
-   note offline (iCloud leaves a `2026-07-04 2.md` behind) fold back into one
-   file the same way.
-5. **Genuinely overlapping edits** — the note keeps *both* versions between
-   labeled conflict markers, opens protected, and shows a **Needs review**
-   banner whose buttons name the devices ("Keep 'Alex's MacBook Pro'").
-   Nothing is ever discarded silently.
+4. **Only metadata differs** (pinned on the Mac, marked private on the
+   phone): merged key by key.
+5. **Both devices only appended**: both tails are kept, oldest first. This
+   applies to any note. It is the daily-note case, and the most common one.
+   Two devices creating the same day's note offline (iCloud leaves a
+   `2026-07-04 2.md` behind) fold back into one file the same way.
+6. **Anything else**: a word-level merge keeps the words both sides added.
+   Reflect never writes conflict markers.
 
-Before any resolution is written, every involved version is archived under
-`.reflect/conflict-archive/<note-path>/` (kept ~90 days / 20 versions per
-note), so even a bad merge is recoverable. Binary assets never text-merge:
-the other device's copy lands alongside as `name (conflict).ext`.
+The same ladder runs on every note path: a Git pull, the iCloud sweep, and an
+editor save that meets a newer file on disk. Only notes (`.md` files) go
+through the ladder.
+
+Other files (JSON, text, PDF, audio, images, and so on) never merge as text on
+the iCloud path. The file on the device stays at its path. Each other version
+lands beside it as `name (conflict <YYYY-MM-DD HH-MM-SS> <hash8>).ext`. The
+time is the UTC modification time of that version. `hash8` is the first 8 hex
+digits of its content hash, so both devices write the same name. A version
+equal to the current file writes no copy. The app lists every copy by its
+graph path in the status hint.
+
+The sweep checks attachments only on a full sweep (resume and adoption), and
+only for extensions on the attachment whitelist. Files with other extensions
+get no copy, and their conflict versions stay in iCloud.
 
 ## Building with iCloud
 
@@ -133,5 +146,4 @@ entirely.
 - **AI-assisted resolution** — the ladder already produces the
   base/local/remote triple a BYOK provider would consume; see the plan's
   *Deferred* section. `private: true` notes will be hard-blocked from it.
-- A richer diff view than raw markers in the protected note.
 - Upload/download progress in the sync status line.

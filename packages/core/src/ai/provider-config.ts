@@ -85,7 +85,7 @@ export type TranscriptionConfig = AiProviderConfig & { provider: TranscriptionPr
  * wins over any Google entry, and within a provider the app default wins over
  * the first. `null` means no capable provider is configured — the feature is
  * unavailable. The entry only addresses the provider + API key; the
- * transcription model itself is fixed per provider (see `transcribe.ts`), so
+ * transcription model itself is fixed per provider (see `transcription-service.ts`), so
  * the entry's default-model choice never transfers.
  */
 export function pickTranscriptionConfig(state: AiProvidersState): TranscriptionConfig | null {

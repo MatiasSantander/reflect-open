@@ -1,22 +1,13 @@
-import { cleanup, render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { WeekRow } from './week-row.tsx'
-
-const hapticImpactLight = vi.hoisted(() => vi.fn())
-
-vi.mock('@/mobile/haptics.ts', () => ({ hapticImpactLight }))
-
-afterEach(async () => {
-  await cleanup()
-  hapticImpactLight.mockReset()
-})
 
 describe('WeekRow', () => {
   it('keeps a daily note marked when the date is both selected and today', async () => {
     const onSelect = vi.fn()
-    await render(
+    const { app } = await renderInApp(
       <WeekRow
         weekStart="2026-07-13"
         selectedDay="2026-07-16"
@@ -27,7 +18,7 @@ describe('WeekRow', () => {
     )
 
     const selected = page.getByRole('button', {
-      name: 'Thursday, July 16th, has daily note',
+      name: 'Thu, July 16th, 2026, has daily note',
     })
     await expect.element(selected).toHaveAttribute('aria-current', 'date')
     await expect.element(page.getByTestId('note-dot-2026-07-16')).toBeVisible()
@@ -35,7 +26,7 @@ describe('WeekRow', () => {
     await expect.element(page.getByTestId('note-dot-2026-07-14')).not.toBeInTheDocument()
 
     await userEvent.click(selected)
-    expect(hapticImpactLight).toHaveBeenCalledOnce()
+    expect(app.mobile.haptics.impacts()).toBe(1)
     expect(onSelect).toHaveBeenCalledWith('2026-07-16')
   })
 })

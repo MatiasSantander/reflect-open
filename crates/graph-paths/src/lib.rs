@@ -13,8 +13,8 @@ use std::path::{Component, Path, PathBuf};
 mod walk;
 
 pub use walk::{
-    has_pruned_component, is_pruned_dir_name, walk_catalog, FileCatalog, FileEntry,
-    REFLECT_IGNORE_FILE,
+    FileCatalog, FileEntry, REFLECT_IGNORE_FILE, has_pruned_component, is_pruned_dir_name,
+    walk_catalog,
 };
 
 /// Root trees reserved for Reflect-managed attachments and recordings.
@@ -117,6 +117,21 @@ pub fn wire_path(rel: &Path) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// Replace every backslash in `text` with a forward slash.
+///
+/// For text that is already a string, such as a zip entry name. Unlike
+/// [`wire_path`], this validates nothing and never fails.
+pub fn to_slash(text: &str) -> String {
+    text.replace('\\', "/")
+}
+
+/// The forward-slashed form of a native path, for paths [`wire_path`] would
+/// reject: hidden components (`.reflect/`, `.gitignore`) and paths that are
+/// not graph-relative. Non-UTF-8 sequences become U+FFFD.
+pub fn to_slash_lossy(path: &Path) -> String {
+    to_slash(&path.to_string_lossy())
+}
+
 /// The logical file name represented by an iCloud eviction placeholder.
 pub fn icloud_placeholder_target(file_name: &str) -> Option<&str> {
     let name = file_name.strip_prefix('.')?.strip_suffix(".icloud")?;
@@ -215,13 +230,22 @@ fn wire_components(path: &str) -> Option<Vec<&str>> {
         .then_some(components)
 }
 
+/// Note text uses `\n` line endings in memory: `\r\n` and a lone `\r` both
+/// become `\n`.
+pub fn normalize_line_endings(text: String) -> String {
+    if !text.contains('\r') {
+        return text;
+    }
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::{
-        classify, evicted_logical_path, eviction_placeholder, is_safe_visible, wire_path,
-        GraphPathKind,
+        GraphPathKind, classify, evicted_logical_path, eviction_placeholder, is_safe_visible,
+        normalize_line_endings, to_slash, to_slash_lossy, wire_path,
     };
     use serde::Deserialize;
 
@@ -279,6 +303,29 @@ mod tests {
     }
 
     #[test]
+    fn to_slash_replaces_every_backslash() {
+        assert_eq!(to_slash("notes\\deep\\a.md"), "notes/deep/a.md");
+        assert_eq!(to_slash("notes/a.md"), "notes/a.md");
+        assert_eq!(to_slash(""), "");
+    }
+
+    #[test]
+    fn to_slash_lossy_keeps_what_wire_path_rejects() {
+        assert_eq!(
+            to_slash_lossy(Path::new(".reflect/inbox/a.json")),
+            ".reflect/inbox/a.json"
+        );
+        assert_eq!(to_slash_lossy(Path::new("a\\b.md")), "a/b.md");
+        #[cfg(unix)]
+        {
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            let non_utf8 = Path::new(OsStr::from_bytes(b"caf\xC3.md"));
+            assert_eq!(to_slash_lossy(non_utf8), "caf\u{FFFD}.md");
+        }
+    }
+
+    #[test]
     fn maps_icloud_placeholders_in_both_directions() {
         let logical = Path::new("Projects/plan.md");
         let placeholder = Path::new("Projects/.plan.md.icloud");
@@ -290,7 +337,7 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[test]
     fn dataless_decodes_only_the_kernel_flag() {
-        use super::{dataless_flags, SF_DATALESS};
+        use super::{SF_DATALESS, dataless_flags};
         assert!(dataless_flags(SF_DATALESS));
         assert!(dataless_flags(SF_DATALESS | 0x1));
         assert!(!dataless_flags(0));
@@ -315,5 +362,13 @@ mod tests {
         assert_eq!(icloud_placeholder_target("a.md.icloud"), None);
         assert_eq!(icloud_placeholder_target(".a.md"), None);
         assert_eq!(icloud_placeholder_target(".icloud"), None);
+    }
+
+    #[test]
+    fn line_endings_normalize_to_lf() {
+        assert_eq!(normalize_line_endings("a\nb\n".to_string()), "a\nb\n");
+        assert_eq!(normalize_line_endings("a\r\nb\r\n".to_string()), "a\nb\n");
+        assert_eq!(normalize_line_endings("a\rb".to_string()), "a\nb");
+        assert_eq!(normalize_line_endings("a\r\r\nb".to_string()), "a\n\nb");
     }
 }

@@ -1,74 +1,30 @@
-import { useCallback } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getAppStoreEnvironment } from '@reflect/core'
-import { z } from 'zod'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { getLocalStorageStore } from '@/lib/local-storage.ts'
-import { queryKeys } from '@/lib/query-client.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useEffect } from 'react'
+import type { AppStoreEnvironment } from '@reflect/core'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useServiceState } from '@/services/use-service-state.ts'
 
-const appStoreEnvironmentSchema = z.enum(['Production', 'Sandbox', 'Xcode']).nullable()
-export type AppStoreEnvironment = z.infer<typeof appStoreEnvironmentSchema>
+export type { AppStoreEnvironment } from '@reflect/core'
 
 /**
- * The channels worth remembering across launches. A remembered `Production`
- * reads exactly like no seed at all, so storing it can only let one launch's
- * answer outlive that launch.
+ * The live or startup-seeded App Store install channel, verified on mount.
  */
-const rememberedEnvironmentSchema = z.enum(['Sandbox', 'Xcode'])
-
-const APP_STORE_ENVIRONMENT_STORAGE_KEY = 'reflect.app-store.environment'
-
-function readAppStoreEnvironmentSeed(): AppStoreEnvironment | undefined {
-  return getLocalStorageStore(APP_STORE_ENVIRONMENT_STORAGE_KEY).getJson(
-    rememberedEnvironmentSchema,
-  )
-}
-
-function writeAppStoreEnvironmentSeed(value: AppStoreEnvironment): void {
-  const store = getLocalStorageStore(APP_STORE_ENVIRONMENT_STORAGE_KEY)
-  const remembered = rememberedEnvironmentSchema.safeParse(value)
-  if (remembered.success) {
-    store.setJson(rememberedEnvironmentSchema, remembered.data)
-  } else {
-    store.set(null)
-  }
-}
-
-async function fetchAppStoreEnvironment(): Promise<AppStoreEnvironment> {
-  const parsed = appStoreEnvironmentSchema.safeParse(await getAppStoreEnvironment())
-  const environment = parsed.success ? parsed.data : null
-  writeAppStoreEnvironmentSeed(environment)
-  return environment
-}
-
-/** The live or startup-seeded App Store install channel. */
 export function useAppStoreEnvironment(): {
   value: AppStoreEnvironment
   isLoading: boolean
   isError: boolean
   invalidate: VoidFunction
 } {
-  const { platform } = useGraph()
-  const bridgeReady = useBridgeReady()
-  const queryClient = useQueryClient()
-  const query = useQuery({
-    queryKey: queryKeys.appStore.environment,
-    queryFn: fetchAppStoreEnvironment,
-    initialData: readAppStoreEnvironmentSeed,
-    initialDataUpdatedAt: 0,
-    // A persisted seed stays stale until this launch verifies it.
-    staleTime: (environmentQuery) => (environmentQuery.state.dataUpdatedAt === 0 ? 0 : Infinity),
-    enabled: platform === 'ios' && bridgeReady,
-  })
-  const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.appStore.environment })
-  }, [queryClient])
+  const { appStoreEnvironment: environment } = useMobileAppServices()
+  const state = useServiceState(environment, environment.getState)
+
+  useEffect(() => {
+    void environment.environment()
+  }, [environment])
 
   return {
-    value: query.data ?? null,
-    isLoading: query.isLoading,
-    isError: query.isError,
-    invalidate,
+    value: state.value,
+    isLoading: state.isLoading,
+    isError: state.isError,
+    invalidate: environment.invalidate,
   }
 }

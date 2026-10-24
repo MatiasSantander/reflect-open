@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
-import { cleanup, render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { MonthPickerDrawer } from './month-picker-drawer.tsx'
 
 /**
@@ -14,18 +14,17 @@ import { MonthPickerDrawer } from './month-picker-drawer.tsx'
 // capture); its drag/animation is verified on-device. This passthrough
 // honours `open` so open/close behavior stays testable.
 vi.mock('@/components/ui/drawer.tsx', () => ({
-  Drawer: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
-    open ? <div data-testid="drawer">{children}</div> : null,
+  Drawer: ({ open, children }: { open?: boolean; children?: ReactNode }) => {
+    return open ? <div data-testid="drawer">{children}</div> : null
+  },
   DrawerContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DrawerBody: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
 }))
 
-afterEach(cleanup)
-
 async function mount(overrides: Partial<Parameters<typeof MonthPickerDrawer>[0]> = {}) {
   const onPick = vi.fn()
-  const view = await render(
+  const view = await renderInApp(
     <MonthPickerDrawer
       open
       onOpenChange={() => {}}

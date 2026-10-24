@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act } from '@/test-utils/act.ts'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WeekStartDay } from '@reflect/core'
@@ -68,8 +68,8 @@ vi.mock('embla-carousel-react', () => ({
   default: () => [() => {}, embla.api],
 }))
 
-afterEach(() => {
-  cleanup()
+afterEach(async () => {
+  await cleanup()
   embla.reset()
 })
 
@@ -94,7 +94,7 @@ describe('useWeekStrip', () => {
   it('rebuilds the window when a swipe settles near an edge and reinits onto the anchor', async () => {
     const { result } = await mountStrip()
 
-    act(() => embla.settleAt(1))
+    await act(() => embla.settleAt(1))
 
     const browsedWeek = weekAtIndex(initialWindow, 1)
     const rebuilt = createWeekWindow(browsedWeek, WEEK_START)
@@ -110,7 +110,7 @@ describe('useWeekStrip', () => {
   it('leaves a mid-window settle alone', async () => {
     const { result } = await mountStrip()
 
-    act(() => embla.settleAt(28))
+    await act(() => embla.settleAt(28))
 
     expect(result.current.weekWindow).toEqual(initialWindow)
     expect(result.current.displayedWeekStart).toBe(weekAtIndex(initialWindow, 28))
@@ -122,7 +122,7 @@ describe('useWeekStrip', () => {
 
     // Browse two weeks ahead of the selection: the echo guard must keep the
     // re-render from scrolling the strip back to the (unchanged) date's week.
-    act(() => embla.settleAt(28))
+    await act(() => embla.settleAt(28))
     expect(embla.api.scrollTo).not.toHaveBeenCalled()
 
     // A real date change is followed with a plain scroll — no rebuild.
@@ -136,7 +136,7 @@ describe('useWeekStrip', () => {
   it('showWeekOf scrolls to an in-window target', async () => {
     const { result } = await mountStrip()
 
-    act(() => result.current.showWeekOf('2026-06-19'))
+    await act(() => result.current.showWeekOf('2026-06-19'))
 
     expect(embla.api.scrollTo).toHaveBeenCalledWith(27)
     expect(result.current.displayedWeekStart).toBe(weekAtIndex(initialWindow, 27))
@@ -148,7 +148,7 @@ describe('useWeekStrip', () => {
     const target = '2027-06-12'
     expect(weekIndexOf(initialWindow, target, WEEK_START)).toBe(-1)
 
-    act(() => result.current.showWeekOf(target))
+    await act(() => result.current.showWeekOf(target))
 
     const rebuilt = createWeekWindow(target, WEEK_START)
     expect(result.current.weekWindow).toEqual(rebuilt)
@@ -193,13 +193,13 @@ describe('shouldRecenterWeeks', () => {
   // 9 week slides around the anchor; margin 2 → indices 0–1 and 7–8 trigger.
   const window = createWeekWindow('2026-06-12', 'monday', 4)
 
-  it('leaves the middle of the window alone', async () => {
+  it('leaves the middle of the window alone', () => {
     expect(shouldRecenterWeeks(window, 4, 2)).toBe(false)
     expect(shouldRecenterWeeks(window, 2, 2)).toBe(false)
     expect(shouldRecenterWeeks(window, 6, 2)).toBe(false)
   })
 
-  it('re-centers within the margin of either edge', async () => {
+  it('re-centers within the margin of either edge', () => {
     expect(shouldRecenterWeeks(window, 1, 2)).toBe(true)
     expect(shouldRecenterWeeks(window, 0, 2)).toBe(true)
     expect(shouldRecenterWeeks(window, 7, 2)).toBe(true)

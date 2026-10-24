@@ -1,7 +1,9 @@
-use super::x_archive_store as archive;
 use super::GraphState;
 use crate::error::{AppError, AppResult};
-use serde_json::{json, Value};
+use reflect_graph_io::x_archive_store as archive;
+use reflect_types::FileChange;
+use reflect_types::events::INDEX_CHANGED;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
 
@@ -27,7 +29,8 @@ fn download_media<R: tauri::Runtime>(
             match super::x_download::download(root, url).await {
                 Ok(receipt) => {
                     if super::root_for_generation(&app.state::<GraphState>(), generation).is_ok() {
-                        let _ = app.emit("index:changed", json!([{ "path": format!("assets/x/{}", receipt.name), "kind": "upsert" }]));
+                        let change = FileChange::upsert(format!("assets/x/{}", receipt.name), None);
+                        let _ = app.emit(INDEX_CHANGED, vec![change]);
                     }
                 }
 
@@ -100,7 +103,7 @@ pub async fn x_archive_owners(
         if !asset_path.starts_with("assets/x/") {
             return Ok(vec![]);
         }
-        let directory = super::resolve::resolve(&root, "assets/x")?;
+        let directory = super::resolve(&root, "assets/x")?;
         let mut owners = Vec::new();
         if !directory.is_dir() {
             return Ok(owners);

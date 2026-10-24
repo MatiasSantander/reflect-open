@@ -3,7 +3,7 @@
 The desktop app registers the `reflect://` URL scheme, so other apps,
 scripts, and launchers can navigate the running app (or launch it) and hand
 it quick captures. The grammar mirrors the in-app route model
-(`apps/desktop/src/routing/route.ts`) one-to-one — a URL is an address for an
+(`packages/app/src/navigation/route.ts`) one-to-one — a URL is an address for an
 app state, never a remote control.
 
 ## Navigation links

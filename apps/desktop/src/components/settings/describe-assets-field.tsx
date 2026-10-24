@@ -1,5 +1,4 @@
 import { useState, type ReactElement } from 'react'
-import type { AiProvidersState } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import {
   Dialog,
@@ -10,9 +9,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import { backfillAssetDescriptionsVisibly } from '@/lib/asset-backfill.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useSettings } from '@/providers/settings-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { SettingsField } from './field.tsx'
 
 /**
@@ -25,24 +24,20 @@ import { SettingsField } from './field.tsx'
 export function DescribeAssetsField(): ReactElement {
   const { settings, updateSettings } = useSettings()
   const { graph } = useGraph()
+  const { assetDescription } = useCoreServices()
   const [confirming, setConfirming] = useState(false)
   const [running, setRunning] = useState(false)
 
   const hasProvider = settings.aiProviders.length > 0
-  const generation = graph?.generation ?? null
 
   const runBackfill = async (): Promise<void> => {
     setConfirming(false)
-    if (generation === null || running) {
+    if (running) {
       return
-    }
-    const providers: AiProvidersState = {
-      providers: settings.aiProviders,
-      defaultProviderId: settings.defaultAiProviderId,
     }
     setRunning(true)
     try {
-      await backfillAssetDescriptionsVisibly(generation, providers)
+      await assetDescription.backfillVisibly()
     } finally {
       setRunning(false)
     }
@@ -66,7 +61,7 @@ export function DescribeAssetsField(): ReactElement {
           type="button"
           variant="outline"
           size="sm"
-          disabled={generation === null || !hasProvider || running}
+          disabled={graph === null || !hasProvider || running}
           onClick={() => setConfirming(true)}
           className="text-text-secondary"
         >

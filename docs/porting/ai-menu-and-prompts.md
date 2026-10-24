@@ -74,7 +74,7 @@ The work splits cleanly along the existing seams:
   (`packages/core/src/ai/`), the provider catalog, keychain-stored keys, and
   the Vercel AI SDK streaming plumbing the copilot already uses.
 - **Privacy enforcement** reuses the `CloudSafe` pattern
-  (`packages/core/src/ai/checkers.ts`): the selection text must pass the
+  (`packages/core/src/privacy/privacy-service.ts`): the selection text must pass the
   same structural check as copilot context, so a private note's content
   cannot typecheck its way to a provider. The UI reflects this by disabling
   the menu in private notes with an explanatory tooltip.

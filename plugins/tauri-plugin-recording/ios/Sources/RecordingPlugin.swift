@@ -114,7 +114,7 @@ struct StagedPathArgs: Decodable {
 }
 
 /// Reflect's native audio-memo recorder (the mobile leg of the raw-first
-/// pipeline in `packages/core/src/actions/audio-memo.ts`).
+/// pipeline in `packages/core/src/audio/audio-memo.ts`).
 ///
 /// The V1 lesson this preserves: **capture must not depend on the webview.**
 /// The recorder writes AAC mono 44.1 kHz `.m4a` straight into a staging
@@ -966,6 +966,6 @@ private class RecorderDelegateProxy: NSObject, AVAudioRecorderDelegate {
 }
 
 @_cdecl("init_plugin_recording")
-func initPlugin() -> Plugin {
+public func initPlugin() -> Plugin {
   return RecordingPlugin()
 }

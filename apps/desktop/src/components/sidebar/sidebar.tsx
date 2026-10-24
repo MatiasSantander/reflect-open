@@ -2,18 +2,16 @@ import type { ReactElement } from 'react'
 import { isUntitledNotePath, type GraphInfo } from '@reflect/core'
 import { ListChecks, MessageSquare, SquarePen } from 'lucide-react'
 import { AudioMemoButton } from '@/components/audio-memo/audio-memo-button.tsx'
-import { MeetingRecordingBanner } from '@/components/meeting-recording-banner.tsx'
 import { ListIcon } from '@/components/icons/list-icon.tsx'
 import { PencilIcon } from '@/components/icons/pencil-icon.tsx'
 import { usePinnedNotes } from '@/hooks/use-pinned-notes.ts'
 import { keybindingFor } from '@/lib/commands/app-commands.ts'
-import { runCommand } from '@/lib/commands/registry.ts'
 import { useToday } from '@/lib/use-today.ts'
 import type { CommandContext } from '@/lib/commands/types.ts'
-import { hasMacosTitleBarOverlay } from '@/lib/window-chrome.ts'
 import { cn } from '@/lib/utils.ts'
 import { notePathForRoute } from '@/routing/route.ts'
 import { useRouter } from '@/routing/router.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { GraphFooter } from './graph-footer.tsx'
 import { NavigateArrows } from './navigate-arrows.tsx'
 import { SidebarItem } from './sidebar-item.tsx'
@@ -36,6 +34,7 @@ interface SidebarProps {
  * `Mod-\` via the command registry.)
  */
 export function Sidebar({ graph, context }: SidebarProps): ReactElement {
+  const { platform } = useCoreServices()
   const { route } = useRouter()
   const today = useToday()
   const pinned = usePinnedNotes()
@@ -53,7 +52,7 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
         'flex h-full min-h-0 flex-col',
         // With the overlaid macOS title bar, the traffic lights and the
         // WindowDragRegion strip own the top 28px — start content below them.
-        hasMacosTitleBarOverlay ? 'pt-2' : 'pt-2.5',
+        platform.hasMacosTitleBarOverlay ? 'pt-2' : 'pt-2.5',
       )}
     >
       <div className="flex flex-none items-center justify-end px-2 pt-1">
@@ -68,15 +67,13 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
           <AudioMemoButton />
         </div>
 
-        <MeetingRecordingBanner />
-
         <nav aria-label="Primary" className="mt-6 space-y-1 px-4">
           <SidebarItem
             icon={<PencilIcon className="shrink-0" />}
             label="Daily notes"
             binding={keybindingFor('nav.today') ?? undefined}
             active={(route.kind === 'today' || route.kind === 'daily') && !hasActivePinnedNote}
-            onClick={() => void runCommand('nav.today', context)}
+            onClick={() => void context.app.commands.run('nav.today', context)}
           />
           <SidebarItem
             icon={
@@ -91,7 +88,7 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
             // title slug is also what hands the note off to ordinary
             // navigation, releasing the highlight.
             active={route.kind === 'note' && isUntitledNotePath(route.path)}
-            onClick={() => void runCommand('note.new', context)}
+            onClick={() => void context.app.commands.run('note.new', context)}
           />
           <SidebarItem
             icon={<ListIcon className="shrink-0" />}
@@ -105,7 +102,7 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
               route.kind === 'allNotes' ||
               (route.kind === 'note' && !isUntitledNotePath(route.path) && !hasActivePinnedNote)
             }
-            onClick={() => void runCommand('nav.allNotes', context)}
+            onClick={() => void context.app.commands.run('nav.allNotes', context)}
           />
           <SidebarItem
             icon={
@@ -116,7 +113,7 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
             label="Tasks"
             binding={keybindingFor('nav.tasks') ?? undefined}
             active={route.kind === 'tasks'}
-            onClick={() => void runCommand('nav.tasks', context)}
+            onClick={() => void context.app.commands.run('nav.tasks', context)}
           />
           <SidebarItem
             icon={
@@ -127,7 +124,7 @@ export function Sidebar({ graph, context }: SidebarProps): ReactElement {
             label="Chat"
             binding={keybindingFor('chat.open') ?? undefined}
             active={route.kind === 'chat'}
-            onClick={() => void runCommand('chat.open', context)}
+            onClick={() => void context.app.commands.run('chat.open', context)}
           />
         </nav>
       </div>

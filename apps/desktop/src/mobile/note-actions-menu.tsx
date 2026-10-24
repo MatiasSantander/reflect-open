@@ -5,12 +5,9 @@ import { Button } from '@/components/ui/button.tsx'
 import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer.tsx'
 import { useNoteRowState } from '@/hooks/use-note-row.ts'
 import { usePinnedNotes } from '@/hooks/use-pinned-notes.ts'
-import { useQueryClient } from '@tanstack/react-query'
-import { toggleNotePinned } from '@/lib/note-pin.ts'
-import { toggleNotePrivate } from '@/lib/note-private.ts'
 import { NoteDeleteDrawer } from '@/mobile/note-delete-drawer.tsx'
 import { shareNote } from '@/mobile/share.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteActionsMenuProps {
   /** Graph-relative path of the note the actions operate on. */
@@ -23,14 +20,14 @@ interface NoteActionsMenuProps {
  * The note screen's "⋯" action sheet (Plan 19): pin/unpin, lock/unlock from
  * external services, share, and delete-to-trash. Pin reflects the index's
  * pinned set; privacy reflects the note's indexed `private: true` flag,
- * both updated in the shared query cache while the index catches up. {@link shareNote} hands the note's body to the OS share sheet via
+ * both with the note-row overlay merged over them while the index catches up. {@link shareNote} hands the note's body to the OS share sheet via
  * the Web Share API (`navigator.share`); delete confirms first (it's
  * destructive, even if recoverable from `.reflect/trash/`) and routes through
- * {@link deleteOpenNote} so the open session is discarded rather than flushed.
+ * `NoteActionsService.trashOne` so the open session is discarded rather than flushed.
  */
 export function NoteActionsMenu({ path, onDeleted }: NoteActionsMenuProps): ReactElement {
-  const { graph } = useGraph()
-  const queryClient = useQueryClient()
+  const { noteActions, logger } = useCoreServices()
+  const { share: shareService } = useAppServices()
   const isPinned = usePinnedNotes().some((note) => note.path === path)
   const { row: noteRow, settled: privacyReady } = useNoteRowState(path)
   const [actionsOpen, setActionsOpen] = useState(false)
@@ -43,24 +40,17 @@ export function NoteActionsMenu({ path, onDeleted }: NoteActionsMenuProps): Reac
       : 'Lock note'
 
   const pin = (): void => {
-    if (graph !== null) {
-      void toggleNotePinned({
-        queryClient,
-        root: graph.root,
-        generation: graph.generation,
-        path,
-      })
-    }
+    void noteActions.togglePinned(path)
   }
 
   const togglePrivate = async (): Promise<void> => {
-    if (graph !== null) {
-      await toggleNotePrivate({ queryClient, root: graph.root, generation: graph.generation, path })
-    }
+    await noteActions.togglePrivate(path)
   }
 
   const share = (): void => {
-    void shareNote(path).catch((cause) => console.error('share failed:', errorMessage(cause)))
+    void shareNote(shareService, path).catch((cause) => {
+      logger.error('share failed:', errorMessage(cause))
+    })
   }
 
   return (

@@ -1,32 +1,25 @@
-import { renderHook } from 'vitest-browser-react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const setWindowTitle = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/windows/window-title.ts', () => ({ setWindowTitle }))
-
+import { describe, expect, it } from 'vitest'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
 import { useNoteWindowTitle } from './use-note-window-title.ts'
-
-beforeEach(() => {
-  vi.clearAllMocks()
-})
 
 describe('useNoteWindowTitle', () => {
   it('sets the title and follows changes (a rename)', async () => {
-    const view = await renderHook(
-      ({ title }: { title: string | null } = { title: 'Meeting Notes' }) =>
-        useNoteWindowTitle(title),
+    const view = await renderHookInApp(
+      ({ title }: { title: string | null } = { title: 'Meeting Notes' }) => {
+        useNoteWindowTitle(title)
+      },
       {
         initialProps: { title: 'Meeting Notes' },
       },
     )
-    expect(setWindowTitle).toHaveBeenLastCalledWith('Meeting Notes')
+    expect(view.appServices.window.title()).toBe('Meeting Notes')
 
     await view.rerender({ title: 'Renamed Notes' })
-    expect(setWindowTitle).toHaveBeenLastCalledWith('Renamed Notes')
+    expect(view.appServices.window.title()).toBe('Renamed Notes')
   })
 
   it('falls back to the app name while the title is unknown', async () => {
-    await renderHook(() => useNoteWindowTitle(null))
-    expect(setWindowTitle).toHaveBeenLastCalledWith('Reflect')
+    const { appServices } = await renderHookInApp(() => useNoteWindowTitle(null))
+    expect(appServices.window.title()).toBe('Reflect')
   })
 })

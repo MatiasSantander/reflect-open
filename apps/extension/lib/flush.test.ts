@@ -88,20 +88,15 @@ describe('flushQueue', () => {
     // flushed) during that window must NOT be handed the stale pass — its
     // own flush promise must cover it, and the stale pass's per-key removals
     // must not clobber it out of storage.
-    let releaseFirst: (outcome: SendOutcome) => void = () => {}
-    sendMock.mockImplementationOnce(
-      () =>
-        new Promise<SendOutcome>((resolve) => {
-          releaseFirst = resolve
-        }),
-    )
+    const pendingFirst = Promise.withResolvers<SendOutcome>()
+    sendMock.mockImplementationOnce(() => pendingFirst.promise)
     await enqueueCapture(wire(FIRST))
     const firstFlush = flushQueue()
     await vi.waitFor(() => expect(sendMock).toHaveBeenCalledTimes(1))
 
     await enqueueCapture(wire(SECOND))
     const secondFlush = flushQueue()
-    releaseFirst({ kind: 'queued' })
+    pendingFirst.resolve({ kind: 'queued' })
 
     expect((await firstFlush).sent).toBe(1)
     expect((await secondFlush).sent).toBe(1)
@@ -110,13 +105,14 @@ describe('flushQueue', () => {
   })
 
   it('reports rejected ids so a stale drop cannot masquerade as the new save failing', async () => {
-    sendMock.mockImplementation((sent) =>
-      Promise.resolve(
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    sendMock.mockImplementation((sent) => {
+      return Promise.resolve(
         sent.envelope.id === FIRST
           ? { kind: 'rejected', message: 'invalid payload' }
           : { kind: 'queued' },
-      ),
-    )
+      )
+    })
     await enqueueCapture(wire(FIRST))
     await enqueueCapture(wire(SECOND))
 
@@ -130,9 +126,15 @@ describe('flushQueue', () => {
       holdReason: null,
     })
     expect(await readQueue()).toEqual([])
+    expect(error).toHaveBeenCalledExactlyOnceWith(
+      `capture ${FIRST} dropped — the host rejected it: invalid payload`,
+    )
+
+    error.mockRestore()
   })
 
   it('a hold stops the pass and keeps every remaining capture, attempts stamped', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     sendMock.mockResolvedValue({ kind: 'held', reason: 'no-host', message: 'host not found' })
     await enqueueCapture(wire(FIRST))
     await enqueueCapture(wire(SECOND))
@@ -143,6 +145,9 @@ describe('flushQueue', () => {
     expect(sendMock).toHaveBeenCalledTimes(1) // the condition affects all — stop
     const queue = await readQueue()
     expect(queue.map((entry) => entry.attempts)).toEqual([1, 0])
+    expect(warn).toHaveBeenCalledExactlyOnceWith('captures held (no-host): host not found')
+
+    warn.mockRestore()
   })
 
   it('skips unreadable stored entries instead of failing the whole queue', async () => {
@@ -172,6 +177,7 @@ function xPost(kind: XPostKind, id: string): ExtensionCaptureWire {
 const bookmark = xPost('x-bookmark', FIRST)
 
 it('holds a bookmark an old desktop cannot read without blocking page captures', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   await enqueueCapture(bookmark)
   await enqueueCapture(wire(SECOND))
   sendMock.mockResolvedValueOnce({
@@ -184,6 +190,11 @@ it('holds a bookmark an old desktop cannot read without blocking page captures',
   expect((await readQueue()).map((entry) => entry.wire.envelope.id)).toEqual([FIRST])
   await flushQueue()
   expect(await readQueue()).toEqual([])
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    'captures held (unsupported-version): update Reflect',
+  )
+
+  warn.mockRestore()
 })
 
 it('refuses a full queue without removing accepted data', async () => {
@@ -206,6 +217,7 @@ it('surfaces storage failure and lets a subsequent admission proceed', async () 
 })
 
 it('replays the same event after a lost ACK', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   await enqueueCapture(bookmark)
   sendMock.mockResolvedValueOnce({ kind: 'held', reason: 'io', message: 'ACK lost' })
   await flushQueue()
@@ -215,9 +227,13 @@ it('replays the same event after a lost ACK', async () => {
     bookmark.envelope.id,
   ])
   expect(await readQueue()).toEqual([])
+  expect(warn).toHaveBeenCalledExactlyOnceWith('captures held (io): ACK lost')
+
+  warn.mockRestore()
 })
 
 it('retains a held like and still delivers a supported page capture', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   const like = xPost('x-like', FIRST)
   await enqueueCapture(like)
   await enqueueCapture(wire(SECOND))
@@ -229,10 +245,15 @@ it('retains a held like and still delivers a supported page capture', async () =
   const result = await flushQueue()
   expect(result).toMatchObject({ sent: 1, held: 1, failed: 0, holdReason: 'unsupported-version' })
   expect((await readQueue()).map((entry) => entry.wire.envelope.id)).toEqual([FIRST])
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    'captures held (unsupported-version): Update Reflect',
+  )
+
+  warn.mockRestore()
 })
 
 it('checks automatic admission policy inside the serialized queue operation', async () => {
-  const policy = vi.fn(async () => false)
+  const policy = vi.fn(() => Promise.resolve(false))
   await enqueueCapture(wire(FIRST), policy)
   expect(policy).toHaveBeenCalledTimes(1)
   expect(await readQueue()).toEqual([])

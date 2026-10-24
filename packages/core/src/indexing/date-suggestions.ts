@@ -16,29 +16,9 @@
  */
 
 import { addDaysIso, addMonthsIso, isCalendarDate, isoFromParts, weekdayIso } from '@reflect/utils'
-import { weekStartDow, type DateFormat, type WeekStartDay } from '../settings/schema.ts'
+import { weekStartDow, type WeekStartDay } from '../settings/schema.ts'
+import type { DateSuggestion, DateSuggestionContext } from './date-suggestion-types.ts'
 import { monthNameSuggestions } from './date-suggestions-months.ts'
-
-/** One synthesised daily-note target: the resolved day plus its menu label. */
-export interface DateSuggestion {
-  /** Resolved daily-note date, ISO `YYYY-MM-DD`. */
-  date: string
-  /** Human label for the menu ("3 days ago", "Next Friday"); `null` for a bare ISO query. */
-  phrase: string | null
-}
-
-/** What the generator needs from its caller: the local clock and display preferences. */
-export interface DateSuggestionContext {
-  /** Today's local calendar date, ISO `YYYY-MM-DD`. */
-  today: string
-  /**
-   * Reading order for ambiguous typed slash-dates (`mdy` → M/D, `dmy` → D/M).
-   * `iso` has no slash-date order, so it keeps the default M/D reading.
-   */
-  dateFormat: DateFormat
-  /** Which day "this/next/last week" (and weekend) anchor to. */
-  weekStartDay: WeekStartDay
-}
 
 /** At most this many date suggestions survive into the menu. */
 const MAX_RESULTS = 3
@@ -108,14 +88,15 @@ function extractUnit(tokens: readonly string[]): Unit | null {
 
 function extractDirection(tokens: readonly string[]): Direction | null {
   const hasPast = tokens.includes('ago')
-  const hasFuture = tokens.some(
-    (token) =>
+  const hasFuture = tokens.some((token) => {
+    return (
       token === 'from' ||
       token === 'now' ||
       token === 'later' ||
       token === 'in' ||
-      token === 'hence',
-  )
+      token === 'hence'
+    )
+  })
   if (hasPast && !hasFuture) {
     return 'past'
   }
@@ -257,15 +238,17 @@ const NL_UNITS: readonly NlUnit[] = [
     word: 'week',
     display: 'Week',
     order: 7,
-    resolve: (context, modifier) =>
-      resolveFromAnchor(firstOfWeek(context.today, context.weekStartDay), modifier, 7),
+    resolve: (context, modifier) => {
+      return resolveFromAnchor(firstOfWeek(context.today, context.weekStartDay), modifier, 7)
+    },
   },
   {
     word: 'weekend',
     display: 'Weekend',
     order: 8,
-    resolve: (context, modifier) =>
-      resolveFromAnchor(weekendOf(context.today, context.weekStartDay), modifier, 7),
+    resolve: (context, modifier) => {
+      return resolveFromAnchor(weekendOf(context.today, context.weekStartDay), modifier, 7)
+    },
   },
   {
     word: 'month',

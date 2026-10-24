@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useEditor } from '@meowdown/react'
-import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { whenEditorMounted } from './when-editor-mounted.ts'
 
 /**
@@ -23,17 +23,19 @@ import { whenEditorMounted } from './when-editor-mounted.ts'
  */
 export function EditorInputTraits(): null {
   const editor = useEditor()
+  const { platform, logger } = useCoreServices()
+  const touchEditor = platform.surface.touchEditor
 
   useEffect(() => {
-    if (!isTouchEditorSurface()) {
+    if (!touchEditor) {
       return
     }
-    return whenEditorMounted(editor, () => {
+    return whenEditorMounted(logger, editor, () => {
       const dom = editor.view.dom
       dom.setAttribute('autocapitalize', 'sentences')
       dom.setAttribute('autocorrect', 'on')
     })
-  }, [editor])
+  }, [editor, touchEditor, logger])
 
   return null
 }

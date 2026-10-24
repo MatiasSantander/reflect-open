@@ -20,7 +20,7 @@ before store review finishes.
 
 popup → `chrome.storage` queue → background `sendNativeMessage` →
 `reflect-capture-host` (Tauri sidecar, registered by the desktop app on every
-launch) → capture inbox → desktop drain (`@reflect/core` `actions/capture`):
+launch) → capture inbox → desktop drain (`@reflect/core` `CaptureService`):
 raw note + daily `## [[Links]]` entry now (resolving or creating that category
 note), meta-scrape + BYOK AI title + description async. The extension stores no
 keys and makes no AI or network calls; its only honest status is **queued** — it
@@ -107,7 +107,7 @@ openssl rsa -in key.pem -pubout -outform DER | shasum -a 256 \
 release-please maintains a separate draft `chore(extension): release <version>` PR
 on `master`. Mark it ready and merge it to publish the GitHub release with an
 `extension-v<version>` tag and run the
-[Release Browser Extension workflow](../../.github/workflows/release-browser-extension.yml).
+[Publish browser extension workflow](../../.github/workflows/publish-browser-extension.yml).
 The workflow builds the store ZIP from that commit and uses `wxt submit` to
 submit it to the existing
 [Reflect Capture listing](https://chromewebstore.google.com/detail/reflect-capture/ccabifmooehighoonjeiololjfofkhkd).
@@ -122,7 +122,7 @@ the affected behavior. A `chore` commit alone does not trigger a release.
 
 ### Configuration
 
-The workflow reads repository Actions secrets `CHROME_PUBLISHER_ID`,
+The workflow reads the `release_extension` environment secrets `CHROME_PUBLISHER_ID`,
 `CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL`, and `CHROME_SERVICE_ACCOUNT_PRIVATE_KEY`.
 The service account must be linked to the existing publisher in the Chrome Web
 Store dashboard. See [Google's setup instructions](https://developer.chrome.com/docs/webstore/service-accounts).

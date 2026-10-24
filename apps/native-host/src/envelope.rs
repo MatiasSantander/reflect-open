@@ -1,5 +1,5 @@
 //! The wire message and capture envelope, mirroring the zod schemas in
-//! `@reflect/core` (`actions/capture-envelope.ts` — the source of truth).
+//! `@reflect/core` (`capture/capture-envelope.ts` — the source of truth).
 //! Serde tolerates unknown fields (a newer extension must not break an older
 //! host); the checks here are the ones the host *must* enforce before the
 //! envelope id names files on disk.
@@ -328,7 +328,7 @@ mod tests {
     fn shared_fixtures_pin_the_ts_contract() {
         let fixtures: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../packages/core/src/actions/capture-envelope.fixtures.json"
+            "/../../packages/core/src/capture/capture-envelope.fixtures.json"
         )))
         .unwrap();
         for case in fixtures["accepted"].as_array().unwrap() {

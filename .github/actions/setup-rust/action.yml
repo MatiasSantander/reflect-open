@@ -1,17 +1,28 @@
-name: Set up the Rust workspace
-description: Installs the Tauri system dependencies, the Rust toolchain, the cargo and ONNX Runtime caches, and stages the CLI sidecar. Linux runners only.
+name: Set up Rust
+description: Installs the Rust toolchain, the cargo build cache, and on Linux the Tauri system dependencies.
 
 inputs:
-  components:
-    description: Comma-separated rustup components to install alongside the toolchain.
+  cache:
+    description: Whether to restore and save the cargo build cache.
+    required: false
+    default: 'true'
+  cache-key:
+    description: An extra key for the cargo build cache, for jobs that must not share one.
     required: false
     default: ''
 
 runs:
   using: composite
   steps:
+    # Cargo registry fetches can intermittently fail on GitHub runners with
+    # curl HTTP/2 framing errors. HTTP/1.1 is slower but steadier.
+    - name: Disable HTTP/2 multiplexing in cargo
+      shell: bash
+      run: echo "CARGO_HTTP_MULTIPLEXING=false" >> "$GITHUB_ENV"
+
     # Tauri v2 build dependencies (the crate links the WebView + GTK stack).
     - name: Install Tauri system dependencies
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         PACKAGES="\
@@ -35,39 +46,43 @@ runs:
         fi
 
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-      with:
-        components: ${{ inputs.components }}
+      shell: bash
+      run: |
+        rustup toolchain install --no-self-update
+        rustc --version --verbose
 
-    - name: Cache cargo build
-      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      with:
-        # A failed clippy/test run still compiled the dependency tree; save it
-        # so the next push doesn't pay the cold-build cost again.
-        cache-on-failure: true
+    # Build scripts (ort-sys, swift-rs) write the path of Xcode's clang runtime
+    # into their cached output, and cargo does not rerun them when Xcode
+    # changes. rust-cache hashes RUST_* variables into its key, so a new Xcode
+    # starts from a cold cache instead of failing at link time.
+    - name: Scope the cargo cache to Xcode
+      if: runner.os == 'macOS'
+      shell: bash
+      run: echo "RUST_CACHE_CLANG_DIR=$(xcrun clang --print-resource-dir)" >> "$GITHUB_ENV"
 
     # ort-sys (fastembed → ort) downloads prebuilt ONNX Runtime binaries at
-    # build time and extracts them to ~/.cache/ort.pyke.io — outside target/,
-    # so rust-cache never captures them and every run re-downloads. The build
-    # script skips the download when the extracted dir is already present.
-    # Entries are content-addressed (dfbin/<target>/<hash>), so restoring a
-    # stale cache after an ort upgrade is safe — it just downloads anew.
-    - name: Cache ONNX Runtime binaries
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # build time into $ORT_CACHE_DIR/dfbin/<target>/<hash> and writes that
+    # absolute path into its build script output in target/. Cargo does not
+    # rerun the build script when the directory is missing, so the binaries
+    # must live in the same cache entry as target/, or a restored target/ fails
+    # to link with "could not find native static library onnxruntime".
+    # ORT_CACHE_DIR is documented in the v2.0.0-rc.11 release notes:
+    # https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.11
+    - name: Set the ONNX Runtime cache dir
+      shell: bash
+      run: echo "ORT_CACHE_DIR=$RUNNER_TEMP/ort_cache" >> "$GITHUB_ENV"
+
+    # `env-vars` puts ORT_CACHE_DIR into the cache key, so changing the path
+    # starts from a cold cache instead of a target/ that points to the old one.
+    - name: Cache cargo build
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
-        path: ~/.cache/ort.pyke.io
-        key: ort-bin-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-        restore-keys: |
-          ort-bin-${{ runner.os }}-
+        key: ${{ inputs.cache-key }}
+        env-vars: ORT_CACHE_DIR
+        cache-directories: ${{ env.ORT_CACHE_DIR }}
 
-    # Without this, actions/cache warns at save time on builds that never
-    # trigger the ort download (the path wouldn't exist).
-    - name: Ensure ort cache dir exists
+    # Fails if Cargo.lock is out of date, like `pnpm install --frozen-lockfile`.
+    - name: Check Cargo.lock
       shell: bash
-      run: mkdir -p ~/.cache/ort.pyke.io
-
-    # tauri-build requires the sidecar to exist before the desktop crate's
-    # build script runs (clippy/test compile it), so stage the CLI first.
-    - name: Stage the reflect CLI sidecar
-      shell: bash
-      run: node apps/desktop/scripts/build-sidecar.mjs
+      run: cargo update --workspace --locked

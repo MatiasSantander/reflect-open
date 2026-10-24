@@ -1,6 +1,5 @@
 import { useId, useState, type ReactElement, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { icloudStatus } from '@reflect/core'
 import { Cloud, Folder, FolderPlus } from 'lucide-react'
 import { getIsComposing } from '@meowdown/core'
 import { InlineAlert } from '@/components/inline-alert.tsx'
@@ -8,18 +7,18 @@ import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Spinner } from '@/components/ui/spinner.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
 import { useGraphColors } from '@/hooks/use-graph-colors.ts'
-import { cleanGraphName, graphNameFromRoot, isGraphNameTaken } from '@/lib/graph-names.ts'
+import {
+  DEFAULT_GRAPH_NAME,
+  cleanGraphName,
+  graphNameFromRoot,
+  isGraphNameTaken,
+} from '@/lib/graph-names.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { graphColorCss } from '@/lib/graph-colors.ts'
 import { cn } from '@/lib/utils.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-
-/** iCloud is a real option only in the macOS shell. */
-function isIcloudCapablePlatform(): boolean {
-  return import.meta.env.TAURI_ENV_PLATFORM === 'darwin'
-}
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * First-run / no-graph screen (Plan 21 UX pass). One decision, stated
@@ -35,7 +34,9 @@ function isIcloudCapablePlatform(): boolean {
 export function GraphChooser(): ReactElement {
   const { recents, error, pickAndOpen, openRecent, createAt, forget } = useGraph()
   const { colorFor } = useGraphColors()
-  const icloudCapable = isIcloudCapablePlatform()
+  const { platform } = useCoreServices()
+  // iCloud is a real option only in the macOS shell.
+  const icloudCapable = platform.buildPlatform === 'darwin'
 
   return (
     <ChooserShell>
@@ -202,11 +203,10 @@ function IcloudCard({
   const [typedName, setTypedName] = useState<string | null>(null)
   const [busy, setBusy] = useState<IcloudBusy>(null)
   const nameId = useId()
-  const bridgeReady = useBridgeReady()
+  const { icloudNative } = useCoreServices()
   const { data: status } = useQuery({
     queryKey: queryKeys.icloud.status,
-    queryFn: icloudStatus,
-    enabled: bridgeReady,
+    queryFn: () => icloudNative.status(),
   })
 
   const pending = busy !== null
@@ -216,7 +216,7 @@ function IcloudCard({
   // list the row starts empty — a prefilled default would collide with the
   // usual first graph ("Notes") and paint the screen invalid before the
   // user touched it.
-  const name = typedName ?? (existing.length > 0 ? '' : 'Notes')
+  const name = typedName ?? (existing.length > 0 ? '' : DEFAULT_GRAPH_NAME)
   const cleanName = cleanGraphName(name)
   // macOS folder names are case-insensitive — a same-named create would
   // land inside the existing graph instead of next to it.

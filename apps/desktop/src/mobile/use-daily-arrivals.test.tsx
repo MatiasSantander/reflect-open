@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act } from '@/test-utils/act.ts'
 import { cleanup, renderHook } from 'vitest-browser-react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useDailyArrivals, type DailyArrivalsOptions } from './use-daily-arrivals.ts'
@@ -17,8 +17,8 @@ async function mountArrivals(initial: DailyArrivalsOptions) {
   })
 }
 
-afterEach(() => {
-  cleanup()
+afterEach(async () => {
+  await cleanup()
 })
 
 describe('useDailyArrivals', () => {
@@ -112,7 +112,7 @@ describe('useDailyArrivals', () => {
       arrivalFocusEditor: true,
       date: '2026-07-06',
     })
-    act(() => {
+    await act(() => {
       hook.result.current.consumeFocus()
     })
     expect(hook.result.current.focusDate).toBeNull()

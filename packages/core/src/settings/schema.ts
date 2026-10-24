@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isHttpBaseUrl, normalizeOpenAICompatibleBaseUrl } from '../ai/openai-compatible.ts'
+import { isHttpBaseUrl, normalizeOpenAICompatibleBaseUrl } from '../lib/http-url.ts'
 
 /**
  * The user-settings schema — the policy half of the settings store. Rust
@@ -359,9 +359,7 @@ export const aiProviderIdSchema = z.enum([
 
 export type AiProviderId = z.infer<typeof aiProviderIdSchema>
 
-const hostedAiProviderIdSchema = z.enum(['openai', 'anthropic', 'google', 'openrouter'])
-
-export type HostedAiProviderId = z.infer<typeof hostedAiProviderIdSchema>
+export type HostedAiProviderId = Exclude<AiProviderId, 'openai-compatible'>
 
 export const openAiCompatibleBaseUrlSchema = z
   .string()
@@ -402,15 +400,6 @@ const openRouterProviderConfigSchema = aiProviderConfigBaseSchema.extend({
   provider: z.literal('openrouter'),
 })
 
-const hostedAiProviderConfigSchema = z.union([
-  openAiProviderConfigSchema,
-  anthropicProviderConfigSchema,
-  googleProviderConfigSchema,
-  openRouterProviderConfigSchema,
-])
-
-export type HostedAiProviderConfig = z.infer<typeof hostedAiProviderConfigSchema>
-
 const openAiCompatibleProviderConfigSchema = aiProviderConfigBaseSchema.extend({
   provider: z.literal('openai-compatible'),
   baseUrl: openAiCompatibleBaseUrlSchema,
@@ -427,6 +416,8 @@ export const aiProviderConfigSchema = z.discriminatedUnion('provider', [
 ])
 
 export type AiProviderConfig = z.infer<typeof aiProviderConfigSchema>
+
+export type HostedAiProviderConfig = Exclude<AiProviderConfig, { provider: 'openai-compatible' }>
 
 /**
  * The `aiProviders` entry AI features use by default. A dangling or null id
@@ -482,12 +473,12 @@ export const chatSystemPromptSchema = z.string().catch('').transform(normalizeCh
 export const aiProvidersSchema = z
   .array(z.unknown())
   .catch([])
-  .transform((entries) =>
-    entries.flatMap((entry) => {
+  .transform((entries) => {
+    return entries.flatMap((entry) => {
       const parsed = aiProviderConfigSchema.safeParse(entry)
       return parsed.success ? [parsed.data] : []
-    }),
-  )
+    })
+  })
 
 /**
  * Where an AI selection prompt's accepted result lands: `replace` swaps the
@@ -505,25 +496,11 @@ export type AiPromptMode = z.infer<typeof aiPromptModeSchema>
  * port over verbatim); a body without the placeholder gets the selection
  * appended after it.
  */
-/**
- * Where a prompt runs. `selection` is the editor's AI menu, acting on text
- * the user marked; `slash` is the `/` menu, acting on no selection at all and
- * on whatever context the prompt asks for by placeholder.
- *
- * A prompt lives on exactly one surface: one written for a selection reads as
- * nonsense without one, and the reverse. Invalid or absent degrades to
- * `selection`, so every prompt saved before this existed keeps working.
- */
-export const aiPromptSurfaceSchema = z.enum(['selection', 'slash']).catch('selection')
-
-export type AiPromptSurface = z.infer<typeof aiPromptSurfaceSchema>
-
 export const aiPromptSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   body: z.string().min(1),
   mode: aiPromptModeSchema,
-  surface: aiPromptSurfaceSchema.default('selection'),
 })
 
 export type AiPrompt = z.infer<typeof aiPromptSchema>
@@ -537,12 +514,12 @@ export type AiPrompt = z.infer<typeof aiPromptSchema>
 export const aiPromptsSchema = z
   .array(z.unknown())
   .catch([])
-  .transform((entries) =>
-    entries.flatMap((entry) => {
+  .transform((entries) => {
+    return entries.flatMap((entry) => {
       const parsed = aiPromptSchema.safeParse(entry)
       return parsed.success ? [parsed.data] : []
-    }),
-  )
+    })
+  })
 
 export const settingsSchema = z.looseObject({
   editorMarkdownSyntax: editorMarkdownSyntaxSchema,

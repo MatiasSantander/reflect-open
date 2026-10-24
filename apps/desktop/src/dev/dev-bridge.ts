@@ -1,20 +1,29 @@
-import { IAP_PRODUCT_IDS, indexedNoteSchema, ReflectError, type IpcBridge } from '@reflect/core'
+import { IAP_PRODUCT_IDS, indexedNoteSchema, AppError, type IpcBridge } from '@reflect/core'
 import { z } from 'zod'
 import type { DevFileStore } from '@/dev/dev-file-store.ts'
 import type { DevIndexDb } from '@/dev/dev-index-db.ts'
 
-/** The fixed fake graph root the dev bridge reports (mirrors `mobile_storage`). */
+/**
+ * The fixed fake graph root the dev bridge reports (mirrors `mobile_storage`).
+ */
 export const DEV_GRAPH_ROOT = '/dev-graph'
 
-/** Everything the command router needs. */
+/**
+ * Everything the command router needs.
+ */
 export interface DevBridgeBackend {
-  files: DevFileStore
-  index: DevIndexDb
+  readonly files: DevFileStore
+  readonly index: DevIndexDb
 }
 
 const dbQueryArgsSchema = z.object({ sql: z.string(), params: z.array(z.unknown()) })
 const pathArgsSchema = z.object({ path: z.string() })
-const writeArgsSchema = z.object({ path: z.string(), contents: z.string() })
+const writeArgsSchema = z.object({
+  path: z.string(),
+  contents: z.string(),
+  checkContents: z.boolean().optional(),
+  expectedContents: z.string().nullable().optional(),
+})
 const createArgsSchema = writeArgsSchema.extend({ generation: z.number().int().nonnegative() })
 const moveArgsSchema = z.object({ from: z.string(), to: z.string() })
 const moveRequestArgsSchema = z.object({
@@ -61,29 +70,29 @@ const iapProducts = [
   { productId: IAP_PRODUCT_IDS.yearly, formattedPrice: '$99999.99' },
 ]
 
-/**
- * The in-browser stand-in for the Rust shell (dev builds only): answers the
- * command surface the desktop and mobile trees exercise from an in-memory
- * file map and the wasm SQLite index. The in-memory graph has one fixed
- * generation (`1`); the
- * no-clobber note-create command validates that value before touching the
- * store, matching its native race-safety contract.
- *
- * Anything unimplemented rejects loudly with the command name — a surface
- * quietly rendering empty because a stub answered wrong is worse than an
- * error naming the gap.
- */
-export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
-  const { files, index } = backend
-  const graphInfo = { root: DEV_GRAPH_ROOT, name: 'Dev Graph', generation: 1 }
-  let settingsDocument: Record<string, unknown> = { mobileOnboarded: true }
-  const assets = new Map<string, string>()
-  let ownedProductId: string | null = null
+class DevBridgeImpl implements IpcBridge {
+  readonly #deps: DevBridgeBackend
+  readonly #graphInfo = { root: DEV_GRAPH_ROOT, name: 'Dev Graph', generation: 1 }
+  #settingsDocument: Record<string, unknown> = { mobileOnboarded: true }
+  readonly #assets = new Map<string, string>()
+  #ownedProductId: string | null = null
   // In-memory keychain stand-in so the AI-provider settings flow (and chat,
   // against a CORS-permissive provider) works end-to-end in the harness.
-  const secrets = new Map<string, string>()
+  readonly #secrets = new Map<string, string>()
 
-  async function invoke(command: string, args: Record<string, unknown>): Promise<unknown> {
+  constructor(deps: DevBridgeBackend) {
+    this.#deps = deps
+  }
+
+  invoke(command: string, args: Record<string, unknown>): Promise<unknown> {
+    // The executor turns a synchronous throw into a rejection.
+    return new Promise((resolve) => {
+      resolve(this.#runCommand(command, args))
+    })
+  }
+
+  #runCommand(command: string, args: Record<string, unknown>): unknown {
+    const { files, index } = this.#deps
     switch (command) {
       case 'app_version':
         return '0.0.0-dev'
@@ -106,14 +115,14 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
       }
       case 'plugin:iap|get_product_status': {
         const { payload } = iapProductArgsSchema.parse(args)
-        return { productId: payload.productId, isOwned: payload.productId === ownedProductId }
+        return { productId: payload.productId, isOwned: payload.productId === this.#ownedProductId }
       }
       case 'plugin:iap|purchase': {
         const { payload } = iapProductArgsSchema.parse(args)
         if (!iapProducts.some((product) => product.productId === payload.productId)) {
-          throw new ReflectError('notFound', `unknown preview product: ${payload.productId}`)
+          throw new AppError('notFound', `unknown preview product: ${payload.productId}`)
         }
-        ownedProductId = payload.productId
+        this.#ownedProductId = payload.productId
         return null
       }
       case 'mobile_storage':
@@ -128,18 +137,17 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
         return 0
       case 'graph_open':
       case 'graph_create':
-        return graphInfo
+        return this.#graphInfo
       case 'recent_graphs':
         // One seeded recent so the desktop chooser has something to open —
         // the browser has no folder picker, so this is the only entry point.
-        return [{ root: graphInfo.root, name: graphInfo.name, openedMs: Date.now() }]
+        return [{ root: this.#graphInfo.root, name: this.#graphInfo.name, openedMs: Date.now() }]
       case 'icloud_status':
         // No iCloud container in a browser; the chooser's iCloud card hides.
         return { available: false, documentsRoot: null, existingGraphRoots: [] }
       case 'embed_status':
-        // `failed` is the designed recoverable "unavailable" state — semantic
-        // search surfaces show it honestly instead of offering a download.
-        return { status: 'failed', message: 'embeddings are unavailable in browser dev' }
+        // A browser has no embedding runtime.
+        return { status: 'unsupported' }
       case 'vault_scan_stats':
         return { notes: files.list().length, attachments: 0, skipped: 0 }
       case 'list_attachments':
@@ -162,7 +170,7 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
         const { path } = pathArgsSchema.parse(args)
         const contents = files.read(path)
         if (contents === null) {
-          throw new ReflectError('notFound', `no such note: ${path}`)
+          throw new AppError('notFound', `no such note: ${path}`)
         }
         return contents
       }
@@ -171,21 +179,24 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
         const { path } = pathArgsSchema.parse(args)
         const contents = files.read(path)
         if (contents === null) {
-          throw new ReflectError('notFound', `no such note: ${path}`)
+          throw new AppError('notFound', `no such note: ${path}`)
         }
         return { kind: 'content', content: contents }
       }
       case 'note_write': {
-        const { path, contents } = writeArgsSchema.parse(args)
-        return files.write(path, contents)
+        const { path, contents, checkContents, expectedContents } = writeArgsSchema.parse(args)
+        if (checkContents === true) {
+          const current = files.read(path)
+          if (current !== (expectedContents ?? null) && current !== contents) {
+            throw new AppError('io', 'Note changed on disk; reload before retrying')
+          }
+        }
+        return { modifiedMs: files.write(path, contents), merged: null }
       }
       case 'note_create': {
         const { path, contents, generation } = createArgsSchema.parse(args)
-        if (generation !== graphInfo.generation) {
-          throw new ReflectError(
-            'io',
-            'the graph changed since this command was issued; dropping it',
-          )
+        if (generation !== this.#graphInfo.generation) {
+          throw new AppError('io', 'the graph changed since this command was issued; dropping it')
         }
         return files.create(path, contents)
       }
@@ -204,10 +215,10 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
           request: { from, to },
         } = moveRequestArgsSchema.parse(args)
         if (!files.exists(from)) {
-          throw new ReflectError('notFound', `cannot move note: ${from} does not exist`)
+          throw new AppError('notFound', `cannot move note: ${from} does not exist`)
         }
         if (files.exists(to)) {
-          throw new ReflectError('io', `cannot move note: ${to} already exists`)
+          throw new AppError('io', `cannot move note: ${to} already exists`)
         }
         // Index first: it can refuse (occupied path), and a refused move must
         // leave the file untouched — the in-memory stand-in for Rust's
@@ -221,14 +232,14 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
         const { path, contentsBase64 } = z
           .object({ path: z.string(), contentsBase64: z.string() })
           .parse(args)
-        assets.set(path, contentsBase64)
+        this.#assets.set(path, contentsBase64)
         return null
       }
       case 'asset_read': {
         const { path } = pathArgsSchema.parse(args)
-        const contents = assets.get(path)
+        const contents = this.#assets.get(path)
         if (contents === undefined) {
-          throw new ReflectError('notFound', `asset not found: ${path}`)
+          throw new AppError('notFound', `asset not found: ${path}`)
         }
         return contents
       }
@@ -281,20 +292,20 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
       }
 
       case 'settings_load':
-        return settingsDocument
+        return this.#settingsDocument
       case 'settings_save': {
-        settingsDocument = settingsArgsSchema.parse(args).settings
+        this.#settingsDocument = settingsArgsSchema.parse(args).settings
         return null
       }
       case 'secret_get':
-        return secrets.get(secretNameArgsSchema.parse(args).name) ?? null
+        return this.#secrets.get(secretNameArgsSchema.parse(args).name) ?? null
       case 'secret_set': {
         const { name, value } = secretSetArgsSchema.parse(args)
-        secrets.set(name, value)
+        this.#secrets.set(name, value)
         return null
       }
       case 'secret_delete': {
-        secrets.delete(secretNameArgsSchema.parse(args).name)
+        this.#secrets.delete(secretNameArgsSchema.parse(args).name)
         return null
       }
 
@@ -305,7 +316,6 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
           remoteUrl: null,
           ahead: 0,
           behind: 0,
-          inProgress: false,
         }
 
       case 'calendar_authorization_status':
@@ -329,23 +339,41 @@ export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
 
       default:
         console.error(`[dev-bridge] unimplemented command "${command}"`, args)
-        throw new ReflectError('unknown', `dev bridge: unimplemented command "${command}"`)
+        throw new AppError('unknown', `dev bridge: unimplemented command "${command}"`)
     }
   }
 
-  return {
-    invoke,
-    // Native event streams (watcher, embeddings, EventKit) don't exist in the
-    // browser; subscriptions succeed and simply never fire. Local writes still
-    // refresh the UI through core's in-process local-write echo. Plugin event
-    // registrations get the same treatment, so the keyboard and recorder
-    // hooks mount cleanly in the harness.
-    listen: async () => () => {},
-    listenPlugin: async () => {},
+  // Native event streams (watcher, embeddings, EventKit) don't exist in the
+  // browser; subscriptions succeed and simply never fire. Local writes still
+  // refresh the UI through core's in-process local-write echo. Plugin event
+  // registrations get the same treatment, so the keyboard and recorder
+  // hooks mount cleanly in the harness.
+  listen(): Promise<() => void> {
+    return Promise.resolve(() => {})
   }
+
+  async listenPlugin(): Promise<void> {}
 }
 
-/** Mirrors `MTIME_TRUST_AGE_MS` in core's hash.ts and Rust's scan.rs. */
+/**
+ * The in-browser stand-in for the Rust shell (dev builds only): answers the
+ * command surface the desktop and mobile trees exercise from an in-memory
+ * file map and the wasm SQLite index. The in-memory graph has one fixed
+ * generation (`1`); the
+ * no-clobber note-create command validates that value before touching the
+ * store, matching its native race-safety contract.
+ *
+ * Anything unimplemented rejects loudly with the command name — a surface
+ * quietly rendering empty because a stub answered wrong is worse than an
+ * error naming the gap.
+ */
+export function createDevBridge(backend: DevBridgeBackend): IpcBridge {
+  return new DevBridgeImpl(backend)
+}
+
+/**
+ * Mirrors `MTIME_TRUST_AGE_MS` in core's hash.ts and Rust's scan.rs.
+ */
 const MTIME_TRUST_AGE_MS = 5_000
 
 /**

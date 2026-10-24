@@ -1,128 +1,22 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite'
-import { fileURLToPath } from 'node:url'
-import { getLoadablePath as getSqliteVecPath } from 'sqlite-vec'
+import { createTestGraphSessionService } from '../testing/graph-session.ts'
 import { expect } from 'vitest'
-import { resolveOrCreateNoteWithTitle } from '../graph/create-note.ts'
-import { resolveExistingWikiTarget } from '../graph/resolve-existing-wiki-target.ts'
+import { AppError } from '../errors.ts'
+import { createNoteFileService } from '../graph/note-file-service.ts'
 import { normalizeWikiTarget, parseNote } from '../markdown/index.ts'
-import { setBridge } from '../ipc/bridge.ts'
+import { createTestClockService } from '../testing/clock.ts'
+import type { TestDatabaseService } from '../testing/database.ts'
+import { createTestFileChangeService } from '../testing/file-change.ts'
+import { createTestIpcBridgeService } from '../testing/ipc.ts'
+import { createTestCoreServices } from '../testing/services.ts'
 import { buildIndexedNote, type IndexedNote } from './indexed-note.ts'
-import type { suggestWikiLinkTargets } from './queries.ts'
+import type { WikiLinkSuggestionResult } from './suggestion-service.ts'
 
 /**
- * Shared harness for projection-flow tests (`*-flow.test.ts`): a real
- * in-memory SQLite index built from the production migration chain, a bridge
- * that routes `db_query` into it (disk probes see an empty graph), and the
- * end-to-end "selecting this suggestion opens its path" assertion.
+ * Shared helpers for projection-flow tests (`*-flow.test.ts`): projections
+ * built from real Markdown, the index services where disk probes see an
+ * empty graph, and the end-to-end "selecting this suggestion opens its path"
+ * assertion.
  */
-
-type SqliteRow = Record<string, unknown>
-
-const MIGRATIONS_DIRECTORY = fileURLToPath(
-  new URL('../../../../crates/index-schema/migrations/', import.meta.url),
-)
-
-export function openMigratedIndex(): DatabaseSync {
-  const database = new DatabaseSync(':memory:', { allowExtension: true })
-  try {
-    // Keep this an exact production migration chain: 0002/0003 create vec0
-    // tables, so their native extension must be available before replay.
-    database.loadExtension(getSqliteVecPath())
-    const migrations = readdirSync(MIGRATIONS_DIRECTORY)
-      .filter((filename) => filename.endsWith('.sql'))
-      .sort()
-    for (const migration of migrations) {
-      database.exec(readFileSync(`${MIGRATIONS_DIRECTORY}/${migration}`, 'utf8'))
-    }
-    return database
-  } catch (error) {
-    database.close()
-    throw error
-  }
-}
-
-function sqliteParameter(value: unknown): SQLInputValue {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'bigint' ||
-    Buffer.isBuffer(value)
-  ) {
-    return value
-  }
-  throw new TypeError(`unsupported SQLite parameter: ${typeof value}`)
-}
-
-function queryRows(
-  database: DatabaseSync,
-  sql: string,
-  params: readonly unknown[],
-): Promise<SqliteRow[]> {
-  const statement = database.prepare(sql)
-  return Promise.resolve(statement.all(...params.map(sqliteParameter)))
-}
-
-export function applyProjection(database: DatabaseSync, indexed: IndexedNote): void {
-  database
-    .prepare(
-      `INSERT INTO notes(
-        path, id, title, title_key, path_key, kind, daily_date, is_private, is_pinned,
-        pinned_order, mtime, file_hash, preview, has_conflict, gist_url, gist_stale
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      indexed.path,
-      indexed.id,
-      indexed.title,
-      indexed.titleKey,
-      indexed.pathKey,
-      indexed.kind,
-      indexed.dailyDate,
-      Number(indexed.isPrivate),
-      Number(indexed.isPinned),
-      indexed.pinnedOrder,
-      indexed.mtime,
-      indexed.fileHash,
-      indexed.preview,
-      Number(indexed.hasConflict),
-      indexed.gistUrl,
-      Number(indexed.gistStale),
-    )
-
-  const insertAlias = database.prepare(
-    'INSERT INTO aliases(note_path, alias, alias_key) VALUES (?, ?, ?)',
-  )
-  for (const alias of indexed.aliases) {
-    insertAlias.run(indexed.path, alias.alias, alias.aliasKey)
-  }
-
-  const insertClaim = database.prepare(
-    'INSERT INTO note_claims(note_path, key, tier) VALUES (?, ?, ?)',
-  )
-  for (const claim of indexed.claims) {
-    insertClaim.run(indexed.path, claim.key, claim.tier)
-  }
-
-  const insertLink = database.prepare(
-    `INSERT INTO links(
-      source_path, kind, target_raw, target_key, target_path_key, alias, pos_from, pos_to
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-  for (const link of indexed.links) {
-    insertLink.run(
-      indexed.path,
-      link.kind,
-      link.targetRaw,
-      link.targetKey,
-      link.targetPathKey,
-      link.alias,
-      link.posFrom,
-      link.posTo,
-    )
-  }
-}
 
 export function project(path: string, source: string, mtime: number): IndexedNote {
   return buildIndexedNote(parseNote({ path, source }), {
@@ -132,33 +26,39 @@ export function project(path: string, source: string, mtime: number): IndexedNot
   })
 }
 
-export function connectIndex(database: DatabaseSync): void {
-  setBridge({
-    invoke: (command, args) => {
-      // The projections exist only in the index. Disk probes see an empty
-      // graph, so the writable resolvers exercise their indexed tiers.
-      if (command === 'list_files') {
-        return Promise.resolve([])
-      }
-      if (command === 'note_read' || command === 'note_read_local') {
-        return Promise.reject({ kind: 'notFound', message: 'not on disk' })
-      }
-      if (command !== 'db_query') {
-        return Promise.reject(new Error(`unexpected command: ${command}`))
-      }
-      const sql = args['sql']
-      const params = args['params']
-      if (typeof sql !== 'string' || !Array.isArray(params)) {
-        return Promise.reject(new TypeError('invalid db_query arguments'))
-      }
-      return queryRows(database, sql, params)
-    },
-    listen: () => Promise.resolve(() => {}),
+/**
+ * The index read services and the note services over one test database.
+ */
+export type FlowIndex = ReturnType<typeof connectIndex>
+
+export function connectIndex(database: TestDatabaseService) {
+  // The projections exist only in the index. Disk probes see an empty
+  // graph, so the writable resolvers exercise their indexed tiers.
+  const notOnDisk = (): never => {
+    throw new AppError('notFound', 'not on disk')
+  }
+  const ipc = createTestIpcBridgeService({
+    commands: { list_files: () => [], note_read: notOnDisk, note_read_local: notOnDisk },
+  })
+  const noteFile = createNoteFileService({
+    ipc,
+    clock: createTestClockService(),
+    fileChanges: createTestFileChangeService(),
+  })
+  return createTestCoreServices({
+    database,
+    noteFile,
+    graphSession: createTestGraphSessionService({ graph: { generation: 1 } }),
   })
 }
 
+export function disconnectIndex(database: TestDatabaseService): void {
+  database.close()
+}
+
 export async function expectSuggestionOpensItsPath(
-  suggestion: Awaited<ReturnType<typeof suggestWikiLinkTargets>>['suggestions'][number],
+  index: FlowIndex,
+  suggestion: WikiLinkSuggestionResult['suggestions'][number],
 ): Promise<void> {
   expect(suggestion.path).not.toBeNull()
   const parsed = parseNote({
@@ -172,8 +72,8 @@ export async function expectSuggestionOpensItsPath(
   // resolver and everything else through resolve-or-create.
   const resolution =
     normalizeWikiTarget(target).date !== undefined
-      ? resolveExistingWikiTarget(target, 1)
-      : resolveOrCreateNoteWithTitle(target, 1)
+      ? index.noteLinkResolver.resolveWikiTarget(target, 1)
+      : index.noteCreation.resolveOrCreateNoteWithTitle(target, 1)
   await expect(resolution).resolves.toEqual({
     kind: 'resolved',
     path: suggestion.path,

@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react'
-import { errorMessage, isDaily } from '@reflect/core'
+import { canTrashNote, errorMessage } from '@reflect/core'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -10,10 +10,8 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
-import { deleteOpenNote } from '@/lib/note-delete.ts'
-import { startOperation } from '@/lib/operations.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 import { useRouter } from '@/routing/router.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 
 interface NoteTrashActionProps {
   /** Graph-relative path of the regular note to move into trash. */
@@ -26,26 +24,23 @@ interface NoteTrashActionProps {
  * enforces the same rule before touching disk.
  */
 export function NoteTrashAction({ path }: NoteTrashActionProps): ReactElement | null {
-  const { graph } = useGraph()
   const { navigate } = useRouter()
+  const { noteActions } = useCoreServices()
+  const { operations } = useAppServices()
   const [confirmingTrash, setConfirmingTrash] = useState(false)
   const [isTrashing, setIsTrashing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (isDaily(path)) {
+  if (!canTrashNote(path)) {
     return null
   }
 
   const onTrash = async (): Promise<void> => {
-    const generation = graph?.generation
-    if (generation === undefined) {
-      return
-    }
-    const operation = startOperation('Trashing note')
+    const operation = operations.start('Trashing note')
     setIsTrashing(true)
     setError(null)
     try {
-      await deleteOpenNote(path, generation)
+      await noteActions.trashOne(path)
       operation.done()
       setConfirmingTrash(false)
       navigate({ kind: 'today' })

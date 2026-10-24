@@ -1,13 +1,17 @@
-import { render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, useEffect } from 'react'
+import { useEffect } from 'react'
+import { act } from '@/test-utils/act.ts'
+import { createSystemClock } from '@reflect/core'
+import { createTestCoreServices } from '@reflect/core/testing'
 import { todayIso } from '@/lib/dates.ts'
 import { createDayWindow, neighborDate } from '@/lib/day-window.ts'
-import { RouterProvider, useRouter, type NavigateOptions } from '@/routing/router.tsx'
+import { useRouter, type NavigateOptions } from '@/routing/router.tsx'
 import type { Route } from '@/routing/route.ts'
 import { fireEvent } from '@/test-utils/fire-event.ts'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { DailyStream } from './daily-stream.tsx'
 
 /**
@@ -84,13 +88,6 @@ vi.mock('@/components/note-pane.tsx', () => ({
     )
   },
 }))
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({
-    settings: { dateFormat: 'mdy' },
-    updateSettings: async () => {},
-    updateSettingsWith: () => {},
-  }),
-}))
 
 beforeEach(() => {
   focusLog.calls.length = 0
@@ -110,17 +107,24 @@ async function renderStream() {
   let navigate: Navigate = () => {
     throw new Error('navigate not ready')
   }
-  const view = await render(
+  const view = await renderInApp(
     <div style={{ height: 800 }}>
-      <RouterProvider initialRoute={{ kind: 'today' }}>
-        <DailyStream target={{ kind: 'today' }} />
-        <NavigateProbe
-          onReady={(run) => {
-            navigate = run
-          }}
-        />
-      </RouterProvider>
+      <DailyStream target={{ kind: 'today' }} />
+      <NavigateProbe
+        onReady={(run) => {
+          navigate = run
+        }}
+      />
     </div>,
+    {
+      // The tests name days by the real date, so the app runs on the system clock.
+      app: createTestCoreServices({
+        database: createWasmTestDatabaseService(),
+        clock: createSystemClock(),
+      }),
+      settings: { dateFormat: 'mdy' },
+      route: { kind: 'today' },
+    },
   )
   const paneFor = (date: string) => page.locate(`[data-testid="pane-probe"][data-date="${date}"]`)
   return {
@@ -136,7 +140,7 @@ describe('DailyStream arrival focus', () => {
     const today = todayIso()
     const { view, navigate, anchored, paneFor } = await renderStream()
 
-    act(() => navigate({ kind: 'today' }, { focusEditor: true }))
+    await act(() => navigate({ kind: 'today' }, { focusEditor: true }))
     await anchored(today)
 
     const pane = paneFor(today)
@@ -191,8 +195,8 @@ describe('DailyStream arrival focus', () => {
 
     // A capture arrival first, so the follow-up proves the append intent is
     // one-shot rather than sticky.
-    act(() => navigate({ kind: 'today' }, { focusEditor: true }))
-    act(() => navigate({ kind: 'today' }))
+    await act(() => navigate({ kind: 'today' }, { focusEditor: true }))
+    await act(() => navigate({ kind: 'today' }))
     await anchored(today)
 
     const pane = paneFor(today)

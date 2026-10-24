@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { InlineAlert } from '@/components/inline-alert.tsx'
 import type { CommandContext } from '@/lib/commands/types.ts'
-import { createTemplate } from '@/lib/note-templates.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface TemplateCreateFormProps {
   context: CommandContext
@@ -21,15 +21,12 @@ export function TemplateCreateForm({ context, onClose }: TemplateCreateFormProps
     defaultValues: { name: '' },
   })
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const { templates } = useCoreServices()
 
   const submit = handleSubmit(async (values) => {
     setSubmitError(null)
-    const generation = context.generation()
-    if (generation === null) {
-      return
-    }
     try {
-      const path = await createTemplate(values.name, generation)
+      const path = await templates.createTemplate(values.name)
       onClose()
       context.navigate({ kind: 'note', path })
     } catch (cause: unknown) {

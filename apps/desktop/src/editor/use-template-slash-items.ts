@@ -1,8 +1,7 @@
 import { useCallback } from 'react'
 import type { SlashMenuItem, SlashMenuSearchHandler } from '@meowdown/react'
-import { displayNoteTitle, hasBridge, listTemplates } from '@reflect/core'
-import { insertTemplate } from '@/lib/note-templates.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import type { NoteEditorHandle } from './note-editor.tsx'
 
 /**
@@ -10,7 +9,8 @@ import type { NoteEditorHandle } from './note-editor.tsx'
  * every template, A→Z, alongside meowdown's built-in blocks — the same
  * host-supplies-the-items pattern as the `[[` menu. meowdown filters the rows
  * against the typed query and removes the `/query` text before `onSelect`
- * runs, so the body lands at a clean cursor.
+ * runs, so the body lands at a clean cursor. The rows come from
+ * `TemplateService.slashItems`.
  *
  * `getEditor` is read at select time, not capture time: the menu belongs to
  * exactly one editor, and a late resolve after that pane unmounted must
@@ -20,25 +20,15 @@ export function useTemplateSlashItems(
   getEditor: () => NoteEditorHandle | null,
 ): SlashMenuSearchHandler {
   const { graph } = useGraph()
+  const { templates } = useCoreServices()
 
   return useCallback(
     async (_query: string): Promise<SlashMenuItem[]> => {
-      // Call-time check on purpose: this runs on user action, not in render
-      // scope, so it reads the live bridge state instead of a captured one.
-      if (!hasBridge() || graph === null) {
+      if (graph === null) {
         return []
       }
-      const templates = await listTemplates()
-      return templates.map((template) => ({
-        id: template.path,
-        label: displayNoteTitle(template.title),
-        // v1 parity: typing `/template` lists every template, whatever its name.
-        keywords: ['template'],
-        onSelect: () => {
-          void insertTemplate(template.path, getEditor())
-        },
-      }))
+      return await templates.slashItems(getEditor)
     },
-    [graph, getEditor],
+    [graph, getEditor, templates],
   )
 }

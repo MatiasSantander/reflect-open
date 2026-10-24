@@ -1,19 +1,13 @@
-import { invoke, isTauri } from '@tauri-apps/api/core'
-import {
-  Menu,
-  MenuItem,
-  Submenu,
-  type MenuItemOptions,
-  type PredefinedMenuItemOptions,
-} from '@tauri-apps/api/menu'
-import { APP_COMMANDS } from '@/lib/commands/app-commands.ts'
-import { isMainWindow } from '@/lib/windows/window-role.ts'
-import { bindingToAccelerator } from './accelerator.ts'
-import { dispatchMenuCommand } from './dispatch.ts'
+import type {
+  AppMenuEntry,
+  AppSubmenuLayout,
+  NativeMenuPredefinedItem,
+  NativeMenuService,
+} from '@reflect/app'
 
 /**
  * The native macOS application menu (the V1 Electron menu, ported). Command
- * items derive from {@link APP_COMMANDS} — id, label, and accelerator come
+ * items derive from the command registry — id, label, and accelerator come
  * from the one command definition, the same source the ⌘K palette and the ⌘/
  * cheat-sheet read — so the menu cannot drift from the bindings that fire.
  * Everything else is a predefined (native role) item.
@@ -23,34 +17,11 @@ import { dispatchMenuCommand } from './dispatch.ts'
  * respect the modal palette/cheat-sheet exactly like keystrokes do.
  */
 
-type PredefinedItem = PredefinedMenuItemOptions['item']
-
-export type AppMenuEntry =
-  | { kind: 'command'; commandId: string; text?: string | undefined }
-  | { kind: 'predefined'; item: PredefinedItem; text?: string | undefined }
-
-export interface AppSubmenuLayout {
-  text: string
-  /**
-   * macOS NSApp role: `windows` gains the automatic window list,
-   * `help` gains the Search field.
-   */
-  nsAppRole?: 'windows' | 'help'
-  entries: AppMenuEntry[]
-}
-
-let nativeMenuInstalled = false
-
-/** Whether this webview has successfully installed the native app menu. */
-export function isNativeMenuInstalled(): boolean {
-  return nativeMenuInstalled
-}
-
 function command(commandId: string, text?: string): AppMenuEntry {
   return { kind: 'command', commandId, text }
 }
 
-function predefined(item: PredefinedItem, text?: string): AppMenuEntry {
+function predefined(item: NativeMenuPredefinedItem, text?: string): AppMenuEntry {
   return { kind: 'predefined', item, text }
 }
 
@@ -141,43 +112,6 @@ export function appMenuLayout(): AppSubmenuLayout[] {
   ]
 }
 
-function menuItemOptions(commandId: string, text?: string): MenuItemOptions {
-  const appCommand = APP_COMMANDS.find((candidate) => candidate.id === commandId)
-  if (!appCommand) {
-    throw new Error(`native menu references unknown command: ${commandId}`)
-  }
-  const accelerator = appCommand.keybinding
-    ? bindingToAccelerator(appCommand.keybinding)
-    : undefined
-  return {
-    id: appCommand.id,
-    text: text ?? appCommand.title,
-    ...(accelerator !== undefined ? { accelerator } : {}),
-    action: dispatchMenuCommand,
-  }
-}
-
-// Inline item options lose their click handler once the submenu is built.
-async function menuEntry(entry: AppMenuEntry): Promise<MenuItem | PredefinedMenuItemOptions> {
-  return entry.kind === 'command'
-    ? await MenuItem.new(menuItemOptions(entry.commandId, entry.text))
-    : { item: entry.item, ...(entry.text !== undefined ? { text: entry.text } : {}) }
-}
-
-/**
- * True in the macOS desktop webview only — iPadOS masquerades as macOS in the
- * user agent and is excluded by the touch-point check (same test as
- * `lib/window-chrome.ts`).
- */
-function isMacosDesktop(): boolean {
-  return (
-    isTauri() &&
-    typeof navigator !== 'undefined' &&
-    navigator.userAgent.includes('Macintosh') &&
-    navigator.maxTouchPoints === 0
-  )
-}
-
 /**
  * Build the application menu and install it, replacing Tauri's default.
  * Call once at startup, before React mounts — the menu holds command ids, not
@@ -191,52 +125,6 @@ function isMacosDesktop(): boolean {
  * deliberately exempted there so its key equivalent belongs to this native
  * macOS application menu.
  */
-export async function installNativeMenu(): Promise<void> {
-  // Menu actions use channels owned by the webview that created them. A note
-  // window must not replace the app-wide menu with an inert copy; the main
-  // channel forwards note-local Find commands to whichever window is focused.
-  if (!isMacosDesktop() || !isMainWindow()) {
-    return
-  }
-  const layouts = appMenuLayout()
-  const submenus = await Promise.all(
-    layouts.map(
-      async (layout) =>
-        await Submenu.new({
-          text: layout.text,
-          items: await Promise.all(layout.entries.map(menuEntry)),
-        }),
-    ),
-  )
-  const menu = await Menu.new({ items: submenus })
-  await menu.setAsAppMenu()
-  nativeMenuInstalled = true
-  // NSApp roles must be assigned after setAsAppMenu: attaching the menu
-  // clones each submenu's NSMenu, and muda resolves the role against the
-  // instance inside the installed main menu — assigned earlier, the role
-  // silently no-ops and macOS never adds its automatic items (the window
-  // list and Move & Resize/tiling with their system shortcuts; Help search).
-  for (const [index, layout] of layouts.entries()) {
-    const submenu = submenus[index]
-    if (!submenu) {
-      continue
-    }
-    if (layout.nsAppRole === 'windows') {
-      await submenu.setAsWindowsMenuForNSApp()
-    } else if (layout.nsAppRole === 'help') {
-      await submenu.setAsHelpMenuForNSApp()
-    }
-  }
-  // Must run after setAsAppMenu, like the role assignment above: it adds the
-  // Edit > "Paste and Match Style" (⌘⇧V) item to the menu that was just
-  // installed. The menu API cannot create that item (it needs a native macOS
-  // action selector), so a Rust command does it with direct AppKit calls;
-  // see `src-tauri/src/menu.rs` for the full explanation with source links.
-  // Best-effort: the menu works without the item, so a failed invoke must
-  // not make the whole install look failed.
-  try {
-    await invoke('menu_install_paste_and_match_style')
-  } catch (error) {
-    console.warn('failed to add the Paste and Match Style menu item:', error)
-  }
+export async function installNativeMenu(nativeMenu: NativeMenuService): Promise<void> {
+  await nativeMenu.install(appMenuLayout())
 }

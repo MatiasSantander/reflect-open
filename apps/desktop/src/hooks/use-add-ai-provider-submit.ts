@@ -1,14 +1,7 @@
 import { useCallback, useState } from 'react'
-import {
-  aiProvider,
-  aiProviderRequiresApiKey,
-  errorMessage,
-  isHttpBaseUrl,
-  normalizeOpenAICompatibleBaseUrl,
-  validateApiKey,
-} from '@reflect/core'
-import { providerFetch } from '@/lib/provider-fetch.ts'
+import { errorMessage } from '@reflect/core'
 import type { NewAiProvider } from '@/hooks/use-ai-providers.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 interface UseAddAiProviderSubmitOptions {
   /** Persists the new provider (keychain + settings); rejects on failure. */
@@ -43,6 +36,7 @@ export function useAddAiProviderSubmit({
   onAdd,
   onDone,
 }: UseAddAiProviderSubmitOptions): UseAddAiProviderSubmitValue {
+  const { aiProviderConfig: service } = useCoreServices()
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [unverified, setUnverified] = useState(false)
 
@@ -53,50 +47,23 @@ export function useAddAiProviderSubmit({
   const submit = useCallback(
     async (draft: NewAiProvider): Promise<void> => {
       setSubmitError(null)
-      const apiKey = draft.apiKey.trim()
-      const requiresApiKey = aiProviderRequiresApiKey(draft.provider)
-      const provider = aiProvider(draft.provider)
-      const baseUrl =
-        draft.provider === 'openai-compatible'
-          ? normalizeOpenAICompatibleBaseUrl(draft.baseUrl ?? '')
-          : undefined
-      if (requiresApiKey && apiKey === '') {
-        setSubmitError('Enter an API key.')
-        return
-      }
-      if (
-        draft.provider === 'openai-compatible' &&
-        (baseUrl === undefined || !isHttpBaseUrl(baseUrl))
-      ) {
-        setSubmitError('Enter an http(s) endpoint URL.')
-        return
-      }
       try {
-        if (!unverified) {
-          const validation = await validateApiKey(
-            { provider: draft.provider, apiKey, baseUrl },
-            providerFetch,
-          )
-          if (validation === 'invalid') {
-            setSubmitError(
-              draft.provider === 'openai-compatible' && apiKey === ''
-                ? `${provider.label} endpoint requires an API key.`
-                : `${provider.label} rejected this API key.`,
-            )
-            return
-          }
-          if (validation === 'unreachable') {
-            setUnverified(true)
-            return
-          }
+        const check = await service.checkDraft(draft, { unverified })
+        if (check.status === 'rejected') {
+          setSubmitError(check.message)
+          return
         }
-        await onAdd({ ...draft, apiKey, baseUrl })
+        if (check.status === 'unreachable') {
+          setUnverified(true)
+          return
+        }
+        await onAdd(check.draft)
         onDone()
       } catch (error: unknown) {
         setSubmitError(errorMessage(error))
       }
     },
-    [unverified, onAdd, onDone],
+    [service, unverified, onAdd, onDone],
   )
 
   return { submitError, unverified, resetUnverified, submit }

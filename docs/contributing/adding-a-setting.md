@@ -8,26 +8,26 @@ responsibilities follows the usual rule:
 - **Rust** (`apps/desktop/src-tauri/src/settings.rs`) persists the document as
   an *opaque* JSON object — atomic writes, corrupt-store-errors-loudly. It has
   no idea what keys exist. **You will not touch Rust to add a setting.**
-- **`@reflect/core`** (`packages/core/src/settings/schema.ts`) owns the known
-  keys, their defaults, and validation.
+- **`@reflect/core`** owns the known keys, their defaults, and validation
+  (`packages/core/src/settings/schema.ts`), and the runtime document:
+  `SettingsService` (`settings/settings-service.ts`, `CoreServices.settings`)
+  loads it once, applies patches, and persists them.
 - **The desktop app** consumes settings through `useSettings()`
-  (`apps/desktop/src/providers/settings-provider.tsx`) and renders controls in
-  section components under `apps/desktop/src/components/settings/`, composed by
-  `settings-screen.tsx`.
+  (`apps/desktop/src/providers/settings-provider.tsx`, a thin shell over the
+  service) and renders controls in section components under
+  `apps/desktop/src/components/settings/`, composed by `settings-screen.tsx`.
 
 ## 1. Declare the key in the schema
 
 Add a field to `settingsSchema` in `packages/core/src/settings/schema.ts`:
 
 ```ts
-export const editorMarkdownSyntaxSchema = z.enum(['focus', 'show']).catch('focus')
+export const editorMarkdownSyntaxSchema = z.enum(['hide', 'show', 'hybrid']).catch('hide')
 
-export const settingsSchema = z
-  .object({
-    editorMarkdownSyntax: editorMarkdownSyntaxSchema,
-    // yourNewSetting: yourNewSettingSchema,
-  })
-  .passthrough()
+export const settingsSchema = z.looseObject({
+  editorMarkdownSyntax: editorMarkdownSyntaxSchema,
+  // yourNewSetting: yourNewSettingSchema,
+})
 ```
 
 The resilience contract (it mirrors the frontmatter schema):
@@ -38,15 +38,15 @@ The resilience contract (it mirrors the frontmatter schema):
   automatically — there is no separate defaults table to update, and there are
   no migrations: an old document simply lacks the key and parses to the
   default.
-- **`.passthrough()` keeps unknown keys.** A document written by a newer app
+- **`z.looseObject` keeps unknown keys.** A document written by a newer app
   version round-trips through an older one without losing fields. This is also
   why saves always write the *full merged document*, never a single key.
 - **Name the persisted key implementation-neutrally.** The document outlives
   any one library: `editorMarkdownSyntax`, not `meowdownMarkMode` — map to the
   library's vocabulary at the consuming boundary instead.
 
-Export any new value type from `packages/core/src/index.ts` (alongside
-`EditorMarkdownSyntax`). Cover the new key in
+Export any new value type from the package root,
+`packages/core/src/index.ts` (alongside `EditorMarkdownSyntax`). Cover the new key in
 `packages/core/src/settings/schema.test.ts`: default on missing, degrade on
 invalid, accepted values pass through.
 
@@ -59,33 +59,40 @@ const { settings, updateSettings, updateSettingsWith } = useSettings()
 // write derived/list value: updateSettingsWith((current) => ({ yourList: nextList(current) }))
 ```
 
-Semantics you get for free from the provider (and must not re-implement):
+Outside React (a core service, a `lib/` function), read and write the same
+document through the service: `settings.get()`, `settings.update(patch)`,
+`settings.updateWith(updater)`, `settings.subscribe(listener)`. A core service
+takes `settings` in its `deps`.
+
+Semantics you get for free from `SettingsService` (and must not re-implement):
 
 - **Instant simple patches.** `updateSettings` applies over defaults while the
-  disk load is pending. After hydration, it updates the current document in the
-  TanStack Query cache.
-- **Async, ordered persistence.** Each hydrated cache update submits its full
-  immutable document to a scoped TanStack Query mutation. The scope serializes
-  writes in apply order, and nothing is submitted before the disk document has
-  been read. Failures keep the optimistic cache value, surface through the
-  operations status UI, and leave it dirty for the next change or quit flush
-  to retry.
+  disk load is pending. After the load, it updates the current document, and
+  every subscriber sees the new one at once.
+- **Async, ordered persistence.** Each change after the load submits the full
+  merged document to `settings_save`. Saves run one at a time, in apply order,
+  and nothing is submitted before the disk document has been read. A failed
+  save keeps the in-memory value, surfaces through the operations status UI,
+  and leaves the document dirty for the next change or quit flush to retry.
 - **Functional updates for read-modify-write.** Use `updateSettingsWith` for
   list/object edits or anything derived from the current document. Updaters
-  dispatched before hydration are queued and replayed over the loaded
+  dispatched before the load are queued and replayed over the loaded
   document, so an early edit cannot accidentally compute from defaults and
   wipe the stored value.
-- **One runtime document.** After a successful load, `useSettings()` and
-  imperative readers of `queryKeys.settings.all` observe the same Query cache
-  document. The settings JSON remains the durable source. Quit and background
-  flushes drain submitted mutations, then retry and await the current document
-  when its last save was not confirmed.
-- **Load-sensitive side effects must await hydration.** If a settings entry is
+- **One runtime document.** The service holds the only copy. `useSettings()`
+  and `settings.get()` return the same object, and it keeps its identity (and
+  the identity of unchanged nested values) until something really changes.
+  The settings JSON remains the durable source. Quit and background flushes
+  (`PersistenceFlushService` calling `settings.flush()`) drain submitted
+  saves, then resubmit and await the current document when its last save was
+  not confirmed.
+- **Load-sensitive side effects must await the load.** If a settings entry is
   paired with state elsewhere (for example an OS-keychain secret), call
-  `whenSettingsLoaded()` before writing the other half. If the initial load
-  failed, settings are session-only and the paired write would be stranded.
+  `whenSettingsLoaded()` (`settings.whenLoaded()`) before writing the other
+  half. If the initial load failed, settings are session-only and the paired
+  write would be stranded.
 - **Load failure is session-only.** Simple and functional updates still apply
-  over defaults for the current session, but the provider never writes over an
+  over defaults for the current session, but the service never writes over an
   unreadable or corrupt settings document.
 - **No save button.** Settings apply live — design your control accordingly.
 
@@ -115,13 +122,16 @@ use the existing shadcn primitive (`Switch`, `Select`, `Dialog`, `Popover`,
 `appearance-section.tsx`, `editor-section.tsx`, and `all-notes-section.tsx` for
 the common shapes). Add the test at the narrowest useful level:
 
-- For a setting whose value should round-trip through the provider, use
-  `settings-screen.test.tsx`: it renders the screen inside the *real* provider
-  over a fake bridge (`setBridge`), interacts with the control, and asserts the
-  document that reaches `settings_save`.
-- For a section with its own branching behavior or provider dependencies, add
-  a focused section test next to it (for example `backup-section.test.tsx` or
-  `rebuild-index-field.test.tsx`) and mock only the surrounding providers.
+- For a setting whose value should round-trip, render the screen or the
+  section with `renderInApp` (the *real* provider over the test services),
+  interact with the control, and assert the saved settings
+  (`app.settings.get()` or `app.settings.saves()`). Start from a stored value
+  with the `settings` option: `renderInApp(ui, { settings: { yourNewSetting } })`.
+- For a section with its own branching behavior, add a focused section test
+  next to it (for example `backup-section.test.tsx` or
+  `rebuild-index-field.test.tsx`), also with `renderInApp`. Drive the services
+  it reads through `app`; do not mock the providers. See
+  [testing](testing.md).
 
 ## Checklist
 
@@ -132,6 +142,6 @@ the common shapes). Add the test at the narrowest useful level:
       wired to `updateSettings`
 - [ ] New section registered in `settings/sections.ts` and rendered from
       `settings-screen.tsx` if it adds a group
-- [ ] Screen/provider test for persistence, plus focused section tests for
-      section-specific behavior where needed
+- [ ] `renderInApp` test asserting `app.settings` for persistence, plus focused
+      section tests for section-specific behavior where needed
 - [ ] No Rust changes, no migrations, no per-key save logic

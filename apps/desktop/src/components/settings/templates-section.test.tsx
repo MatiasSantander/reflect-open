@@ -1,28 +1,17 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from 'vitest-browser-react'
+import type { MaybePromise } from '@reflect/utils'
 import { page, userEvent } from 'vitest/browser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
-import { RouterProvider, useRouter } from '@/routing/router.tsx'
+import { createTestWindowService } from '@reflect/app/testing'
+import { createTestCoreServices } from '@reflect/core/testing'
+import { deepLinkForRoute } from '@reflect/app'
+import { NoteTemplatesProvider } from '@/providers/note-templates-provider.tsx'
+import { useRouter } from '@/routing/router.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { TemplatesSection } from './templates-section.tsx'
 
-const listTemplates = vi.hoisted(() => vi.fn())
-const openRouteInNewWindow = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
-
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  listTemplates,
-}))
-vi.mock('@/lib/windows/open-in-new-window.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/windows/open-in-new-window.ts')>()),
-  openRouteInNewWindow,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
-}))
-vi.mock('@/providers/note-templates-provider.tsx', () => ({
-  useNoteTemplates: () => ({ openTemplateCreate: vi.fn() }),
-}))
+const openNoteWindow = vi.fn<(deepLink: string) => MaybePromise<boolean>>()
 
 function RouteProbe(): ReactElement {
   const { route } = useRouter()
@@ -33,22 +22,28 @@ function RouteProbe(): ReactElement {
   )
 }
 
-function renderSection() {
-  return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <RouterProvider initialRoute={{ kind: 'settings' }}>
-        <TemplatesSection />
-        <RouteProbe />
-      </RouterProvider>
-    </QueryClientProvider>,
+async function renderSection(): Promise<void> {
+  const app = createTestCoreServices({ database: createWasmTestDatabaseService() })
+  vi.spyOn(app.indexQuery, 'listTemplates').mockResolvedValue([
+    { path: 'templates/weekly-review.md', title: 'Weekly review', mtime: 1 },
+  ])
+  await renderInApp(
+    <>
+      <TemplatesSection />
+      <RouteProbe />
+    </>,
+    {
+      app,
+      appServices: { window: createTestWindowService({ openNoteWindow }) },
+      graph: { root: '/g', name: 'g' },
+      route: { kind: 'settings' },
+      wrapper: (children) => <NoteTemplatesProvider>{children}</NoteTemplatesProvider>,
+    },
   )
 }
 
 beforeEach(() => {
-  listTemplates
-    .mockReset()
-    .mockResolvedValue([{ path: 'templates/weekly-review.md', title: 'Weekly review', mtime: 1 }])
-  openRouteInNewWindow.mockReset().mockResolvedValue(true)
+  openNoteWindow.mockReset().mockResolvedValue(true)
 })
 
 describe('TemplatesSection note links', () => {
@@ -60,7 +55,7 @@ describe('TemplatesSection note links', () => {
     await expect
       .element(page.getByTestId('route'))
       .toMatchTextContent('note:templates/weekly-review.md')
-    expect(openRouteInNewWindow).not.toHaveBeenCalled()
+    expect(openNoteWindow).not.toHaveBeenCalled()
   })
 
   it('opens a ⌘-clicked template in a new window with its explicit note route', async () => {
@@ -68,12 +63,14 @@ describe('TemplatesSection note links', () => {
 
     await page.getByText('templates/weekly-review.md').click({ modifiers: ['ControlOrMeta'] })
 
-    await vi.waitFor(() =>
-      expect(openRouteInNewWindow).toHaveBeenCalledWith({
-        kind: 'note',
-        path: 'templates/weekly-review.md',
-      }),
-    )
+    await vi.waitFor(() => {
+      expect(openNoteWindow).toHaveBeenCalledWith(
+        deepLinkForRoute({
+          kind: 'note',
+          path: 'templates/weekly-review.md',
+        }),
+      )
+    })
     expect(page.getByTestId('route').element().textContent).toBe('settings')
   })
 })

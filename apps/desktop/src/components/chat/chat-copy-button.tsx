@@ -3,7 +3,7 @@ import { Check, Copy } from 'lucide-react'
 import { errorMessage } from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
-import { startOperation } from '@/lib/operations.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
 
 interface ChatCopyButtonProps {
   /** The markdown put on the clipboard when the button is pressed. */
@@ -18,6 +18,7 @@ const COPY_RESET_MS = 1400
  * raises an operation, where it would otherwise be silent.
  */
 export function ChatCopyButton({ text }: ChatCopyButtonProps): ReactElement {
+  const { operations } = useAppServices()
   const [isCopied, setIsCopied] = useState(false)
 
   // Reset the check mark whenever the reply changes underneath it.
@@ -40,7 +41,7 @@ export function ChatCopyButton({ text }: ChatCopyButtonProps): ReactElement {
       await navigator.clipboard.writeText(text)
       setIsCopied(true)
     } catch (cause) {
-      startOperation('Copying the reply').fail(errorMessage(cause))
+      operations.start('Copying the reply').fail(errorMessage(cause))
     }
   }
 

@@ -1,11 +1,18 @@
 import type { ReactNode } from 'react'
-import { cleanup, render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setBridge } from '@reflect/core'
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
-import type { ConnectExistingResult } from '@/lib/backup-controller.ts'
+import { describe, expect, it, vi } from 'vitest'
+import type { CoreServices } from '@reflect/core'
+import {
+  createTestCoreServices,
+  createTestHttpService,
+  createTestPlatformService,
+  createTestGitSyncService,
+  createTestSecretStoreService,
+  type TestGitSyncService,
+} from '@reflect/core/testing'
 import { fireEvent } from '@/test-utils/fire-event.ts'
+import { renderInApp, type InAppRenderResult } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { ConnectGithubDrawer } from './connect-github-drawer.tsx'
 
 /**
@@ -24,68 +31,71 @@ vi.mock('@/components/ui/drawer.tsx', () => ({
   DrawerTitle: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
 }))
 
-const sync = vi.hoisted(() => ({
-  connectNewRepo: vi.fn(async (): Promise<'connected' | 'manualCreateNeeded'> => 'connected'),
-  connectExistingRepo: vi.fn(async (): Promise<ConnectExistingResult> => 'connected'),
-}))
-vi.mock('@/providers/sync-provider.tsx', () => ({ useSync: () => sync }))
-vi.mock('@tauri-apps/plugin-http', () => ({ fetch: vi.fn() }))
-vi.mock('@/lib/platform.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/platform.ts')>()),
-  isNativeShell: () => true,
-}))
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
-const httpFetch = vi.mocked(tauriFetch)
-
-beforeEach(() => {
-  // A stored PAT + GitHub accepting it ("alex") makes the auth step skip
-  // itself, so a Continue lands straight on the finish step.
-  setBridge({
-    invoke: async (command) =>
-      command === 'secret_get' ? JSON.stringify({ kind: 'pat', token: 'ghp_abc' }) : null,
-    listen: async () => () => {},
+/**
+ * Render the sheet over a scripted backup, which connects every repository
+ * unless `script` says otherwise.
+ */
+async function mount(
+  ui: ReactNode,
+  script?: (gitSync: TestGitSyncService) => void,
+): Promise<InAppRenderResult<CoreServices> & { gitSync: TestGitSyncService }> {
+  const gitSync = createTestGitSyncService({ state: { phase: 'disconnected' } })
+  script?.(gitSync)
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    platform: createTestPlatformService({ isMacosDesktop: false, hasMacosTitleBarOverlay: false }),
+    // A stored PAT + GitHub accepting it ("alex") makes the auth step skip
+    // itself, so a Continue lands straight on the finish step.
+    secretStore: createTestSecretStoreService({
+      'github-auth': JSON.stringify({ kind: 'pat', token: 'ghp_abc' }),
+    }),
+    http: createTestHttpService([
+      {
+        method: 'GET',
+        url: 'https://api.github.com/user',
+        reply: { status: 200, json: { login: 'alex' } },
+      },
+    ]),
+    gitSync,
   })
-  httpFetch.mockImplementation(
-    async () =>
-      new Response(JSON.stringify({ login: 'alex' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-  )
-  sync.connectNewRepo.mockResolvedValue('connected')
-  sync.connectExistingRepo.mockResolvedValue('connected')
-})
-
-afterEach(async () => {
-  await cleanup()
-  setBridge(null)
-  vi.resetAllMocks()
-})
+  const view = await renderInApp(ui, { app })
+  return Object.assign(view, { gitSync })
+}
 
 describe('ConnectGithubDrawer', () => {
   it('suggests reflect-backup — never the local graph name — and connects', async () => {
-    sync.connectExistingRepo.mockResolvedValueOnce('notFound')
     const onOpenChange = vi.fn()
-    await render(<ConnectGithubDrawer open onOpenChange={onOpenChange} pollIntervalMs={15} />)
+    const { gitSync } = await mount(
+      <ConnectGithubDrawer open onOpenChange={onOpenChange} pollIntervalMs={15} />,
+      (scripted) => scripted.onConnectExistingRepo(() => Promise.resolve('notFound')),
+    )
 
     // The local graph's display name is the sandbox folder ("Documents") —
     // the prefill must be the fixed fallback, not a graph-derived slug.
     await expect.element(page.getByLabelText('Repository name')).toHaveValue('reflect-backup')
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await vi.waitFor(() =>
-      expect(sync.connectExistingRepo).toHaveBeenCalledWith(
-        { owner: 'alex', name: 'reflect-backup' },
-        { allowPublic: false },
-      ),
-    )
-    await vi.waitFor(() => expect(sync.connectNewRepo).toHaveBeenCalledWith('reflect-backup'))
+    await vi.waitFor(() => {
+      expect(gitSync.calls()).toContainEqual({
+        method: 'connectExistingRepo',
+        ref: { owner: 'alex', name: 'reflect-backup' },
+        allowPublic: false,
+      })
+    })
+    await vi.waitFor(() => {
+      expect(gitSync.calls()).toContainEqual({
+        method: 'connectNewRepo',
+        name: 'reflect-backup',
+      })
+    })
     await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   })
 
   it('connects an existing repository and closes the sheet', async () => {
     const onOpenChange = vi.fn()
-    await render(<ConnectGithubDrawer open onOpenChange={onOpenChange} pollIntervalMs={15} />)
+    const { gitSync } = await mount(
+      <ConnectGithubDrawer open onOpenChange={onOpenChange} pollIntervalMs={15} />,
+    )
 
     await page.getByRole('radio', { name: /use an existing repository/i }).click()
     fireEvent.change(page.getByPlaceholder('owner/name'), {
@@ -93,18 +103,19 @@ describe('ConnectGithubDrawer', () => {
     })
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await vi.waitFor(() =>
-      expect(sync.connectExistingRepo).toHaveBeenCalledWith(
-        { owner: 'alex', name: 'notes' },
-        { allowPublic: false },
-      ),
-    )
+    await vi.waitFor(() => {
+      expect(gitSync.calls()).toContainEqual({
+        method: 'connectExistingRepo',
+        ref: { owner: 'alex', name: 'notes' },
+        allowPublic: false,
+      })
+    })
     await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   })
 
   it('starts a fresh wizard on every open', async () => {
     const onOpenChange = vi.fn()
-    const view = await render(<ConnectGithubDrawer open onOpenChange={onOpenChange} />)
+    const view = await mount(<ConnectGithubDrawer open onOpenChange={onOpenChange} />)
 
     // Leave the wizard mid-flow with a validation error showing.
     await page.getByRole('radio', { name: /use an existing repository/i }).click()

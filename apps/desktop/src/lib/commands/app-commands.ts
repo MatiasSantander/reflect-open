@@ -1,13 +1,8 @@
-import { randomNotePath, toggleDevtools, untitledNotePath } from '@reflect/core'
+import type { NoteCreationService } from '@reflect/core'
+import type { CommandService } from '@reflect/app'
 import { attachFilesToNote } from '@/lib/attach-files.ts'
-import { runCopyNotePath } from '@/lib/note-copy-path.ts'
-import { runCopyDeepLink } from '@/lib/note-deep-link.ts'
-import { runGistPublish } from '@/lib/note-gist.ts'
-import { isNativeShell } from '@/lib/platform.ts'
-import { rebuildIndexVisibly } from '@/lib/rebuild-index.ts'
-import { openRouteInNewWindow } from '@/lib/windows/open-in-new-window.ts'
+import { copyNoteDeepLink, copyNotePath, publishGistAndCopyLink } from '@/lib/clipboard-actions.ts'
 import { routeForPath, type Route } from '@/routing/route.ts'
-import { registerCommands } from './registry.ts'
 import type { AppCommand, CommandContext } from './types.ts'
 
 /**
@@ -21,8 +16,8 @@ import type { AppCommand, CommandContext } from './types.ts'
  * (the same contract as daily notes). Shared by ⌘N and the All Notes screen's
  * New note button so "what a new note is" stays one definition.
  */
-export function newNoteRoute(): Route {
-  return { kind: 'note', path: untitledNotePath() }
+export function newNoteRoute(noteCreation: NoteCreationService): Route {
+  return { kind: 'note', path: noteCreation.untitledNotePath() }
 }
 
 /**
@@ -37,7 +32,7 @@ function openNewNote(context: CommandContext): void {
   if (route.kind === 'today' || route.kind === 'daily') {
     context.clearScrollState()
   }
-  context.navigate(newNoteRoute())
+  context.navigate(newNoteRoute(context.services.noteCreation))
 }
 
 const GRAPH_SWITCH_COMMANDS: AppCommand[] = Array.from({ length: 9 }, (_, index) => {
@@ -99,7 +94,7 @@ const APP_COMMANDS: AppCommand[] = [
       if (path === null) {
         return
       }
-      await openRouteInNewWindow(routeForPath(path))
+      await context.app.linkNavigation.openRouteInNewWindow(routeForPath(path))
     },
   },
   {
@@ -188,15 +183,14 @@ const APP_COMMANDS: AppCommand[] = [
     // Publishes the body of the note the current route edits to a secret
     // GitHub gist (republishing to the same gist thereafter) and copies the
     // link. No default keybinding: the palette keeps it keyboard-reachable
-    // without spending a shortcut. `runGistPublish` owns all feedback — the
-    // progress line, the failure surface, and the "link copied" confirmation.
+    // without spending a shortcut. `GistPublishService.publish` owns the progress line
+    // and the failure surface; `publishGistAndCopyLink` owns the "link copied" confirmation.
     run: async (context) => {
-      const generation = context.generation()
       const path = context.notePath()
-      if (generation === null || path === null) {
+      if (path === null) {
         return
       }
-      await runGistPublish(path, generation)
+      await publishGistAndCopyLink(context.services, context.app, path)
     },
   },
   {
@@ -215,16 +209,15 @@ const APP_COMMANDS: AppCommand[] = [
     keywords: ['url', 'share', 'clipboard', 'reflect://', 'address'],
     // The original app's copy-link shortcut. Copies a `reflect://` address for
     // the note the current route edits — id-shaped so it survives renames,
-    // minting the frontmatter id on first copy. `runCopyDeepLink` owns all
+    // minting the frontmatter id on first copy. `copyNoteDeepLink` owns all
     // feedback (the "Deep link copied" status line and failure surfaces).
     keybinding: 'Alt-Mod-l',
     run: async (context) => {
-      const generation = context.generation()
       const path = context.notePath()
-      if (generation === null || path === null) {
+      if (path === null) {
         return
       }
-      await runCopyDeepLink(path, generation)
+      await copyNoteDeepLink(context.services, context.app, path)
     },
   },
   {
@@ -233,7 +226,7 @@ const APP_COMMANDS: AppCommand[] = [
     keywords: ['file', 'absolute', 'filesystem', 'clipboard', 'location'],
     // The OS-path sibling of "Copy deep link": copies the note's absolute
     // file path (Finder's Copy-as-Pathname chord) for use outside Reflect,
-    // where a reflect:// address cannot resolve. `runCopyNotePath` owns all
+    // where a reflect:// address cannot resolve. `copyNotePath` owns all
     // feedback (the "Note path copied" status line and failure surfaces).
     keybinding: 'Alt-Mod-c',
     run: async (context) => {
@@ -241,7 +234,7 @@ const APP_COMMANDS: AppCommand[] = [
       if (path === null) {
         return
       }
-      await runCopyNotePath(context.graphRoot(), path)
+      await copyNotePath(context.services, context.app, path)
     },
   },
   {
@@ -249,7 +242,7 @@ const APP_COMMANDS: AppCommand[] = [
     title: 'Open random note',
     keywords: ['shuffle', 'serendipity'],
     run: async (context) => {
-      const path = await randomNotePath()
+      const path = await context.services.indexQuery.randomNotePath()
       if (path !== null) {
         context.navigate({ kind: 'note', path })
       }
@@ -282,12 +275,6 @@ const APP_COMMANDS: AppCommand[] = [
     keywords: ['voice', 'mic', 'dictate', 'transcribe', 'speech', 'capture'],
     keybinding: 'Mod-Shift-r',
     run: (context) => context.toggleAudioMemo(),
-  },
-  {
-    id: 'meeting.toggle',
-    title: 'Record meeting',
-    keywords: ['meeting', 'call', 'zoom', 'slack', 'huddle', 'transcribe', 'system audio'],
-    run: (context) => context.toggleMeetingRecording(),
   },
   {
     id: 'theme.toggle',
@@ -332,11 +319,7 @@ const APP_COMMANDS: AppCommand[] = [
     title: 'Rebuild search index',
     keywords: ['reindex', 'refresh'],
     run: async (context) => {
-      const generation = context.generation()
-      if (generation === null) {
-        return
-      }
-      await rebuildIndexVisibly(generation)
+      await context.services.indexLifecycle.rebuildVisibly()
     },
   },
   {
@@ -348,12 +331,12 @@ const APP_COMMANDS: AppCommand[] = [
     // own DevTools — so this no-ops there rather than throwing through the
     // bridge. Errors are swallowed: a debug affordance never interrupts the user.
     keybinding: 'Mod-Shift-i',
-    run: async () => {
-      if (!isNativeShell()) {
+    run: async (context) => {
+      if (!context.services.platform.isNativeShell) {
         return
       }
       try {
-        await toggleDevtools()
+        await context.app.window.toggleDevtools()
       } catch {
         // Best effort — opening the inspector is never worth a surfaced failure.
       }
@@ -371,20 +354,21 @@ export function keybindingFor(commandId: string): string | null {
   return APP_COMMANDS.find((command) => command.id === commandId)?.keybinding ?? null
 }
 
-let registered = false
+const registeredIn = new WeakSet<object>()
 
 /**
- * Register the first-wave commands. Called explicitly from `main.tsx` (and by
- * tests) — registration as an import side effect couples behavior to module
- * graph order, which is exactly the kind of spooky action a registry invites.
- * Idempotent: hosts and tests can call it without coordinating.
+ * Register the first-wave commands in `registry`. Called explicitly from
+ * `main.tsx` (and by the test render helpers) — registration as an
+ * import side effect couples behavior to module graph order, which is exactly
+ * the kind of spooky action a registry invites. Idempotent per registry:
+ * hosts and tests can call it without coordinating.
  */
-export function registerAppCommands(): void {
-  if (registered) {
+export function registerAppCommands(registry: CommandService<CommandContext>): void {
+  if (registeredIn.has(registry)) {
     return
   }
-  registered = true
-  registerCommands(APP_COMMANDS)
+  registeredIn.add(registry)
+  registry.register(APP_COMMANDS)
 }
 
 export { APP_COMMANDS }

@@ -7,31 +7,30 @@ import {
   useState,
   type ReactElement,
 } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Archive, CalendarClock, List, Search } from 'lucide-react'
-import type { OpenTask, TaskGroup } from '@reflect/core'
+import {
+  composeVisibleTaskGroups,
+  getTaskKey,
+  isSameTask,
+  type InsertTaskTarget,
+  type OpenTask,
+  type TaskGroup,
+} from '@reflect/core'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { useNoteLinkNavigation } from '@/hooks/use-note-link-navigation.ts'
+import { useNoteLinkNavigation, type ModClickEvent } from '@/hooks/use-note-link-navigation.ts'
 import { useRecentlyCompleted } from '@/lib/tasks/recently-completed.ts'
-import { sameTask, taskKey } from '@/lib/tasks/task-identity.ts'
-import type { InsertTaskTarget } from '@/lib/tasks/task-insert-target.ts'
 import { scrollTaskIntoView } from '@/lib/tasks/task-navigation.ts'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useTaskRowHandlers } from '@/lib/tasks/use-task-row-handlers.ts'
 import { useTaskFilters } from '@/lib/tasks/task-filters.ts'
-import { composeVisibleTaskGroups } from '@/lib/tasks/task-visibility.ts'
 import { useTaskKeyboard } from '@/lib/tasks/use-task-keyboard.ts'
 import { useTaskSelection } from '@/lib/tasks/use-task-selection.ts'
-import {
-  createCompletedTasksQueryOptions,
-  createOpenTasksQueryOptions,
-} from '@/lib/tasks/tasks-query.ts'
 import { useScrollRestoration } from '@/lib/use-scroll-restoration.ts'
 import { useToday } from '@/lib/use-today.ts'
-import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
+import { useServiceState } from '@/services/use-service-state.ts'
 import { routeForPath } from '@/routing/route.ts'
 import { TaskFiltersMenu } from './task-filters-menu.tsx'
 import { TaskGroupSection } from './task-group-section.tsx'
@@ -39,7 +38,9 @@ import { TaskScheduleCalendar } from './task-schedule-calendar.tsx'
 import { TaskToolbarCountBadge } from './task-toolbar-count-badge.tsx'
 import { isModEvent } from '@meowdown/core'
 
-/** The selected task that owns keyboard focus: the cursor/anchor, else the first row left selected. */
+/**
+ * The selected task that owns keyboard focus: the cursor/anchor, else the first row left selected.
+ */
 function focusedSelectedKey(
   selectedTaskKeys: ReadonlySet<string>,
   activeTaskKey: () => string | null,
@@ -56,7 +57,7 @@ function focusedSelectedKey(
  * The Tasks view (Plan 18), in V1's design: every open checkbox across the graph
  * grouped into sticky, colour-coded sections — Current / Overdue / Upcoming (by
  * the task's due date, else its note's daily date) and then by note — read from
- * the SQLite projection and kept fresh by the index invalidation hook. A search
+ * the SQLite projection and kept fresh by `TaskService`. A search
  * box filters by text; the "Task filters" menu toggles which buckets show and
  * reveals completed ("archived") tasks. Owns its scroll container so the sticky
  * headers and the toolbar stay put; per-entry scroll memory mirrors All Notes.
@@ -73,6 +74,7 @@ function focusedSelectedKey(
  */
 export function TasksScreen(): ReactElement {
   const { graph } = useGraph()
+  const { tasks: taskService } = useCoreServices()
   const navigateNoteLink = useNoteLinkNavigation()
   const today = useToday()
   const { filters, toggle } = useTaskFilters()
@@ -81,22 +83,19 @@ export function TasksScreen(): ReactElement {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const bridgeReady = useBridgeReady()
-  const enabled = bridgeReady && graph !== null
-
-  const { data: open, isError: openFailed } = useQuery({
-    ...createOpenTasksQueryOptions(graph?.root),
-    enabled,
-  })
-  const { data: completed, isError: completedFailed } = useQuery({
-    ...createCompletedTasksQueryOptions(graph?.root),
-    enabled: enabled && filters.archived,
-  })
+  const { open, completed, openFailed, completedFailed } = useServiceState(
+    taskService,
+    taskService.getState,
+  )
+  useEffect(
+    () => (filters.archived ? taskService.includeCompleted() : undefined),
+    [taskService, filters.archived],
+  )
 
   // Either read failing surfaces the alert — a failed completed read must not
   // leave `ready` stuck (and the list blank) just because its data never arrived.
-  // The completed error only counts while archived is on: TanStack keeps the last
-  // error on the disabled query, so turning archived off must clear it.
+  // The completed error only counts while archived is on: the service keeps the
+  // last error of a list it no longer reads, so turning archived off must clear it.
   const isError = openFailed || (filters.archived && completedFailed)
   // When archived is on, the list merges open + completed, so the empty state
   // must wait for both — else a graph with only completed tasks flashes "No
@@ -117,9 +116,9 @@ export function TasksScreen(): ReactElement {
 
   // The flat, render-order list of tasks the selection and its shortcuts act on.
   const orderedTasks = useMemo(() => groups.flatMap((group) => group.tasks), [groups])
-  const orderedKeys = useMemo(() => orderedTasks.map(taskKey), [orderedTasks])
+  const orderedKeys = useMemo(() => orderedTasks.map(getTaskKey), [orderedTasks])
   const tasksByKey = useMemo(
-    () => new Map(orderedTasks.map((task) => [taskKey(task), task])),
+    () => new Map(orderedTasks.map((task) => [getTaskKey(task), task])),
     [orderedTasks],
   )
   const selection = useTaskSelection(orderedKeys)
@@ -135,7 +134,7 @@ export function TasksScreen(): ReactElement {
       scrollTaskIntoView(rootRef.current, key)
     }
   }, [])
-  const editHandlers = useTaskRowHandlers({ selection, actions, orderedTasks, today, scrollToKey })
+  const editHandlers = useTaskRowHandlers({ selection, actions, orderedTasks, scrollToKey })
   const selectedTaskKeys = selection.selected
   const activeTaskKey = selection.activeKey
   // Selection opens the focused task's inline editor, often after an async insert
@@ -151,7 +150,7 @@ export function TasksScreen(): ReactElement {
       setQuery('')
       void actions.insert(target).then((created) => {
         if (created !== null) {
-          const key = taskKey(created)
+          const key = getTaskKey(created)
           selection.clickSelect(key, { metaKey: false, ctrlKey: false, shiftKey: false })
           scrollToKey(key)
         }
@@ -162,17 +161,15 @@ export function TasksScreen(): ReactElement {
   // The tasks behind the current selection's keys, in selection order — what the
   // toolbar actions (schedule, convert) act on. A row whose key no longer
   // resolves (pruned by a reindex) is dropped rather than acted on.
-  const selectedTasks = useCallback(
-    (): OpenTask[] =>
-      [...selection.selected]
-        .map((key) => tasksByKey.get(key))
-        .filter((task): task is OpenTask => task !== undefined),
-    [selection, tasksByKey],
-  )
+  const selectedTasks = useCallback((): OpenTask[] => {
+    return [...selection.selected]
+      .map((key) => tasksByKey.get(key))
+      .filter((task): task is OpenTask => task !== undefined)
+  }, [selection, tasksByKey])
   const onSelectionCheckboxToggle = useCallback(
     (task: OpenTask) => {
       const tasks = selectedTasks()
-      if (tasks.length <= 1 || !tasks.some((selectedTask) => sameTask(selectedTask, task))) {
+      if (tasks.length <= 1 || !tasks.some((selectedTask) => isSameTask(selectedTask, task))) {
         actions.checkboxToggle(task)
         return
       }
@@ -209,11 +206,12 @@ export function TasksScreen(): ReactElement {
     }
   }, [actions, selection, selectedTasks])
   const openNote = useCallback(
-    (path: string, event?: ModClickEvent) =>
+    (path: string, event?: ModClickEvent) => {
       navigateNoteLink({
         target: routeForPath(path),
         openInNewWindow: event !== undefined && isModEvent(event),
-      }),
+      })
+    },
     [navigateNoteLink],
   )
   useTaskKeyboard({
@@ -330,6 +328,7 @@ export function TasksScreen(): ReactElement {
                 selection={selection}
                 editHandlers={editHandlers}
                 taskActionPending={actions.isPending}
+                onCheckboxToggle={actions.checkboxToggle}
                 onSelectionCheckboxToggle={onSelectionCheckboxToggle}
                 today={today}
                 onAdd={onAdd}

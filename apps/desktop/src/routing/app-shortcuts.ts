@@ -1,22 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { toggleNotePinned } from '@/lib/note-pin.ts'
-import { toggleNotePrivate } from '@/lib/note-private.ts'
 import { getIsComposing } from '@meowdown/core'
 import { usePalette } from '@/components/command-palette/palette-provider.tsx'
-import { registerKeymap } from '@/editor/keymap.ts'
-import { APP_COMMANDS } from '@/lib/commands/app-commands.ts'
-import { isApplePlatform, normalizeBinding } from '@/lib/keybindings.ts'
-import { runCommand } from '@/lib/commands/registry.ts'
 import { todayIso } from '@/lib/dates.ts'
-import { setMenuCommandDispatch } from '@/lib/native-menu/dispatch.ts'
-import { isNativeMenuInstalled } from '@/lib/native-menu/menu.ts'
-import { isMacosDesktop } from '@/lib/platform.ts'
-import { retryFailedEmbeddings } from '@/lib/semantic.ts'
 import type { CommandContext } from '@/lib/commands/types.ts'
 import { useAudioMemo } from '@/providers/audio-memo-provider.tsx'
-import { useMeetingRecording } from '@/providers/meeting-recording-provider.tsx'
-import { useChatSession } from '@/providers/chat-provider.tsx'
+import { useMaybeChatSession } from '@/providers/chat-provider.tsx'
 import { useFocusedDailyDate } from '@/providers/focused-daily-provider.tsx'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useNoteFindActions } from '@/providers/note-find-provider.tsx'
@@ -25,31 +13,18 @@ import { useSettings } from '@/providers/settings-provider.tsx'
 import { useShortcuts } from '@/providers/shortcuts-provider.tsx'
 import { useSidebar } from '@/providers/sidebar-provider.tsx'
 import { useTheme } from '@/providers/theme-provider.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 import { focusedNotePathForRoute } from './route.ts'
 import { useRouter } from './router.tsx'
 
 /**
  * App-scope keyboard shortcuts, driven by the command registry (Plan 08): a
  * binding and its behavior are one command definition — the switch statement
- * this file used to hold is gone. Bindings still register through the central
- * keymap registry, the shared collision ledger with editor-scope keys.
+ * this file used to hold is gone. Bindings still register in the central
+ * keymap registry, the shared collision ledger with editor-scope keys
+ * (`registerAppKeymaps`).
  */
 
-const BOUND_COMMANDS = APP_COMMANDS.flatMap((command) =>
-  command.keybinding ? [{ binding: command.keybinding, command }] : [],
-)
-
-/** Registered once at module scope; values are display descriptions. */
-export const APP_BINDINGS = registerKeymap(
-  'app',
-  Object.fromEntries(BOUND_COMMANDS.map(({ binding, command }) => [binding, command.title])),
-)
-
-const IS_APPLE = isApplePlatform()
-
-const BINDING_TO_ID = new Map(
-  BOUND_COMMANDS.map(({ binding, command }) => [normalizeBinding(binding, IS_APPLE), command.id]),
-)
 const HISTORY_COMMAND_IDS = new Set(['history.back', 'history.forward'])
 
 // AppKit owns this key equivalent on macOS. Keep it in the registry for
@@ -62,96 +37,6 @@ const NATIVE_MACOS_MENU_COMMAND_IDS = new Set([
   'note.findPrevious',
 ])
 
-const CODE_TO_BINDING_KEY: Record<string, string> = {
-  BracketLeft: '[',
-  BracketRight: ']',
-}
-
-interface BindingKeyLookup {
-  key: string
-  shift: boolean
-}
-
-function bindingKeyFor(event: KeyboardEvent): string {
-  if (!event.altKey && event.key.length === 1) {
-    return event.key.toLowerCase()
-  }
-  const fromCode = CODE_TO_BINDING_KEY[event.code]
-  if (fromCode !== undefined) {
-    return fromCode
-  }
-  // Alt rewrites `event.key` on macOS (⌥L reports "Ò"), so alt chords match
-  // letters and digits by physical code instead.
-  if (event.altKey) {
-    const code = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code)
-    if (code !== null) {
-      return (code[1] ?? code[2] ?? '').toLowerCase()
-    }
-  }
-  return event.key.toLowerCase()
-}
-
-function physicalDigitKeyFor(event: KeyboardEvent): string | null {
-  if (event.altKey) {
-    return null
-  }
-  const match = /^Digit(\d)$/.exec(event.code)
-  if (match === null) {
-    return null
-  }
-  const digit = match[1]!
-  // Some layouts type number-row digits with Shift. Treat that as the same
-  // graph-switch shortcut, but don't make US-style Cmd+Shift+@ mean Cmd+2.
-  if (event.shiftKey && event.key !== digit) {
-    return null
-  }
-  return digit
-}
-
-function addBindingLookup(lookups: BindingKeyLookup[], lookup: BindingKeyLookup): void {
-  if (lookups.some((existing) => existing.key === lookup.key && existing.shift === lookup.shift)) {
-    return
-  }
-  lookups.push(lookup)
-}
-
-function bindingLookupsFor(event: KeyboardEvent): BindingKeyLookup[] {
-  const lookups: BindingKeyLookup[] = []
-  addBindingLookup(lookups, { key: bindingKeyFor(event), shift: event.shiftKey })
-
-  const digit = physicalDigitKeyFor(event)
-  if (digit !== null) {
-    addBindingLookup(lookups, { key: digit, shift: false })
-  }
-
-  return lookups
-}
-
-function idForKeyDown(event: KeyboardEvent): string | null {
-  if ((!event.metaKey && !event.ctrlKey) || event.repeat) {
-    return null // held keys must not spam navigations (e.g. a stack of new notes)
-  }
-  for (const { key, shift } of bindingLookupsFor(event)) {
-    // Every held modifier is part of the lookup, so `Mod-Alt-l` can bind while
-    // an alt chord still never fires a plain `Mod-` command.
-    const modifiers = [
-      event.ctrlKey ? 'Ctrl' : null,
-      event.metaKey ? 'Meta' : null,
-      event.altKey ? 'Alt' : null,
-      shift ? 'Shift' : null,
-    ].filter((modifier): modifier is string => modifier !== null)
-    const id = BINDING_TO_ID.get(normalizeBinding([...modifiers, key].join('-'), IS_APPLE))
-    if (id !== undefined) {
-      return id
-    }
-  }
-  return null
-}
-
-function isNativeMacosMenuCommand(commandId: string): boolean {
-  return isMacosDesktop && isNativeMenuInstalled() && NATIVE_MACOS_MENU_COMMAND_IDS.has(commandId)
-}
-
 /**
  * Install the app-level shortcut listener and build the {@link CommandContext}
  * commands run with. Mount once inside the router + palette providers; the
@@ -159,9 +44,15 @@ function isNativeMacosMenuCommand(commandId: string): boolean {
  * the native menu's command items dispatch into the same guard path while
  * mounted (`setMenuCommandDispatch`).
  */
+
+function doNothing(): void {}
+
 export function useAppShortcuts(): CommandContext {
+  const services = useCoreServices()
+  const appServices = useAppServices()
   const { route, navigate, back, forward, clearScrollState } = useRouter()
-  const queryClient = useQueryClient()
+  const { platform, semanticSearch } = services
+  const { commands, nativeMenu } = appServices
   const focusedDailyDate = useFocusedDailyDate()
   const { resolvedTheme, setTheme } = useTheme()
   const { graph, recents, openRecent } = useGraph()
@@ -175,8 +66,8 @@ export function useAppShortcuts(): CommandContext {
   } = useNoteTemplates()
   const { toggleSidebar } = useSidebar()
   const { toggle: toggleAudioMemo } = useAudioMemo()
-  const { toggle: toggleMeetingRecording } = useMeetingRecording()
-  const { newChat } = useChatSession()
+  // The hook can outlive the open graph, and its chat session with it.
+  const newChat = useMaybeChatSession()?.newChat ?? doNothing
   const { updateSettings } = useSettings()
   const {
     openForPath: openNoteFindForPath,
@@ -197,7 +88,6 @@ export function useAppShortcuts(): CommandContext {
 
   // Read at run time, not captured: a command can fire long after the render
   // that created the context (palette open across an index rebuild, etc.).
-  const generationRef = useRef<number | null>(graph?.generation ?? null)
   const graphRootRef = useRef<string | null>(graph?.root ?? null)
   const recentsRef = useRef(recents)
   const openRecentRef = useRef(openRecent)
@@ -207,7 +97,6 @@ export function useAppShortcuts(): CommandContext {
     paletteOpenRef.current = paletteOpen
     shortcutsOpenRef.current = shortcutsOpen
     templatesOpenRef.current = templatePickerOpen || templateCreateOpen
-    generationRef.current = graph?.generation ?? null
     graphRootRef.current = graph?.root ?? null
     recentsRef.current = recents
     openRecentRef.current = openRecent
@@ -217,35 +106,34 @@ export function useAppShortcuts(): CommandContext {
 
   const context = useMemo<CommandContext>(
     () => ({
+      services,
+      app: appServices,
       navigate,
       route: () => routeRef.current,
       // Resolve through the focused stream day so a note-scoped command targets
       // the same day the context sidebar shows (see `effectiveDailyDate`); off
       // the daily views it falls back to the routed note.
-      notePath: () =>
-        focusedNotePathForRoute(routeRef.current, todayIso(), focusedDailyDateRef.current),
+      notePath: () => {
+        return focusedNotePathForRoute(routeRef.current, todayIso(), focusedDailyDateRef.current)
+      },
       togglePin: async () => {
-        const root = graphRootRef.current
-        const generation = generationRef.current
         const path = focusedNotePathForRoute(
           routeRef.current,
           todayIso(),
           focusedDailyDateRef.current,
         )
-        if (root !== null && generation !== null && path !== null) {
-          await toggleNotePinned({ queryClient, root, generation, path })
+        if (path !== null) {
+          await services.noteActions.togglePinned(path)
         }
       },
       togglePrivate: async () => {
-        const root = graphRootRef.current
-        const generation = generationRef.current
         const path = focusedNotePathForRoute(
           routeRef.current,
           todayIso(),
           focusedDailyDateRef.current,
         )
-        if (root !== null && generation !== null && path !== null) {
-          await toggleNotePrivate({ queryClient, root, generation, path })
+        if (path !== null) {
+          await services.noteActions.togglePrivate(path)
         }
       },
       back,
@@ -269,9 +157,6 @@ export function useAppShortcuts(): CommandContext {
         void openRecentRef.current(recent.root)
       },
       toggleAudioMemo,
-      toggleMeetingRecording,
-      generation: () => generationRef.current,
-      graphRoot: () => graphRootRef.current,
       openPalette,
       openShortcuts,
       openTemplatePicker,
@@ -280,11 +165,12 @@ export function useAppShortcuts(): CommandContext {
         updateSettings({ semanticSearchEnabled: true })
         // EmbeddingsSync loads an untouched runtime; a `failed` one only
         // retries on an explicit action like this command.
-        void retryFailedEmbeddings()
+        void semanticSearch.retryFailedModel()
       },
     }),
     [
-      queryClient,
+      services,
+      appServices,
       navigate,
       back,
       forward,
@@ -301,12 +187,24 @@ export function useAppShortcuts(): CommandContext {
       findNextInNote,
       findPreviousInNote,
       toggleAudioMemo,
-      toggleMeetingRecording,
       updateSettings,
+      semanticSearch,
     ],
   )
 
   useEffect(() => {
+    function idForKeyDown(event: KeyboardEvent): string | null {
+      return commands.commandForKeyDown(event)
+    }
+
+    function isNativeMacosMenuCommand(commandId: string): boolean {
+      return (
+        platform.isMacosDesktop &&
+        nativeMenu.isInstalled() &&
+        NATIVE_MACOS_MENU_COMMAND_IDS.has(commandId)
+      )
+    }
+
     // The one guarded entry point for app commands, shared by keystrokes and
     // native menu activations. Returns whether the command was handled.
     function triggerCommand(id: string): boolean {
@@ -325,7 +223,7 @@ export function useAppShortcuts(): CommandContext {
       if (templatesOpenRef.current) {
         return false // the template picker/create dialogs are modal too
       }
-      void runCommand(id, context)
+      void commands.run(id, context)
       return true
     }
 
@@ -366,15 +264,15 @@ export function useAppShortcuts(): CommandContext {
       }
     }
 
-    setMenuCommandDispatch(triggerCommand)
+    nativeMenu.setCommandDispatch(triggerCommand)
     window.addEventListener('keydown', onHistoryKeyDownCapture, { capture: true })
     window.addEventListener('keydown', onKeyDown)
     return () => {
-      setMenuCommandDispatch(null)
+      nativeMenu.setCommandDispatch(null)
       window.removeEventListener('keydown', onHistoryKeyDownCapture, true)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [context, closeShortcuts])
+  }, [context, closeShortcuts, commands, nativeMenu, platform])
 
   return context
 }

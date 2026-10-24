@@ -47,7 +47,7 @@ touches a Reflect server, because there isn't one.
   the note stores the raw provider transcript. Formatting failures also fall
   back to the raw text and a local title rather than retrying speech-to-text.
   The reconciler
-  (`apps/desktop/src/lib/transcription-reconciler.ts`) writes a dedicated
+  (`packages/core/src/audio/audio-memo-transcription-service.ts`) writes a dedicated
   transcript note, resolves or creates the `Audio memos` category note, and
   backlinks both from the daily note under `## [[Audio memos]]`. Pending memos
   retry in the background.

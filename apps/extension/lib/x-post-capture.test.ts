@@ -11,16 +11,18 @@ import { saveXPost } from './x-save.ts'
 import { readBookmarkSettings } from './bookmark-settings.ts'
 
 const { tabMock, observe } = vi.hoisted(() => ({
-  tabMock: vi.fn(async () => ({ incognito: false })),
+  tabMock: vi.fn(() => Promise.resolve({ incognito: false })),
   observe: vi.fn(),
 }))
 vi.mock('wxt/browser', () => ({
   browser: { tabs: { get: tabMock }, webRequest: { onBeforeRequest: { addListener: observe } } },
 }))
 vi.mock('./x-save', () => ({ saveXPost: vi.fn(async () => {}) }))
-vi.mock('./like-settings', () => ({ readLikeSettings: vi.fn(async () => ({ enabled: false })) }))
+vi.mock('./like-settings', () => ({
+  readLikeSettings: vi.fn(() => Promise.resolve({ enabled: false })),
+}))
 vi.mock('./bookmark-settings', () => ({
-  readBookmarkSettings: vi.fn(async () => ({ enabled: true })),
+  readBookmarkSettings: vi.fn(() => Promise.resolve({ enabled: true })),
 }))
 beforeEach(() => {
   vi.resetAllMocks()
@@ -80,7 +82,7 @@ describe('captureXPostRequest', () => {
     await captureXPostRequest(request())
     expect(saveXPost).toHaveBeenCalledWith(1, '20', '2026-09-09T04:00:00.000Z', {
       kind: 'x-bookmark',
-      shouldAdmit: expect.any(Function),
+      shouldAdmit: expect.any(Function) as () => Promise<boolean>,
     })
   })
   it('ignores incognito tabs', async () => {
@@ -108,7 +110,7 @@ it('captures likes independently and ignores unlike requests', async () => {
   })
   expect(saveXPost).toHaveBeenCalledWith(1, '20', '2026-09-09T04:00:00.000Z', {
     kind: 'x-like',
-    shouldAdmit: expect.any(Function),
+    shouldAdmit: expect.any(Function) as () => Promise<boolean>,
   })
   vi.mocked(saveXPost).mockClear()
   await captureXPostRequest({

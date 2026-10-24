@@ -3,12 +3,12 @@ import { Virtualizer, type VirtualizerHandle } from 'virtua'
 import type { NoteListEntry } from '@reflect/core'
 import type { ListSelection } from '@/lib/selection/use-list-selection.ts'
 import { cn } from '@/lib/utils.ts'
-import type { ModClickEvent } from '@/lib/windows/open-in-new-window.ts'
+import type { ModClickEvent } from '@/hooks/use-note-link-navigation.ts'
 import { ALL_NOTES_GRID, AllNotesRow } from './all-notes-row.tsx'
 
 interface AllNotesTableProps {
   /** `undefined` while the index query settles (renders nothing, not "empty"). */
-  notes: NoteListEntry[] | undefined
+  notes: readonly NoteListEntry[] | undefined
   /** The active tag filter, for the empty state's wording. */
   tag: string | null
   /** The shared row selection (click/keyboard); rows read their selected state from it. */
@@ -44,13 +44,14 @@ export function AllNotesTable({
   const { clickSelect, isSelected } = selection
   const virtualizerRef = useRef<VirtualizerHandle>(null)
   const handleToggle = useCallback(
-    (path: string, event: Pick<MouseEvent, 'shiftKey'>) =>
+    (path: string, event: Pick<MouseEvent, 'shiftKey'>) => {
       clickSelect(
         path,
         event.shiftKey
           ? { metaKey: false, ctrlKey: false, shiftKey: true }
           : { metaKey: true, ctrlKey: true, shiftKey: false },
-      ),
+      )
+    },
     [clickSelect],
   )
 

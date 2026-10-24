@@ -34,7 +34,7 @@ designs simply don't survive the move:
 - **The privacy flag is law.** `private: true` notes can never have their
   content sent to any AI or online service. Every ported AI surface must go
   through the same `CloudSafe` enforcement as the copilot
-  (`packages/core/src/ai/checkers.ts`).
+  (`packages/core/src/privacy/privacy-service.ts`).
 
 ## The docs
 
@@ -69,9 +69,10 @@ contracts. Those docs defer to
 - Architecture references use real paths in this repo, following the
   load-bearing rule from the top-level README: **TypeScript owns policy,
   Rust owns capabilities.** New OS integrations arrive as Tauri commands in
-  `apps/desktop/src-tauri/src/`, are consumed through the injected bridge
-  (`packages/core/src/ipc/bridge.ts`), and keep `@reflect/core` free of
-  Tauri imports.
+  `apps/desktop/src-tauri/src/`, are bound as methods of a `@reflect/core`
+  service over `IpcBridgeService` (`packages/core/src/ipc/ipc-service.ts`; see
+  [adding-a-command](../contributing/adding-a-command.md)), and keep
+  `@reflect/core` free of Tauri imports.
 - Editor-level UI (menus, selection affordances) belongs upstream in
   [meowdown](https://github.com/prosekit/meowdown); Reflect supplies the
   items and behavior through props, the same way wikilink and tag

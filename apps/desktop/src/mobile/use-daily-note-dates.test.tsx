@@ -1,40 +1,19 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, renderHook } from 'vitest-browser-react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReactNode } from 'react'
+import { act } from '@/test-utils/act.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { createTestCoreServices } from '@reflect/core/testing'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { useDailyNoteDates } from './use-daily-note-dates.ts'
-
-const dailyDatesInRange = vi.hoisted(() =>
-  vi.fn<(start: string, end: string) => Promise<string[]>>(),
-)
-
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  dailyDatesInRange,
-  hasBridge: () => true,
-}))
-
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g' } }),
-}))
-
-beforeEach(() => dailyDatesInRange.mockReset())
-afterEach(async () => await cleanup())
 
 describe('useDailyNoteDates', () => {
   it('keeps previous markers while a new range loads', async () => {
-    let resolveNextRange: (dates: string[]) => void = () => {}
-    dailyDatesInRange.mockResolvedValueOnce(['2026-07-14']).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveNextRange = resolve
-        }),
-    )
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const wrapper = ({ children }: { children: ReactNode }): ReactNode => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-    const hook = await renderHook(
+    const pendingNextRange = Promise.withResolvers<string[]>()
+    const app = createTestCoreServices({ database: createWasmTestDatabaseService() })
+    const dailyDatesInRange = vi
+      .spyOn(app.dailyNotes, 'dailyDatesInRange')
+      .mockResolvedValueOnce(['2026-07-14'])
+      .mockImplementationOnce(() => pendingNextRange.promise)
+    const hook = await renderHookInApp(
       (
         { start, end }: { start: string; end: string } = {
           start: '2026-01-12',
@@ -42,8 +21,9 @@ describe('useDailyNoteDates', () => {
         },
       ) => useDailyNoteDates(start, end),
       {
+        app,
+        graph: { root: '/g' },
         initialProps: { start: '2026-01-12', end: '2027-01-17' },
-        wrapper,
       },
     )
 
@@ -53,7 +33,7 @@ describe('useDailyNoteDates', () => {
     await vi.waitFor(() => expect(dailyDatesInRange).toHaveBeenCalledTimes(2))
     expect(hook.result.current.has('2026-07-14')).toBe(true)
 
-    await hook.act(() => resolveNextRange(['2027-01-05']))
+    await act(() => pendingNextRange.resolve(['2027-01-05']))
     await vi.waitFor(() => expect(hook.result.current.has('2027-01-05')).toBe(true))
     expect(hook.result.current.has('2026-07-14')).toBe(false)
   })

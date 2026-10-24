@@ -1,103 +1,53 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createTestWindowService, type TestWindowService } from '@reflect/app/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
-import { render } from 'vitest-browser-react'
-import type { ReactElement } from 'react'
+import { createRef, useLayoutEffect, type ReactElement, type RefObject } from 'react'
 import {
+  aiKeySecretName,
   aiProvider,
-  cloudSafeGraphContext,
   type AiProviderConfig,
   type ChatModelSelection,
   type ChatStreamEvent,
   type CloudGraphContext,
-  type CloudSafe,
-  type GraphContextDeps,
-  type GraphInfo,
-  type Settings,
-  type StreamChatOptions,
 } from '@reflect/core'
-import { TooltipProvider } from '@/components/ui/tooltip.tsx'
-import { ChatProvider, useChatSession } from '@/providers/chat-provider.tsx'
-import { RouterProvider, useRouter } from '@/routing/router.tsx'
+import {
+  createTestCoreServices,
+  createTestChatEngineService,
+  createTestChatGraphContextService,
+  createTestSecretStoreService,
+  seedNotes,
+  type TestChatEngineService,
+  type TestChatGraphContextService,
+  type TestOpenGraph,
+} from '@reflect/core/testing'
+import { useChatSession, type ChatContextValue } from '@/providers/chat-provider.tsx'
+import type { Route } from '@/routing/route.ts'
+import { useRouter } from '@/routing/router.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { ChatScreen } from './chat-screen.tsx'
+import { deepLinkForRoute } from '@reflect/app'
 
 /**
- * The chat view over a faked engine: the provider stack and screen are real,
- * `streamChat` is scripted. Covers the no-provider call-to-action, a full
- * grounded turn (user bubble → tool chip → cited answer), the model picker,
- * live markdown rendering, abort-on-unmount, New chat, and
- * photo attachments (drop → preview → image-only send).
+ * The chat view over a faked engine: the provider stack, the chat session and
+ * the screen are real, the engine's turns are scripted. Covers the
+ * no-provider call-to-action, a full grounded turn (user bubble → tool chip →
+ * cited answer), the model picker, live markdown rendering,
+ * abort on a graph switch, New chat, and photo attachments (drop → preview →
+ * image-only send).
  */
 
-const streamChat = vi.hoisted(() =>
-  vi.fn<(options: StreamChatOptions) => AsyncGenerator<ChatStreamEvent>>(),
-)
-const aiApiKeyForConfig = vi.hoisted(() =>
-  vi.fn<(config: AiProviderConfig) => Promise<string | null>>(),
-)
-const resolveWikiTarget = vi.hoisted(() =>
-  vi.fn<
-    (
-      target: string,
-    ) => Promise<{ kind: 'resolved'; ref: string } | { kind: 'unresolved'; text: string }>
-  >(),
-)
-const loadChatGraphContext = vi.hoisted(() =>
-  vi.fn<(graphName: string, deps?: GraphContextDeps) => Promise<CloudSafe<CloudGraphContext>>>(),
-)
-const openRouteInNewWindow = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  streamChat,
-  aiApiKeyForConfig,
-  resolveWikiTarget,
-  loadChatGraphContext,
-}))
-vi.mock('@/lib/windows/open-in-new-window.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/windows/open-in-new-window.ts')>()),
-  openRouteInNewWindow,
-}))
-
-const settingsState = vi.hoisted(() => ({
+// The settings document and the keychain each test starts from.
+const settingsState = {
   models: [] as AiProviderConfig[],
   defaultId: null as string | null,
   selection: null as ChatModelSelection | null,
-}))
-// Stateful like the real provider: a chatModelSelection patch re-renders with
-// the new value, so picking a model in the UI applies instantly here too.
-vi.mock('@/providers/settings-provider.tsx', async () => {
-  const { useState } = await import('react')
-  return {
-    useSettings: () => {
-      const [selection, setSelection] = useState(settingsState.selection)
-      return {
-        settings: {
-          aiProviders: settingsState.models,
-          defaultAiProviderId: settingsState.defaultId,
-          chatModelSelection: selection,
-          chatSystemPrompt: '',
-        },
-        updateSettings: (patch: Partial<Settings>) => {
-          if (patch.chatModelSelection !== undefined) {
-            setSelection(patch.chatModelSelection)
-          }
-        },
-      }
-    },
-  }
-})
+  apiKey: 'sk-test' as string | null,
+}
 
-// No open index → the provider's persistence layer stays inert; these tests
-// cover the screen, chat-provider.test.tsx covers persistence.
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ indexGeneration: null, graph: null }),
-}))
+const GRAPH: TestOpenGraph = { root: '/graphs/test', name: 'test-graph', generation: 1 }
 
-vi.mock('@/lib/provider-fetch.ts', () => ({ providerFetch: vi.fn() }))
-
-const GRAPH: GraphInfo = { root: '/graphs/test', name: 'test-graph', generation: 1 }
-
-const GRAPH_CONTEXT = cloudSafeGraphContext({
+const GRAPH_CONTEXT: CloudGraphContext = {
   graphName: 'test-graph',
   noteCount: 3,
   dailyNoteCount: 1,
@@ -105,20 +55,19 @@ const GRAPH_CONTEXT = cloudSafeGraphContext({
   latestDailyDate: '2026-06-01',
   tags: [{ tag: 'book', count: 2 }],
   tagsTruncated: false,
-})
+}
+
+let chatEngine: TestChatEngineService
+let chatGraphContext: TestChatGraphContextService
+let noteWindows: TestWindowService
 
 beforeEach(() => {
   settingsState.models = []
   settingsState.defaultId = null
   settingsState.selection = null
-  streamChat.mockReset()
-  aiApiKeyForConfig.mockReset().mockResolvedValue('sk-test')
-  loadChatGraphContext.mockReset().mockResolvedValue(GRAPH_CONTEXT)
-  resolveWikiTarget.mockReset().mockImplementation(async (target) => ({
-    kind: 'resolved',
-    ref: `notes/${target.toLowerCase()}.md`,
-  }))
-  openRouteInNewWindow.mockReset().mockResolvedValue(true)
+  settingsState.apiKey = 'sk-test'
+  chatEngine = createTestChatEngineService()
+  chatGraphContext = createTestChatGraphContextService(GRAPH_CONTEXT)
 })
 
 const MODEL: AiProviderConfig = { id: 'm1', provider: 'openai', model: 'gpt-5.1', keyHint: '12345' }
@@ -129,11 +78,7 @@ function configureModel() {
 }
 
 function scriptTurn(events: ChatStreamEvent[]) {
-  streamChat.mockImplementation(function script() {
-    return (async function* () {
-      yield* events
-    })()
-  })
+  chatEngine.setScript(events)
 }
 
 /** A tiny PNG-magic-bytes file — base64 `iVBORw==` once read. */
@@ -152,38 +97,73 @@ function dropFiles(target: Element, files: File[]): boolean {
   )
 }
 
-let probedSend: ((text: string) => Promise<void>) | null = null
-let probedNewChat: (() => void) | null = null
-let probedRoute: unknown = null
+const probedSendRef: RefObject<ChatContextValue['send'] | null> = createRef()
+const probedNewChatRef: RefObject<ChatContextValue['newChat'] | null> = createRef()
+const probedRouteRef: RefObject<Route | null> = createRef()
 
 function SendProbe(): ReactElement | null {
-  const session = useChatSession()
-  probedSend = session.send
-  probedNewChat = session.newChat
+  const { send, newChat } = useChatSession()
+
+  useLayoutEffect(() => {
+    probedSendRef.current = send
+    return () => {
+      probedSendRef.current = null
+    }
+  }, [send])
+
+  useLayoutEffect(() => {
+    probedNewChatRef.current = newChat
+    return () => {
+      probedNewChatRef.current = null
+    }
+  }, [newChat])
+
   return null
 }
 
 function RouteProbe(): ReactElement | null {
-  probedRoute = useRouter().route
+  const { route } = useRouter()
+
+  useLayoutEffect(() => {
+    probedRouteRef.current = route
+    return () => {
+      probedRouteRef.current = null
+    }
+  }, [route])
+
   return null
 }
 
-function renderChat() {
-  probedSend = null
-  probedRoute = null
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider>
-        <TooltipProvider>
-          <ChatProvider graph={GRAPH}>
-            <ChatScreen />
-            <SendProbe />
-            <RouteProbe />
-          </ChatProvider>
-        </TooltipProvider>
-      </RouterProvider>
-    </QueryClientProvider>,
+async function renderChat() {
+  probedSendRef.current = null
+  probedRouteRef.current = null
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    secretStore: createTestSecretStoreService(
+      settingsState.apiKey === null ? {} : { [aiKeySecretName(MODEL.id)]: settingsState.apiKey },
+    ),
+    chatEngine,
+    chatGraphContext,
+  })
+  // The cited `[[Atlas]]` links resolve through the index.
+  seedNotes(app.database, [{ path: 'notes/atlas.md', markdown: '# Atlas\n' }])
+  noteWindows = createTestWindowService()
+  return await renderInApp(
+    <>
+      <ChatScreen />
+      <SendProbe />
+      <RouteProbe />
+    </>,
+    {
+      app,
+      appServices: { window: noteWindows },
+      graph: GRAPH,
+      settings: {
+        aiProviders: settingsState.models,
+        defaultAiProviderId: settingsState.defaultId,
+        chatModelSelection: settingsState.selection,
+      },
+    },
   )
 }
 
@@ -223,11 +203,11 @@ describe('ChatScreen', () => {
     await expect.element(view.getByText(/Searched “atlas” · 1 note/)).toBeInTheDocument()
     await expect.element(view.getByText('It ships in June.')).toBeInTheDocument()
     await view.getByRole('button', { name: 'Atlas', exact: true }).click()
-    expect(probedRoute).toEqual({ kind: 'note', path: 'notes/atlas.md' })
+    expect(probedRouteRef.current).toEqual({ kind: 'note', path: 'notes/atlas.md' })
 
     // The turn went out with the keychain key and the full derived history.
-    expect(aiApiKeyForConfig).toHaveBeenCalledWith(MODEL)
-    const options = streamChat.mock.lastCall?.[0]
+    const options = chatEngine.calls().at(-1)
+    expect(options?.apiKey).toBe('sk-test')
     expect(options?.config).toEqual(MODEL)
     expect(options?.messages.at(-1)).toEqual({ role: 'user', content: 'when does atlas ship?' })
   })
@@ -310,13 +290,13 @@ describe('ChatScreen', () => {
       .getByRole('button', { name: 'Brief', exact: true })
       .click({ modifiers: ['ControlOrMeta'] })
 
-    await vi.waitFor(() =>
-      expect(openRouteInNewWindow.mock.calls).toEqual([
-        [{ kind: 'note', path: 'notes/atlas.md' }],
-        [{ kind: 'note', path: 'notes/brief.md' }],
-      ]),
-    )
-    expect(probedRoute).toEqual({ kind: 'today' })
+    await vi.waitFor(() => {
+      expect(noteWindows.openedNoteWindows()).toEqual([
+        deepLinkForRoute({ kind: 'note', path: 'notes/atlas.md' }),
+        deepLinkForRoute({ kind: 'note', path: 'notes/brief.md' }),
+      ])
+    })
+    expect(probedRouteRef.current).toEqual({ kind: 'today' })
   })
 
   it('opens cited wiki links from settled chat markdown', async () => {
@@ -333,7 +313,9 @@ describe('ChatScreen', () => {
     await userEvent.type(view.getByLabelText('Chat message'), 'what should I open?{Enter}')
     await view.getByTestId('wikilink').click()
 
-    await vi.waitFor(() => expect(probedRoute).toEqual({ kind: 'note', path: 'notes/atlas.md' }))
+    await vi.waitFor(() => {
+      expect(probedRouteRef.current).toEqual({ kind: 'note', path: 'notes/atlas.md' })
+    })
   })
 
   it('opens ⌘-clicked cited wiki links in a new window', async () => {
@@ -350,13 +332,15 @@ describe('ChatScreen', () => {
     await userEvent.type(view.getByLabelText('Chat message'), 'what should I open?{Enter}')
     await view.getByTestId('wikilink').click({ modifiers: ['ControlOrMeta'] })
 
-    await vi.waitFor(() =>
-      expect(openRouteInNewWindow).toHaveBeenCalledWith({
-        kind: 'note',
-        path: 'notes/atlas.md',
-      }),
-    )
-    expect(probedRoute).toEqual({ kind: 'today' })
+    await vi.waitFor(() => {
+      expect(noteWindows.openedNoteWindows()).toContain(
+        deepLinkForRoute({
+          kind: 'note',
+          path: 'notes/atlas.md',
+        }),
+      )
+    })
+    expect(probedRouteRef.current).toEqual({ kind: 'today' })
   })
 
   it('offers the provider catalog in the picker, keeping a custom model selectable', async () => {
@@ -368,12 +352,12 @@ describe('ChatScreen', () => {
 
     await expect.element(page.getByText('OpenAI')).toBeInTheDocument()
     await expect
-      .poll(() =>
-        page
+      .poll(() => {
+        return page
           .getByRole('option')
           .elements()
-          .map((option) => option.textContent),
-      )
+          .map((option) => option.textContent)
+      })
       .toEqual([...aiProvider('openai').models.map((model) => model.label), MODEL.model])
   })
 
@@ -391,9 +375,9 @@ describe('ChatScreen', () => {
 
     await userEvent.type(view.getByLabelText('Chat message'), 'hi{Enter}')
 
-    await vi.waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(chatEngine.calls()).toHaveLength(1))
     // Same entry (id → keychain key), with the picked model applied.
-    expect(streamChat.mock.lastCall?.[0].config).toEqual({ ...MODEL, model: pick.id })
+    expect(chatEngine.calls().at(-1)?.config).toEqual({ ...MODEL, model: pick.id })
   })
 
   it('starts the picker on the model persisted from the last session', async () => {
@@ -418,14 +402,16 @@ describe('ChatScreen', () => {
 
     await userEvent.type(view.getByLabelText('Chat message'), 'hi{Enter}')
 
-    await vi.waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1))
-    expect(loadChatGraphContext).toHaveBeenCalledWith('test-graph')
-    expect(streamChat.mock.lastCall?.[0].context).toEqual(GRAPH_CONTEXT)
+    await vi.waitFor(() => expect(chatEngine.calls()).toHaveLength(1))
+    expect(chatGraphContext.calls()).toEqual(['test-graph'])
+    expect(chatEngine.calls().at(-1)?.context).toEqual(GRAPH_CONTEXT)
   })
 
   it('still sends the turn, without an overview, when the context load fails', async () => {
     configureModel()
-    loadChatGraphContext.mockRejectedValue(new Error('index not open'))
+    chatGraphContext.setResult(() => {
+      throw new Error('index not open')
+    })
     scriptTurn([
       { type: 'text-delta', text: 'Hi.' },
       { type: 'complete', messages: [{ role: 'assistant', content: 'Hi.' }] },
@@ -434,8 +420,8 @@ describe('ChatScreen', () => {
 
     await userEvent.type(view.getByLabelText('Chat message'), 'hi{Enter}')
 
-    await vi.waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1))
-    expect(streamChat.mock.lastCall?.[0].context).toBeNull()
+    await vi.waitFor(() => expect(chatEngine.calls()).toHaveLength(1))
+    expect(chatEngine.calls().at(-1)?.context).toBeNull()
     await expect.element(view.getByText('Hi.')).toBeInTheDocument()
   })
 
@@ -488,16 +474,16 @@ describe('ChatScreen', () => {
     await userEvent.type(view.getByLabelText('Chat message'), 'what have I been reading?{Enter}')
 
     await view.getByRole('button', { name: '#book' }).click()
-    expect(probedRoute).toEqual({ kind: 'allNotes', tag: 'book' })
+    expect(probedRouteRef.current).toEqual({ kind: 'allNotes', tag: 'book' })
     await view.getByRole('button', { name: 'Atlas', exact: true }).click()
-    expect(probedRoute).toEqual({ kind: 'note', path: 'notes/atlas.md' })
+    expect(probedRouteRef.current).toEqual({ kind: 'note', path: 'notes/atlas.md' })
     // A refused listing shows the refusal, not a misleading count.
     await expect.element(view.getByText(/Listed #\* notes — Not a tag/)).toBeInTheDocument()
     await expect
-      .element(view.getByText(/Listed daily notes 2026-06-01 – 2026-06-11 · 2 days/))
+      .element(view.getByText(/Listed daily notes 6\/1\/2026 – 6\/11\/2026 · 2 days/))
       .toBeInTheDocument()
-    await view.getByRole('button', { name: '2026-06-10' }).click()
-    expect(probedRoute).toEqual({ kind: 'daily', date: '2026-06-10' })
+    await view.getByRole('button', { name: 'Wed, June 10th, 2026' }).click()
+    expect(probedRouteRef.current).toEqual({ kind: 'daily', date: '2026-06-10' })
   })
 
   it('renders an attachment chip: filenames, with per-asset refusals inline', async () => {
@@ -542,8 +528,8 @@ describe('ChatScreen', () => {
     const firstChunk = '# Streaming\n\n**markdown'
     const secondChunk = '**\n\n- First item\n- Second item\n\n```ts\nconst answer = 42'
     const finalChunk = '\n```\n\nSee [[Atlas]].'
-    streamChat.mockImplementation(() =>
-      (async function* (): AsyncGenerator<ChatStreamEvent> {
+    chatEngine.setScript(() => {
+      return (async function* (): AsyncGenerator<ChatStreamEvent> {
         yield { type: 'text-delta', text: firstChunk }
         await nextChunk.promise
         yield { type: 'text-delta', text: secondChunk }
@@ -553,8 +539,8 @@ describe('ChatScreen', () => {
           type: 'complete',
           messages: [{ role: 'assistant', content: firstChunk + secondChunk + finalChunk }],
         }
-      })(),
-    )
+      })()
+    })
     const view = await renderChat()
 
     await userEvent.type(view.getByLabelText('Chat message'), 'hi{Enter}')
@@ -590,16 +576,16 @@ describe('ChatScreen', () => {
       { type: 'complete', messages: [{ role: 'assistant', content: 'One.' }] },
     ])
     const view = await renderChat()
-    if (!probedSend) {
+    if (!probedSendRef.current) {
       expect.unreachable('probe did not capture send')
     }
-    const send = probedSend
+    const send = probedSendRef.current
 
     // Two sends in one tick — rendered state (and refs synced to it) still
     // says idle for both, so the guard must be synchronous.
     await Promise.all([send('one'), send('two')])
 
-    expect(streamChat).toHaveBeenCalledTimes(1)
+    expect(chatEngine.calls()).toHaveLength(1)
     // Exact match: the assistant's reply ("One.") also contains this text.
     await expect.element(view.getByText('one', { exact: true })).toBeInTheDocument()
     expect(view.getByText('two', { exact: true }).query()).toBeNull()
@@ -607,18 +593,18 @@ describe('ChatScreen', () => {
 
   it('surfaces a missing keychain entry as an in-transcript error', async () => {
     configureModel()
-    aiApiKeyForConfig.mockResolvedValueOnce(null)
+    settingsState.apiKey = null
     const view = await renderChat()
 
     await userEvent.type(view.getByLabelText('Chat message'), 'hi{Enter}')
     await expect.element(view.getByText(/No API key found for this provider/)).toBeInTheDocument()
-    expect(streamChat).not.toHaveBeenCalled()
+    expect(chatEngine.calls()).toEqual([])
   })
 
-  it('aborts an in-flight turn when the provider unmounts (graph switch)', async () => {
+  it('aborts an in-flight turn when the graph session ends (graph switch)', async () => {
     configureModel()
     let signal: AbortSignal | undefined
-    streamChat.mockImplementation((options) => {
+    chatEngine.setScript((options) => {
       signal = options.signal
       return (async function* (): AsyncGenerator<ChatStreamEvent> {
         yield { type: 'text-delta', text: 'Hi' }
@@ -632,9 +618,8 @@ describe('ChatScreen', () => {
     await vi.waitFor(() => expect(signal).toBeDefined())
     expect(signal?.aborted).toBe(false)
 
-    // Switching graphs remounts the workspace tree: the dead conversation
-    // must not keep reading whichever graph is open now.
-    await view.unmount()
+    // The dead conversation must not keep reading whichever graph is open now.
+    view.app.graphSession.setGraph({ root: '/graphs/other' })
     expect(signal?.aborted).toBe(true)
   })
 
@@ -652,8 +637,8 @@ describe('ChatScreen', () => {
 
     await userEvent.type(view.getByLabelText('Chat message'), '{Enter}')
 
-    await vi.waitFor(() => expect(streamChat).toHaveBeenCalled())
-    expect(streamChat.mock.lastCall?.[0]?.messages.at(-1)).toEqual({
+    await vi.waitFor(() => expect(chatEngine.calls()).toHaveLength(1))
+    expect(chatEngine.calls().at(-1)?.messages.at(-1)).toEqual({
       role: 'user',
       content: [{ type: 'file', data: 'data:image/png;base64,iVBORw==', mediaType: 'image/png' }],
     })
@@ -667,18 +652,15 @@ describe('ChatScreen', () => {
     const view = await renderChat()
 
     // A file whose read only settles when the test says so.
-    let releaseRead: (buffer: ArrayBuffer) => void = () => {}
+    const pendingRead = Promise.withResolvers<ArrayBuffer>()
     const file = pngFile('cat.png')
     Object.defineProperty(file, 'arrayBuffer', {
-      value: () =>
-        new Promise<ArrayBuffer>((resolve) => {
-          releaseRead = resolve
-        }),
+      value: () => pendingRead.promise,
     })
     dropFiles(view.getByLabelText('Chat message').element(), [file])
 
-    probedNewChat?.()
-    releaseRead(new Uint8Array([0x89]).buffer)
+    probedNewChatRef.current?.()
+    pendingRead.resolve(new Uint8Array([0x89]).buffer)
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     expect(view.getByAltText('cat.png').query()).toBeNull()
@@ -707,7 +689,7 @@ describe('ChatScreen', () => {
 
     // Nothing left to send: Enter on the empty composer is a no-op again.
     await userEvent.type(view.getByLabelText('Chat message'), '{Enter}')
-    expect(streamChat).not.toHaveBeenCalled()
+    expect(chatEngine.calls()).toEqual([])
   })
 
   it('New chat clears the conversation', async () => {

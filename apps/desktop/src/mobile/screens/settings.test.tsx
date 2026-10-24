@@ -1,10 +1,16 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render } from 'vitest-browser-react'
+import { act } from '@/test-utils/act.ts'
 import { page, userEvent } from 'vitest/browser'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_SETTINGS, getConflictedNotes, type GraphInfo, type Settings } from '@reflect/core'
-import type { BackupState } from '@/lib/backup-controller.ts'
+import type { GitSyncState, Settings } from '@reflect/core'
+import {
+  createTestAppInfoService,
+  createTestCoreServices,
+  createTestGitSyncService,
+  seedNotes,
+} from '@reflect/core/testing'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { MobileSettings } from './settings.tsx'
 
 /**
@@ -12,162 +18,184 @@ import { MobileSettings } from './settings.tsx'
  * sheet): the graph row disclosing into the Graphs screen, appearance and
  * editor preferences writing the shared settings document, the backup group's
  * plain-language status + Disconnect through the backup controller, and
- * graceful degradation where no SyncProvider is mounted.
+ * graceful degradation where the graph runs no backup.
  */
-
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-  listNotes: vi.fn(async () => [{ path: 'notes/a.md' }, { path: 'notes/b.md' }]),
-  getConflictedNotes: vi.fn(async () => []),
-}))
-
-const graphState = vi.hoisted(() => ({
-  mobileStorageKind: 'icloud' as 'icloud' | 'local' | null,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({
-    graph: { root: '/g', name: 'Field Notes', generation: 1 } as GraphInfo,
-    mobileStorageKind: graphState.mobileStorageKind,
-  }),
-}))
-vi.mock('@/hooks/use-app-version.ts', () => ({ useAppVersion: () => '1.2.3-beta.4' }))
-
-const openUrl = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl }))
-
-const settingsState = vi.hoisted(() => ({ current: {} as Settings }))
-const updateSettings = vi.hoisted(() => vi.fn())
-// Routed through the `updateSettings` spy (see beforeEach) so prompt-list
-// edits assert on the patch their functional update produces.
-const updateSettingsWith = vi.hoisted(() => vi.fn())
-vi.mock('@/providers/settings-provider.tsx', () => ({
-  useSettings: () => ({ settings: settingsState.current, updateSettings, updateSettingsWith }),
-}))
-
-const navigate = vi.hoisted(() => vi.fn())
-const back = vi.hoisted(() => vi.fn())
-vi.mock('@/routing/router.tsx', () => ({
-  useRouter: () => ({ navigate, back, canBack: true }),
-}))
-
-const sync = vi.hoisted(() => ({
-  value: null as {
-    backup: BackupState
-    disconnectGraph: () => Promise<void>
-    signOut: () => Promise<void>
-  } | null,
-}))
-vi.mock('@/providers/sync-provider.tsx', () => ({
-  useSyncContext: () => sync.value,
-}))
 
 // The prompt editor's state and save wiring render through this open-state shell.
 vi.mock('@/components/ui/drawer.tsx', () => ({
-  Drawer: ({ open, children }: { open?: boolean; children?: import('react').ReactNode }) =>
-    open ? <div data-testid="drawer">{children}</div> : null,
+  Drawer: ({ open, children }: { open?: boolean; children?: import('react').ReactNode }) => {
+    return open ? <div data-testid="drawer">{children}</div> : null
+  },
   DrawerContent: ({ children }: { children?: import('react').ReactNode }) => <div>{children}</div>,
   DrawerBody: ({ children }: { children?: import('react').ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children?: import('react').ReactNode }) => <h2>{children}</h2>,
 }))
 
-// The sheet itself is covered by connect-github-drawer.test.tsx; the screen
-// test only cares that Settings opens it.
-vi.mock('@/mobile/connect-github-drawer.tsx', () => ({
-  ConnectGithubDrawer: ({ open }: { open: boolean }) =>
-    open ? <div>connect-github-sheet</div> : null,
-}))
-
-function connected(status: Extract<BackupState, { phase: 'connected' }>['status']): BackupState {
+function connected(status: Extract<GitSyncState, { phase: 'connected' }>['status']): GitSyncState {
   return {
     phase: 'connected',
     remoteUrl: 'https://github.com/alex/notes.git',
-    repo: { owner: 'alex', name: 'notes' },
+    remote: { kind: 'github', repo: { owner: 'alex', name: 'notes' } },
+    isPrimaryChannel: true,
     status,
   }
 }
 
-let queryClient: QueryClient
+interface MountOptions {
+  /**
+   * The stored settings document; the rest is the defaults.
+   */
+  settings?: Partial<Settings>
+  /**
+   * Where the open graph is stored.
+   */
+  storageKind?: 'icloud' | 'local'
+  /**
+   * The backup state. `null` runs no backup.
+   */
+  gitSync?: GitSyncState | null
+}
+
+/**
+ * The graph "Field Notes" with two indexed notes, on a backup that is connected and idle.
+ */
+async function mount(options?: MountOptions) {
+  const gitSync = createTestGitSyncService({
+    state: options?.gitSync ?? connected({ state: 'idle' }),
+  })
+  const app = createTestCoreServices({
+    database: createWasmTestDatabaseService(),
+    appInfo: createTestAppInfoService('1.2.3-beta.4'),
+    gitSync,
+    // A note window's graph runs no backup.
+    role: options?.gitSync === null ? 'note-window' : 'main',
+  })
+  seedNotes(app.database, [
+    { path: 'notes/a.md', markdown: '# A\n' },
+    { path: 'notes/b.md', markdown: '# B\n' },
+  ])
+  // Spied before the render: the provider hands this function to the screen.
+  const updateSettings = vi.spyOn(app.settings, 'update')
+  const view = await renderInApp(<MobileSettings />, {
+    app,
+    graph: { root: '/g', name: 'Field Notes', generation: 1 },
+    mobile: { kind: options?.storageKind ?? 'icloud' },
+    route: { kind: 'settings' },
+    ...(options?.settings === undefined ? {} : { settings: options.settings }),
+  })
+  return Object.assign(view, { gitSync, updateSettings })
+}
+
+type MountedSettings = Awaited<ReturnType<typeof mount>>
+
+/**
+ * Wait until the settings document holds `patch`.
+ */
+async function expectSettings(view: MountedSettings, patch: Partial<Settings>): Promise<void> {
+  await vi.waitFor(() => expect(view.app.settings.get()).toMatchObject(patch))
+}
 
 beforeEach(async () => {
   await page.viewport(375, 700)
-  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  settingsState.current = { ...DEFAULT_SETTINGS }
-  graphState.mobileStorageKind = 'icloud'
-  sync.value = {
-    backup: connected({ state: 'idle' }),
-    disconnectGraph: vi.fn(async () => {}),
-    signOut: vi.fn(async () => {}),
-  }
-  vi.mocked(getConflictedNotes).mockResolvedValue([])
-  updateSettingsWith.mockImplementation((updater: (current: Settings) => Partial<Settings>) => {
-    updateSettings(updater(settingsState.current))
-  })
 })
 
-afterEach(async () => {
-  await cleanup()
-  queryClient.clear()
-  vi.clearAllMocks()
+afterEach(() => {
+  vi.useRealTimers()
 })
-
-function mount() {
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MobileSettings />
-    </QueryClientProvider>,
-  )
-}
 
 describe('MobileSettings', () => {
   it('discloses the graph row into the Graphs screen', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     const graphRow = page.getByRole('button', { name: /Field Notes/ })
     await expect.element(graphRow).toMatchTextContent('iCloud Drive')
     await user.click(graphRow)
 
-    expect(navigate).toHaveBeenCalledWith({ kind: 'graphs' })
+    expect(view.appServices.navigation.navigations()).toEqual([
+      { route: { kind: 'graphs' }, options: undefined },
+    ])
+  })
+
+  it('discloses Open Source Licenses into the Licenses screen', async () => {
+    const view = await mount()
+
+    await userEvent.click(page.getByRole('button', { name: 'Open Source Licenses' }))
+
+    expect(view.appServices.navigation.navigations()).toEqual([
+      { route: { kind: 'licenses' }, options: undefined },
+    ])
   })
 
   it('opens the privacy policy from the About group', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: 'Privacy Policy' }))
 
-    expect(openUrl).toHaveBeenCalledWith('https://reflect.app/privacy')
+    await vi.waitFor(() => {
+      expect(view.appServices.opener.openedUrls()).toEqual(['https://reflect.app/privacy'])
+    })
   })
 
   it('writes appearance choices to the settings document', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('radio', { name: 'Dark' }))
-    expect(updateSettings).toHaveBeenCalledWith({ theme: 'dark' })
+    await expectSettings(view, { theme: 'dark' })
 
     await user.click(page.getByRole('radio', { name: 'Large' }))
-    expect(updateSettings).toHaveBeenCalledWith({ editorTextSize: 'large' })
+    await expectSettings(view, { editorTextSize: 'large' })
+  })
+
+  it('offers each date format as today in that format and writes the choice', async () => {
+    const user = userEvent
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 5, 9))
+    const view = await mount()
+
+    const selected = page.getByRole('button', { name: 'June 9th, 2026' })
+    await expect.element(selected).toHaveAttribute('aria-current', 'true')
+
+    await user.click(page.getByRole('button', { name: '9th June, 2026' }))
+    await expectSettings(view, { dateFormat: 'dmy' })
+
+    await user.click(page.getByRole('button', { name: '2026-06-09' }))
+    await expectSettings(view, { dateFormat: 'iso' })
+  })
+
+  it('shows the saved week start and time format and writes a new choice', async () => {
+    const user = userEvent
+    const view = await mount()
+
+    await expect.element(page.getByRole('radio', { name: 'Monday' })).toBeChecked()
+    await expect.element(page.getByRole('radio', { name: '12-hour' })).toBeChecked()
+
+    await user.click(page.getByRole('radio', { name: 'Sunday' }))
+    await expectSettings(view, { weekStartDay: 'sunday' })
+
+    await user.click(page.getByRole('radio', { name: '24-hour' }))
+    await expectSettings(view, { timeFormat: '24h' })
   })
 
   it('toggles the editor switches', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('switch', { name: 'Smooth caret animation' }))
-    expect(updateSettings).toHaveBeenCalledWith({ editorSmoothCaretAnimation: false })
+    await expectSettings(view, { editorSmoothCaretAnimation: false })
 
     await user.click(page.getByRole('switch', { name: 'Start with a bullet' }))
-    expect(updateSettings).toHaveBeenCalledWith({ editorDefaultBullet: false })
+    await expectSettings(view, { editorDefaultBullet: false })
 
     await user.click(page.getByRole('switch', { name: 'Bullet after a heading' }))
-    expect(updateSettings).toHaveBeenCalledWith({ editorBulletAfterHeading: false })
+    await expectSettings(view, { editorBulletAfterHeading: false })
   })
 
   it('toggles audio transcription formatting', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     const toggle = page.getByRole('switch', { name: 'Transcription auto-format' })
     const descriptionId = toggle.element().getAttribute('aria-describedby')
@@ -178,38 +206,37 @@ describe('MobileSettings', () => {
 
     await user.click(toggle)
 
-    expect(updateSettings).toHaveBeenCalledWith({ transcriptionFormat: false })
+    await expectSettings(view, { transcriptionFormat: false })
   })
 
   it('edits the AI chat system prompt', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: /System prompt.*Default/ }))
     const textarea = page.getByRole('textbox', { name: 'System prompt instructions' })
     await user.type(textarea, 'Challenge my assumptions.')
     await user.click(page.getByRole('button', { name: 'Save' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({
+    await expectSettings(view, {
       chatSystemPrompt: 'Challenge my assumptions.',
     })
   })
 
   it('edits the transcription helper text', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: /Helper text.*None/ }))
     const textarea = page.getByRole('textbox', { name: 'Transcription helper text' })
     await user.type(textarea, ' Names: Ocavue ')
     await user.click(page.getByRole('button', { name: 'Save' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({ transcriptionPrompt: 'Names: Ocavue' })
+    await expectSettings(view, { transcriptionPrompt: 'Names: Ocavue' })
   })
 
   it('shows Custom once a transcription helper text is stored', async () => {
-    settingsState.current = { ...settingsState.current, transcriptionPrompt: 'Ocavue' }
-    await mount()
+    await mount({ settings: { transcriptionPrompt: 'Ocavue' } })
 
     await expect
       .element(page.getByRole('button', { name: /Helper text.*Custom/ }))
@@ -218,7 +245,7 @@ describe('MobileSettings', () => {
 
   it('warns when the transcription helper text is over the limit', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: /Helper text.*None/ }))
     const textarea = page.getByRole('textbox', { name: 'Transcription helper text' })
@@ -231,7 +258,7 @@ describe('MobileSettings', () => {
 
     await user.click(page.getByRole('button', { name: 'Save' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({ transcriptionPrompt: 'x'.repeat(500) })
+    await expectSettings(view, { transcriptionPrompt: 'x'.repeat(500) })
   })
 
   it('tracks a prompt that hydrates while its editor is open', async () => {
@@ -239,36 +266,27 @@ describe('MobileSettings', () => {
     const view = await mount()
     await user.click(page.getByRole('button', { name: /System prompt.*Default/ }))
 
-    settingsState.current = {
-      ...settingsState.current,
-      chatSystemPrompt: 'Persisted instructions loaded from disk.',
-    }
-    await view.rerender(
-      <QueryClientProvider client={queryClient}>
-        <MobileSettings />
-      </QueryClientProvider>,
-    )
+    await act(() => {
+      view.app.settings.update({ chatSystemPrompt: 'Persisted instructions loaded from disk.' })
+    })
+    view.updateSettings.mockClear()
 
     const textarea = page.getByRole('textbox', { name: 'System prompt instructions' })
     await expect.element(textarea).toHaveValue('Persisted instructions loaded from disk.')
     await user.click(page.getByRole('button', { name: 'Save' }))
-    expect(updateSettings).toHaveBeenCalledWith({
+    expect(view.updateSettings).toHaveBeenCalledWith({
       chatSystemPrompt: 'Persisted instructions loaded from disk.',
     })
   })
 
   it('clears the prompt immediately from the mobile editor', async () => {
     const user = userEvent
-    settingsState.current = {
-      ...settingsState.current,
-      chatSystemPrompt: 'Always answer in haiku.',
-    }
-    await mount()
+    const view = await mount({ settings: { chatSystemPrompt: 'Always answer in haiku.' } })
 
     await user.click(page.getByRole('button', { name: /System prompt.*Custom/ }))
     await user.click(page.getByRole('button', { name: 'Clear' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({ chatSystemPrompt: '' })
+    await expectSettings(view, { chatSystemPrompt: '' })
     await expect
       .element(page.getByRole('textbox', { name: 'System prompt instructions' }))
       .not.toBeInTheDocument()
@@ -276,7 +294,7 @@ describe('MobileSettings', () => {
 
   it('adds a saved AI prompt from the AI prompts group', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: 'Add prompt' }))
     const sheet = page.getByTestId('drawer')
@@ -284,15 +302,14 @@ describe('MobileSettings', () => {
     await user.fill(sheet.getByRole('textbox', { name: 'Prompt' }), 'Shorten: {{selectedText}}')
     await user.click(sheet.getByRole('button', { name: 'Add prompt' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({
-      aiPrompts: [
+    await vi.waitFor(() => {
+      expect(view.app.settings.get().aiPrompts).toEqual([
         expect.objectContaining({
           label: 'Shorten',
           body: 'Shorten: {{selectedText}}',
           mode: 'replace',
-          surface: 'selection',
         }),
-      ],
+      ])
     })
   })
 
@@ -303,41 +320,33 @@ describe('MobileSettings', () => {
       label: 'Translate to French',
       body: 'Translate: {{selectedText}}',
       mode: 'replace' as const,
-      surface: 'selection' as const,
     }
-    settingsState.current = { ...settingsState.current, aiPrompts: [saved] }
-    await mount()
+    const view = await mount({ settings: { aiPrompts: [saved] } })
 
     await user.click(page.getByRole('button', { name: 'Translate to French' }))
     const sheet = page.getByTestId('drawer')
     await user.fill(sheet.getByRole('textbox', { name: 'Label' }), 'Translate to German')
     await user.click(sheet.getByRole('button', { name: 'Save' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({
-      aiPrompts: [{ ...saved, label: 'Translate to German' }],
+    await vi.waitFor(() => {
+      expect(view.app.settings.get().aiPrompts).toEqual([
+        { ...saved, label: 'Translate to German' },
+      ])
     })
   })
 
   it('removes a saved AI prompt from the edit sheet', async () => {
     const user = userEvent
-    settingsState.current = {
-      ...settingsState.current,
-      aiPrompts: [
-        {
-          id: 'p1',
-          label: 'Shorten',
-          body: 'Shorten this.',
-          mode: 'replace',
-          surface: 'selection',
-        },
-      ],
-    }
-    await mount()
+    const view = await mount({
+      settings: {
+        aiPrompts: [{ id: 'p1', label: 'Shorten', body: 'Shorten this.', mode: 'replace' }],
+      },
+    })
 
     await user.click(page.getByRole('button', { name: 'Shorten' }))
     await user.click(page.getByTestId('drawer').getByRole('button', { name: 'Remove' }))
 
-    expect(updateSettings).toHaveBeenCalledWith({ aiPrompts: [] })
+    await vi.waitFor(() => expect(view.app.settings.get().aiPrompts).toEqual([]))
   })
 
   it('shows the connected repo and the live plain-language status', async () => {
@@ -351,37 +360,76 @@ describe('MobileSettings', () => {
 
   it('routes Disconnect through the backup controller and signs out', async () => {
     const user = userEvent
-    await mount()
+    const view = await mount()
 
     await user.click(page.getByRole('button', { name: 'Disconnect GitHub' }))
 
     await vi.waitFor(() => {
-      expect(sync.value?.disconnectGraph).toHaveBeenCalledTimes(1)
-      expect(sync.value?.signOut).toHaveBeenCalledTimes(1)
+      const methods = view.gitSync.calls().map((call) => call.method)
+      expect(methods.filter((method) => method === 'disconnectGraph')).toHaveLength(1)
+      expect(methods.filter((method) => method === 'signOut')).toHaveLength(1)
+    })
+  })
+
+  it('offers a GitHub sign-in for a remote that waits for it', async () => {
+    await mount({
+      gitSync: {
+        phase: 'needsCredential',
+        remoteUrl: 'https://github.com/alex/notes.git',
+        remote: { kind: 'github', repo: { owner: 'alex', name: 'notes' } },
+      },
+    })
+
+    await expect.element(page.getByText('alex/notes')).toBeVisible()
+    await expect.element(page.getByText('Sign-in needed')).toBeVisible()
+    await expect.element(page.getByText(/Sign in to GitHub to resume/)).toBeVisible()
+    await expect
+      .element(page.getByRole('button', { name: 'Connect GitHub', exact: true }))
+      .not.toBeInTheDocument()
+
+    await userEvent.click(page.getByRole('button', { name: 'Sign in to GitHub' }))
+    await expect.element(page.getByRole('heading', { name: 'Sign in to GitHub' })).toBeVisible()
+  })
+
+  it('names a host remote without its user info and stops it without a sign-out', async () => {
+    const user = userEvent
+    const view = await mount({
+      gitSync: {
+        phase: 'needsCredential',
+        remoteUrl: 'https://alex:token@gitlab.com/alex/notes.git',
+        remote: { kind: 'https', origin: 'https://gitlab.com' },
+      },
+    })
+
+    await expect.element(page.getByText('https://gitlab.com/alex/notes.git')).toBeVisible()
+    await expect.element(page.getByText(/token/)).not.toBeInTheDocument()
+    await expect.element(page.getByText('Sign-in needed')).toBeVisible()
+    await expect
+      .element(page.getByRole('button', { name: 'Sign in to GitHub' }))
+      .not.toBeInTheDocument()
+
+    await user.click(page.getByRole('button', { name: 'Stop backing up' }))
+    await vi.waitFor(() => {
+      const methods = view.gitSync.calls().map((call) => call.method)
+      expect(methods.filter((method) => method === 'disconnectGraph')).toHaveLength(1)
+      expect(methods).not.toContain('signOut')
     })
   })
 
   it('offers Connect GitHub for a disconnected local graph and opens the sheet', async () => {
     const user = userEvent
-    graphState.mobileStorageKind = 'local'
-    sync.value = {
-      backup: { phase: 'disconnected' },
-      disconnectGraph: vi.fn(async () => {}),
-      signOut: vi.fn(async () => {}),
-    }
-    await mount()
+    await mount({ storageKind: 'local', gitSync: { phase: 'disconnected' } })
 
     await expect
       .element(page.getByText('Sync notes with Reflect on your other devices.'))
       .toBeVisible()
     await user.click(page.getByRole('button', { name: 'Connect GitHub' }))
 
-    await expect.element(page.getByText('connect-github-sheet')).toBeVisible()
+    await expect.element(page.getByRole('heading', { name: 'Connect GitHub' })).toBeVisible()
   })
 
   it('hides the connect row once the local graph is connected', async () => {
-    graphState.mobileStorageKind = 'local'
-    await mount()
+    await mount({ storageKind: 'local' })
 
     await expect.element(page.getByText('alex/notes')).toBeVisible()
     await expect.element(page.getByRole('button', { name: 'Disconnect GitHub' })).toBeVisible()
@@ -391,12 +439,7 @@ describe('MobileSettings', () => {
   })
 
   it('never offers connect for iCloud graphs — they sync through the container', async () => {
-    sync.value = {
-      backup: { phase: 'disconnected' },
-      disconnectGraph: vi.fn(async () => {}),
-      signOut: vi.fn(async () => {}),
-    }
-    await mount()
+    await mount({ gitSync: { phase: 'disconnected' } })
 
     await expect
       .element(page.getByRole('button', { name: 'Connect GitHub' }))
@@ -405,13 +448,7 @@ describe('MobileSettings', () => {
   })
 
   it('waits out the loading phase — no connect row that could flash', async () => {
-    graphState.mobileStorageKind = 'local'
-    sync.value = {
-      backup: { phase: 'loading' },
-      disconnectGraph: vi.fn(async () => {}),
-      signOut: vi.fn(async () => {}),
-    }
-    await mount()
+    await mount({ storageKind: 'local', gitSync: { phase: 'loading' } })
 
     await expect
       .element(page.getByRole('button', { name: 'Connect GitHub' }))
@@ -420,8 +457,7 @@ describe('MobileSettings', () => {
   })
 
   it('degrades to the local groups where no sync lifecycle is mounted', async () => {
-    sync.value = null
-    await mount()
+    await mount({ gitSync: null })
 
     await expect.element(page.getByText('Field Notes')).toBeVisible()
     await expect.element(page.getByText('1.2.3')).toBeVisible()

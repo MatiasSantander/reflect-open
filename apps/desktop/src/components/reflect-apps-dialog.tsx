@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
-import { openUrlSync } from '@/lib/open-url.ts'
+import { useAppServices } from '@/services/services-provider.tsx'
 
 interface ReflectAppsDialogProps {
   readonly open: boolean
@@ -52,6 +52,7 @@ export function ReflectAppsDialog({
   onOpenChange,
   finalFocus,
 }: ReflectAppsDialogProps): ReactElement {
+  const { opener } = useAppServices()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -106,7 +107,7 @@ export function ReflectAppsDialog({
                 </p>
                 <Button
                   className="relative h-9 w-full justify-between gap-2 bg-accent pr-2.5 pl-3 text-xs text-text-on-brand transition-[background-color,color,box-shadow,border-color,translate] duration-150 ease-out after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 hover:bg-accent-hover sm:after:h-10 motion-reduce:transition-none motion-reduce:active:not-aria-[haspopup]:translate-y-0"
-                  onClick={() => openUrlSync(app.url)}
+                  onClick={() => opener.openUrlSync(app.url)}
                 >
                   {app.action}
                   <ArrowUpRight aria-hidden className="size-3.5" strokeWidth={1.75} />

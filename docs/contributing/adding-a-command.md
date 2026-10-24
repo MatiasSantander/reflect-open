@@ -1,16 +1,20 @@
 # Adding a native command
 
 How a value travels from Rust to a React component, and every file you touch
-to add a new command. The canonical in-tree example is `app_version` — a real
-`#[tauri::command]`, a zod-validated response, no direct `invoke` in the UI —
-and this guide walks the same path with a hypothetical `note_stat` command.
+to add a new command. **Adding a command is two things: the Rust command, and
+a method on the core service that owns the domain.** The canonical in-tree
+example is `app_version`: a real `#[tauri::command]` (`lib.rs`), bound as
+`AppInfoService.version()` (`packages/core/src/ports/app-info-service.ts`) with a
+zod-validated response, and read in React by `useAppVersion()`
+(`apps/desktop/src/hooks/use-app-version.ts`) through `useCoreServices()`. This
+guide walks the same path with a hypothetical `note_stat` command.
 
 ```text
-React component / hook
-  └─ typed binding            packages/core/src/<domain>/commands.ts
-       └─ call()              packages/core/src/ipc/invoke.ts   (zod validation)
-            └─ bridge.invoke  packages/core/src/ipc/bridge.ts   (injected transport)
-                 └─ Tauri IPC apps/desktop/src/lib/tauri-bridge.ts
+React component / hook        useCoreServices()
+  └─ service method           packages/core/src/<domain>/<name>-service.ts
+       └─ ipc.call            packages/core/src/ipc/ipc-service.ts  (zod validation)
+            └─ transport.invoke   the `IpcBridge` given to `createCoreServices`
+                 └─ Tauri IPC apps/desktop/src/services/tauri-ipc.ts
                       └─ #[tauri::command]  apps/desktop/src-tauri/src/<module>.rs
 ```
 
@@ -51,8 +55,9 @@ pub fn note_stat(path: String, state: tauri::State<GraphState>) -> AppResult<Not
 Conventions that matter here:
 
 - **Errors are the shared contract.** Return `AppError` (`error.rs`); it
-  serializes as `{ kind, message }` and the frontend branches on `kind`
-  through the matching zod union in `packages/core/src/errors.ts`. Never
+  serializes as `{ kind, message }`, `IpcBridgeService` turns it into the
+  `AppError` class in `packages/core/src/errors.ts`, and the frontend branches
+  on `kind` with `isAppError`. Never
   return bare strings. `std::io::Error` and `rusqlite::Error` already convert
   via `From` (`?` just works); NotFound is mapped for you.
 - **Paths must not escape the graph.** Anything taking a graph-relative path
@@ -86,59 +91,114 @@ pnpm --filter @reflect/desktop sidecar
 cargo test -p reflect-open
 ```
 
-## 2. The TypeScript binding
+## 2. The service method
 
-Every command gets a typed binding in `packages/core` — components never call
-`invoke` or touch the bridge directly. In the matching domain module
-(`graph/commands.ts`, `settings/commands.ts`, …):
+Every command is bound in `packages/core` as a **method of the service that
+owns the domain**. Components never call `invoke` or touch the transport. The
+service already has the `IpcBridgeService` in its `deps`.
+
+`note_stat` is graph file IO, so it belongs to `NoteFileService`
+(`packages/core/src/graph/note-file-service.ts`), next to `read`, `write` and
+`exists`:
 
 ```ts
-import { z } from 'zod'
-import { call } from '../ipc/invoke'
-
-export const noteStatSchema = z.object({
+// packages/core/src/graph/note-file-service.ts
+const noteStatSchema = z.object({
   sizeBytes: z.number(),
   modifiedMs: z.number(),
 })
 
 export type NoteStat = z.infer<typeof noteStatSchema>
 
-/** File metadata for one note (graph-relative path). */
-export async function noteStat(path: string): Promise<NoteStat> {
-  return call('note_stat', { path }, noteStatSchema)
+export interface NoteFileService {
+  // ...
+  /** File metadata for one note (graph-relative path). */
+  stat(path: string): Promise<NoteStat>
+}
+
+export function createNoteFileService(deps: {
+  ipc: IpcBridgeService
+  clock: ClockService
+  fileChanges: FileChangeService
+}): NoteFileService {
+  const { ipc, clock, fileChanges } = deps
+  return {
+    // ...
+    async stat(path) {
+      return await ipc.call('note_stat', { path }, noteStatSchema)
+    },
+  }
 }
 ```
 
-- `call()` (`ipc/invoke.ts`) is the single boundary where the untyped IPC
-  response becomes a typed value: it validates with your schema (a mismatch
-  throws a `parse` `AppError` naming the command) and coerces any rejection
-  into an `AppError`. Your binding adds no error handling of its own.
+- `IpcBridgeService.call` (`ipc/ipc-service.ts`) is the single boundary where
+  the untyped IPC response becomes a typed value: it validates with your
+  schema (a mismatch throws a `parse` `AppError` naming the command) and
+  coerces any rejection into an `AppError` instance. Your method adds no error
+  handling of its own.
 - Commands returning `()` from Rust serialize as `null`: validate with
-  `z.null()` (see the `voidSchema` convention in `graph/commands.ts`).
-- Schemas live next to the binding (or in the domain's `schemas.ts` when
+  `z.null()` (see the `voidSchema` convention in `settings/settings-service.ts`).
+- Schemas live next to the service (or in the domain's `schemas.ts` when
   shared) — zod at the boundary, plain types inside.
-- Export the binding (and its types) from `packages/core/src/index.ts`; the
-  apps only import from the package root.
+- A mutating method takes `generation: number` and passes it to the command
+  (`write(path, contents, generation)`).
+- Export the new types that the app imports from
+  `packages/core/src/index.ts`; the apps only import from the package root.
+- **Update the service's test double.** `createTestNoteFileService`
+  (`packages/core/src/testing/graph.ts`) is an in-memory implementation of the
+  interface, so it needs a `stat` too, or `pnpm typecheck` fails. A double that
+  is the real service over `createTestIpcBridgeService()` needs nothing.
+
+Plain-browser dev (`pnpm dev` without the shell) has no Rust. Its in-memory
+backend, `apps/desktop/src/dev/dev-bridge.ts`, answers commands by name and
+rejects the ones it does not know. Add a `case` there if the feature must work
+in that mode.
+
+If no existing service owns the capability, add one: a small
+`createXxxService({ ipc })` like `AppInfoService`, a field on `CoreServices`,
+and a test double. [Adding a service](services.md) is the guide.
+
+React then reaches the method through the service, as `useAppVersion()` does:
+
+```ts
+const { noteFile } = useCoreServices()
+const stat = await noteFile.stat(path)
+```
 
 ## 3. Tests on the TS side
 
-`@reflect/core` never imports Tauri, so tests install a fake bridge instead of
-module-mocking:
+`@reflect/core` never imports Tauri, so the test constructs the service over
+an in-memory transport instead of module-mocking
+(`packages/core/src/graph/note-file-service.test.ts` is the model):
 
 ```ts
-import { setBridge } from '@reflect/core' // or '../ipc/bridge' within core
-setBridge({
-  invoke: vi.fn().mockResolvedValue({ sizeBytes: 12, modifiedMs: 99 }),
-  listen: async () => () => {},
+import {
+  createTestClockService,
+  createTestFileChangeService,
+  createTestIpcBridgeService,
+} from '@reflect/core/testing'
+
+const ipc = createTestIpcBridgeService({
+  commands: { note_stat: () => ({ sizeBytes: 12, modifiedMs: 99 }) },
 })
+const noteFile = createNoteFileService({
+  ipc,
+  clock: createTestClockService(),
+  fileChanges: createTestFileChangeService(),
+})
+
+await expect(noteFile.stat('notes/a.md')).resolves.toEqual({ sizeBytes: 12, modifiedMs: 99 })
+expect(ipc.calls()).toEqual([{ command: 'note_stat', args: { path: 'notes/a.md' } }])
 ```
 
-`packages/core/src/ipc/invoke.test.ts` shows the full pattern, including the
-error paths (well-formed `AppError` pass-through, foreign rejection coercion,
-schema-mismatch → `parse`). Reset with `setBridge(null)` in `afterEach`. A
-binding that is a one-line `call()` needs no test of its own — cover the
-schema if it normalizes, and the behavior in whatever core/UI module consumes
-it.
+`createTestIpcBridgeService()` is an in-memory `IpcBridgeService` with
+`onCommand`, `emit`, and `calls()`.
+`packages/core/src/ipc/ipc-service.test.ts` shows the error paths
+(well-formed `AppError` pass-through, foreign rejection coercion,
+schema-mismatch → `parse`). A method that is a one-line `ipc.call()` needs
+little: cover the schema if it normalizes, and the behavior in whatever
+core/UI module consumes it. [Testing](testing.md) covers the test doubles and
+the desktop render helpers.
 
 ## Checklist
 
@@ -148,7 +208,11 @@ it.
 - [ ] Rust: registered in `lib.rs` `generate_handler!`
 - [ ] Rust: `#[cfg(test)]` tests on the pure helper; `cargo test -p reflect-open`
       passes after staging sidecars when the desktop crate compiles
-- [ ] TS: zod schema + typed binding through `call()` in the domain module
-- [ ] TS: exported from `packages/core/src/index.ts`
-- [ ] TS: behavior covered with a fake bridge where it matters
+- [ ] TS: zod schema + typed method through `ipc.call()` on the service that
+      owns the domain; `generation` parameter if mutating
+- [ ] TS: the service's test double in `packages/core/src/testing/` updated;
+      new types the app imports exported from `packages/core/src/index.ts`
+- [ ] TS: a new service only if no existing one owns the capability
+      ([services.md](services.md))
+- [ ] TS: behavior covered over `createTestIpcBridgeService()` where it matters
 - [ ] `pnpm typecheck && pnpm lint && pnpm test --run <touched paths>`

@@ -1,138 +1,59 @@
-import {
-  createContext,
-  use,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-  type ReactElement,
-  type ReactNode,
-} from 'react'
-import { ReflectError, type GithubRepoRef, type GraphInfo } from '@reflect/core'
-import {
-  createBackupController,
-  type BackupController,
-  type BackupState,
-  type ConnectExistingResult,
-} from '@/lib/backup-controller.ts'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
-import { createIcloudController, isICloudRoot } from '@/lib/icloud-controller.ts'
-import { useMainWindowEffect } from '@/hooks/use-main-window-effect.ts'
-import { isMobileSurface } from '@/lib/platform-surface.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
+import { useMemo } from 'react'
+import { AppError, type GitSyncService, type GitSyncState } from '@reflect/core'
+import { useMaybeGraphServices } from '@/services/services-provider.tsx'
+import { useServiceState } from '@/services/use-service-state.ts'
 
-export type { BackupState, ConnectExistingResult } from '@/lib/backup-controller.ts'
+export type { GitSyncState, ConnectExistingResult } from '@reflect/core'
 
-interface SyncContextValue {
-  backup: BackupState
-  /** `manualCreateNeeded` = the token type can't create repos (guide instead). */
-  connectNewRepo: (name: string) => Promise<'connected' | 'manualCreateNeeded'>
-  connectExistingRepo: (
-    ref: GithubRepoRef,
-    options?: { allowPublic?: boolean },
-  ) => Promise<ConnectExistingResult>
-  /** Stop backing this graph up (other graphs and the credential stay). */
-  disconnectGraph: () => Promise<void>
-  /** Sign the machine out of GitHub (every connected graph stops syncing). */
-  signOut: () => Promise<void>
-  backUpNow: () => Promise<void>
-}
+type GitSyncContextValue = { state: GitSyncState } & Pick<
+  GitSyncService,
+  'connectNewRepo' | 'connectExistingRepo' | 'disconnectGraph' | 'signOut' | 'syncNow'
+>
 
-const SyncContext = createContext<SyncContextValue | null>(null)
+const LOADING: GitSyncState = { phase: 'loading' }
 
-const LOADING: BackupState = { phase: 'loading' }
-
-interface SyncProviderProps {
-  graph: GraphInfo
-  children: ReactNode
+/**
+ * What the surface reads where the graph runs no git sync service.
+ */
+const NO_GIT_SYNC = {
+  subscribe: () => () => {},
+  getState: (): GitSyncState => LOADING,
 }
 
 /**
- * Thin React shim over the {@link createBackupController} lifecycle (Plan
- * 12): one controller per (graph, index session), created and disposed by an
- * effect, surfaced through `useSyncExternalStore`. All sync behavior lives in
- * the controller — this component owns nothing but the mounting.
+ * Git sync state + actions of the open graph's `GitSyncService`. A note window
+ * runs none: its state stays 'loading' (the note window edits, main syncs).
  */
-export function SyncProvider({ graph, children }: SyncProviderProps): ReactElement {
-  const { indexGeneration } = useGraph()
-  const [controller, setController] = useState<BackupController | null>(null)
+export function useGitSync(): GitSyncContextValue {
+  const controller = useMaybeGraphServices()?.gitSync ?? null
+  const store = controller ?? NO_GIT_SYNC
+  const state = useServiceState(store, store.getState)
 
-  // One backup controller per app: a secondary note window mounting a
-  // second one would race commits/pulls against the main window's. Its
-  // sync state stays 'loading' — the note window edits, main syncs.
-  useMainWindowEffect(() => {
-    const next = createBackupController({ graph, indexGeneration })
-    // The controller is an imperative lifecycle object created per (graph, index
-    // session); it must be instantiated in an effect (it subscribes and starts)
-    // and stored so useSyncExternalStore can read it.
-    setController(next)
-    void next.start()
-    return () => {
-      next.dispose()
-      setController((current) => (current === next ? null : current))
-    }
-  }, [graph, indexGeneration])
-
-  // iCloud-hosted graphs additionally get the conflict lifecycle (Plan 21):
-  // debounced conflict sweeps and shadow-base bookkeeping, plus — on mobile
-  // only — the metadata-query watch that stands in for the file watcher.
-  // Same per-(graph, index session) shape as the backup controller; a graph
-  // outside iCloud mounts nothing.
-  const bridgeReady = useBridgeReady()
-  useMainWindowEffect(() => {
-    if (!bridgeReady || !isICloudRoot(graph.root)) {
-      return
-    }
-    const icloud = createIcloudController({
-      graph,
-      indexGeneration,
-      metadataWatch: isMobileSurface(),
-    })
-    void icloud.start()
-    return () => {
-      icloud.dispose()
-    }
-  }, [bridgeReady, graph, indexGeneration])
-
-  const backup = useSyncExternalStore(
-    controller?.subscribe ?? (() => () => {}),
-    controller?.getState ?? (() => LOADING),
-  )
-
-  const value = useMemo<SyncContextValue>(() => {
-    const require = (): BackupController => {
+  return useMemo<GitSyncContextValue>(() => {
+    const require = (): GitSyncService => {
       if (controller === null) {
-        throw new ReflectError('io', 'backup is still initializing')
+        throw new AppError('io', 'backup is still initializing')
       }
       return controller
     }
     return {
-      backup,
+      state,
       connectNewRepo: (name) => require().connectNewRepo(name),
       connectExistingRepo: (ref, options) => require().connectExistingRepo(ref, options),
       disconnectGraph: () => require().disconnectGraph(),
       signOut: () => require().signOut(),
-      backUpNow: () => require().backUpNow(),
+      syncNow: () => require().syncNow(),
     }
-  }, [controller, backup])
-
-  return <SyncContext value={value}>{children}</SyncContext>
-}
-
-/** Backup state + actions; must be used under a {@link SyncProvider}. */
-export function useSync(): SyncContextValue {
-  const value = use(SyncContext)
-  if (value === null) {
-    throw new Error('useSync must be used within a SyncProvider')
-  }
-  return value
+  }, [controller, state])
 }
 
 /**
- * Like {@link useSync}, but `null` outside a provider. For surfaces that also
- * render where no backup lifecycle is mounted — the mobile settings sheet in
- * the plain-browser dev harness and in screen tests — and degrade by hiding
- * their sync rows instead of crashing.
+ * Like {@link useGitSync}, but `null` where the graph runs no git sync service:
+ * no graph session is open (the mobile settings sheet in the plain-browser
+ * dev harness and in screen tests), and those surfaces hide their sync rows.
  */
-export function useSyncContext(): SyncContextValue | null {
-  return use(SyncContext)
+export function useGitSyncContext(): GitSyncContextValue | null {
+  const sync = useGitSync()
+  const gitSync = useMaybeGraphServices()?.gitSync ?? null
+  return gitSync === null ? null : sync
 }

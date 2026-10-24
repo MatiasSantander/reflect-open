@@ -1,10 +1,8 @@
 import { useState, type ReactElement, type ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setBridge } from '@reflect/core'
+import { describe, expect, it, vi } from 'vitest'
 import type { NoteTagFacet } from '@reflect/core'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { FilterBar } from './filter-bar.tsx'
 import { EMPTY_ALL_NOTES_FILTERS, type AllNotesFilters } from './filter-state.ts'
 
@@ -17,26 +15,13 @@ import { EMPTY_ALL_NOTES_FILTERS, type AllNotesFilters } from './filter-state.ts
  */
 
 vi.mock('@/components/ui/drawer.tsx', () => ({
-  Drawer: ({ children, open }: { children?: ReactNode; open?: boolean }) =>
-    open ? <>{children}</> : null,
+  Drawer: ({ children, open }: { children?: ReactNode; open?: boolean }) => {
+    return open ? <>{children}</> : null
+  },
   DrawerContent: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DrawerBody: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
 }))
-
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
-}))
-
-const mockInvoke = vi.fn<(command: string, args: Record<string, unknown>) => Promise<unknown>>()
-setBridge({ invoke: mockInvoke, listen: async () => () => {} })
-
-beforeEach(() => {
-  mockInvoke.mockReset()
-  mockInvoke.mockResolvedValue([])
-})
-
-afterEach(cleanup)
 
 const FACETS: NoteTagFacet[] = [
   { tag: 'Book', count: 3 },
@@ -69,12 +54,10 @@ function Harness({
 }
 
 async function mount(props: Parameters<typeof Harness>[0] = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return await render(
-    <QueryClientProvider client={queryClient}>
-      <Harness {...props} />
-    </QueryClientProvider>,
-  )
+  // The index of the graph is empty.
+  return await renderInApp(<Harness {...props} />, {
+    graph: { root: '/g', name: 'g', generation: 1 },
+  })
 }
 
 describe('FilterBar', () => {

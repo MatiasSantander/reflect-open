@@ -1,31 +1,28 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import type { BacklinkContext, BacklinkService } from '@reflect/core'
+import { createTestCoreServices, type TestCoreServices } from '@reflect/core/testing'
 import type { ReactNode } from 'react'
-import { RouterProvider, useRouter } from '@/routing/router.tsx'
+import { useRouter } from '@/routing/router.tsx'
 import { expectLocatorToHaveCount } from '@/test-utils/expect.ts'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import { createWasmTestDatabaseService } from '@/test-utils/test-database.ts'
 import { IncomingBacklinks } from './incoming-backlinks.tsx'
 
-const { getBacklinksWithContext, getBacklinksPage } = vi.hoisted(() => {
-  const getBacklinksWithContext = vi.fn()
-  const getBacklinksPage = vi.fn(async (path: string, options: unknown) => {
-    const result: unknown = await getBacklinksWithContext(path, options)
-    return Array.isArray(result)
-      ? { contexts: result, nextCursor: null, indexedLinkCount: result.length }
-      : result
+let app: TestCoreServices
+let getBacklinksWithContext: MockInstance<BacklinkService['getBacklinksWithContext']>
+
+/**
+ * Answer the backlink read with `contexts` as its only page.
+ */
+function answerBacklinks(contexts: BacklinkContext[]): void {
+  getBacklinksWithContext.mockResolvedValue({
+    contexts,
+    nextCursor: null,
+    indexedLinkCount: contexts.length,
   })
-  return { getBacklinksWithContext, getBacklinksPage }
-})
-vi.mock('@reflect/core', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@reflect/core')>()),
-  hasBridge: () => true,
-  getBacklinksWithContext: getBacklinksPage,
-}))
-vi.mock('@/providers/graph-provider.tsx', () => ({
-  useGraph: () => ({ graph: { root: '/g', name: 'g', generation: 1 } }),
-}))
+}
 
 function RouteProbe(): ReactNode {
   const { route, arrivalFocusEditor } = useRouter()
@@ -36,28 +33,31 @@ function RouteProbe(): ReactNode {
   )
 }
 
+/**
+ * Render `ui` over the app of the running test, so a second render shares its session storage.
+ */
+function renderInGraph(ui: ReactNode) {
+  return renderInApp(ui, { app, graph: { root: '/g', name: 'g', generation: 1 } })
+}
+
 function renderSection(path: string) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider>
-        <IncomingBacklinks path={path} />
-        <RouteProbe />
-      </RouterProvider>
-    </QueryClientProvider>,
+  return renderInGraph(
+    <>
+      <IncomingBacklinks path={path} />
+      <RouteProbe />
+    </>,
   )
 }
 
 beforeEach(async () => {
   await page.viewport(375, 700)
-  window.sessionStorage.clear()
-  getBacklinksWithContext.mockReset()
-  getBacklinksPage.mockClear()
+  app = createTestCoreServices({ database: createWasmTestDatabaseService() })
+  getBacklinksWithContext = vi.spyOn(app.backlinks, 'getBacklinksWithContext')
 })
 
 describe('IncomingBacklinks', () => {
   it('renders nothing when the note has no inbound links (no empty chrome)', async () => {
-    getBacklinksWithContext.mockResolvedValue([])
+    answerBacklinks([])
     const view = await renderSection('daily/2026-07-02.md')
     await vi.waitFor(() => expect(getBacklinksWithContext).toHaveBeenCalled())
     await expect.element(view.getByText(/Incoming backlink/)).not.toBeInTheDocument()
@@ -72,7 +72,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('groups references by source note under a counted header', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'notes/meeting.md',
         sourceTitle: 'Meeting Notes',
@@ -106,7 +106,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('navigates a daily-note source to the daily route (the carousel follows it)', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'daily/2026-06-01.md',
         sourceTitle: 'June 1st, 2026',
@@ -126,7 +126,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('navigates an ordinary source to the note route without a focus intent', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'notes/meeting.md',
         sourceTitle: 'Meeting Notes',
@@ -146,7 +146,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('collapses snippets but keeps source titles on header toggle, for the session', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'notes/meeting.md',
         sourceTitle: 'Meeting Notes',
@@ -175,7 +175,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('shares the toggle with the desktop panel key across mounted sections', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'notes/meeting.md',
         sourceTitle: 'Meeting Notes',
@@ -184,14 +184,11 @@ describe('IncomingBacklinks', () => {
         tasks: [],
       },
     ])
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const view = await render(
-      <QueryClientProvider client={client}>
-        <RouterProvider>
-          <IncomingBacklinks path="daily/2026-07-01.md" />
-          <IncomingBacklinks path="daily/2026-07-02.md" />
-        </RouterProvider>
-      </QueryClientProvider>,
+    const view = await renderInGraph(
+      <>
+        <IncomingBacklinks path="daily/2026-07-01.md" />
+        <IncomingBacklinks path="daily/2026-07-02.md" />
+      </>,
     )
 
     const headers = view.getByRole('button', { name: /Incoming backlink \(1\)/ })
@@ -205,7 +202,7 @@ describe('IncomingBacklinks', () => {
   })
 
   it('lets one group be peeked at via its always-visible chevron after a header collapse', async () => {
-    getBacklinksWithContext.mockResolvedValue([
+    answerBacklinks([
       {
         sourcePath: 'notes/meeting.md',
         sourceTitle: 'Meeting Notes',

@@ -1,15 +1,10 @@
 import { useCallback, useMemo } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import {
-  getBacklinksWithContext,
-  type BacklinkContext,
-  type BacklinkContextPage,
-  type BacklinkSourceCursor,
-} from '@reflect/core'
-import { useBridgeReady } from '@/hooks/use-bridge-ready.ts'
+import type { BacklinkContext, BacklinkContextPage, BacklinkSourceCursor } from '@reflect/core'
 import { groupBacklinksBySource, type BacklinkSource } from '@/lib/group-backlinks.ts'
 import { queryKeys } from '@/lib/query-client.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 const BACKLINK_SOURCES_PER_PAGE = 10
 
@@ -70,7 +65,7 @@ function groupLoadedBacklinks(pages: readonly BacklinkContextPage[]): BacklinkSo
  */
 export function useBacklinkSources(path: string): BacklinkSources {
   const { graph } = useGraph()
-  const bridgeReady = useBridgeReady()
+  const { backlinks } = useCoreServices()
   const {
     data,
     fetchNextPage,
@@ -81,14 +76,15 @@ export function useBacklinkSources(path: string): BacklinkSources {
     isFetchNextPageError,
   } = useInfiniteQuery({
     queryKey: queryKeys.index.backlinks(graph?.root, path),
-    queryFn: ({ pageParam }) =>
-      getBacklinksWithContext(path, {
+    queryFn: ({ pageParam }) => {
+      return backlinks.getBacklinksWithContext(path, {
         cursor: pageParam,
         limit: BACKLINK_SOURCES_PER_PAGE,
-      }),
+      })
+    },
     initialPageParam: null as BacklinkSourceCursor | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: bridgeReady && graph !== null,
+    enabled: graph !== null,
   })
   const groups = useMemo(() => groupLoadedBacklinks(data?.pages ?? []), [data])
   const loadMore = useCallback(() => {

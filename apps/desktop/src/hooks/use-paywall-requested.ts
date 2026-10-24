@@ -1,12 +1,11 @@
-import { useSessionFlag } from '@/lib/use-session-flag.ts'
-
-/** Session-wide, so the request survives leaving and re-entering Settings. */
-const PAYWALL_REQUESTED_STORAGE_KEY = 'reflect.paywall-requested'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useServiceState } from '@/services/use-service-state.ts'
 
 /**
  * Whether the user asked to see the paywall. Set from Settings and read where
  * the paywall is decided, which is why it is not component state.
  */
 export function usePaywallRequested(): [boolean, (next: boolean) => void] {
-  return useSessionFlag(PAYWALL_REQUESTED_STORAGE_KEY, false)
+  const { paywall } = useMobileAppServices()
+  return [useServiceState(paywall, paywall.requested), paywall.setRequested]
 }

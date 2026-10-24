@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactElement } from 'react'
 import type { GraphInfo } from '@reflect/core'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { FolderOpen, GraduationCap, LocateFixed, PanelsTopLeft, Settings } from 'lucide-react'
+import { CountdownText } from '@/components/countdown-text.tsx'
 import { GraphSwatch } from '@/components/graph-swatch.tsx'
 import { ReflectAppsDialog } from '@/components/reflect-apps-dialog.tsx'
 import { ShortcutKeys } from '@/components/shortcut-keys.tsx'
@@ -17,14 +17,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useGraphColors } from '@/hooks/use-graph-colors.ts'
 import { keybindingFor } from '@/lib/commands/app-commands.ts'
-import { runCommand } from '@/lib/commands/registry.ts'
 import type { CommandContext } from '@/lib/commands/types.ts'
-import { openUrlSync } from '@/lib/open-url.ts'
 import { cn } from '@/lib/utils.ts'
-import { isMainWindow } from '@/lib/windows/window-role.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
-import { useSync, type BackupState } from '@/providers/sync-provider.tsx'
+import { useGitSync, type GitSyncState } from '@/providers/sync-provider.tsx'
 import { useRouter } from '@/routing/router.tsx'
+import { useAppServices, useCoreServices } from '@/services/services-provider.tsx'
 
 const MENU_ITEM_CLASS = 'h-8 gap-2 px-2 py-0 text-[13px] text-text-secondary'
 const SETTINGS_BINDING = keybindingFor('settings.open')
@@ -34,23 +32,31 @@ function graphSwitchBindingFor(index: number): string | null {
   return keybindingFor(`graph.switch${index + 1}`)
 }
 
-/**
- * The quiet backup indicator: nothing when backed up (or not set up), a
- * pulsing accent dot while backing up, amber when offline with queued
- * changes, red when backup needs attention. Detail lives in Settings.
- */
-function backupDot(backup: BackupState): { className: string; label: string } | null {
-  if (backup.phase !== 'connected' || backup.status.state === 'idle') {
+/** The quiet git sync indicator: a dot and a screen-reader label, nothing when idle. */
+function GitSyncDot({ state }: { state: GitSyncState }): ReactElement | null {
+  if (state.phase !== 'connected' || state.status.state === 'idle') {
     return null
   }
-  switch (backup.status.state) {
-    case 'syncing':
-      return { className: 'bg-accent motion-safe:animate-pulse', label: 'Backing up' }
-    case 'offline':
-      return { className: 'bg-amber-500', label: 'Backup waiting for a connection' }
-    case 'error':
-      return { className: 'bg-red-500', label: 'Backup failed — see Settings' }
-  }
+  const status = state.status
+  const { className, label } = {
+    syncing: { className: 'bg-accent motion-safe:animate-pulse', label: 'Backing up' },
+    waiting: { className: 'bg-text-muted', label: 'Backup scheduled' },
+    offline: { className: 'bg-amber-500', label: 'Backup waiting for a connection' },
+    error: { className: 'bg-red-500', label: 'Backup failed — see Settings' },
+  }[status.state]
+  return (
+    <>
+      <span aria-hidden className={cn('h-1.5 w-1.5 flex-none rounded-full', className)} />
+      <span role="status" className="sr-only">
+        {label}
+      </span>
+      {status.state === 'waiting' ? (
+        <span className="sr-only">
+          Backs up in <CountdownText until={status.until} />
+        </span>
+      ) : null}
+    </>
+  )
 }
 
 interface GraphFooterProps {
@@ -68,11 +74,12 @@ interface GraphFooterProps {
 export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement {
   const [appsOpen, setAppsOpen] = useState(false)
   const graphTriggerRef = useRef<HTMLButtonElement>(null)
+  const { logger } = useCoreServices()
+  const { opener, window: appWindow } = useAppServices()
   const { recents, indexing, openRecent, chooseGraph } = useGraph()
   const { colorFor } = useGraphColors()
-  const { backup } = useSync()
+  const { state } = useGitSync()
   const { route } = useRouter()
-  const dot = backupDot(backup)
   const settingsActive = route.kind === 'settings'
 
   return (
@@ -97,17 +104,7 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
                     <span className="min-w-0 truncate text-xs font-medium text-text-secondary transition-colors duration-100 group-hover:text-text">
                       {graph.name}
                     </span>
-                    {dot !== null ? (
-                      <>
-                        <span
-                          aria-hidden
-                          className={cn('h-1.5 w-1.5 flex-none rounded-full', dot.className)}
-                        />
-                        <span role="status" className="sr-only">
-                          {dot.label}
-                        </span>
-                      </>
-                    ) : null}
+                    <GitSyncDot state={state} />
                     {indexing ? (
                       <span role="status" className="sr-only">
                         Indexing
@@ -137,8 +134,8 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
           {recents.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem
             onClick={() => {
-              void revealItemInDir(graph.root).catch((cause: unknown) => {
-                console.error('open graph folder failed:', cause)
+              void opener.revealInFileManager(graph.root).catch((cause: unknown) => {
+                logger.error('open graph folder failed:', cause)
               })
             }}
             className={MENU_ITEM_CLASS}
@@ -147,7 +144,7 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
             <span className="min-w-0 flex-1 truncate">Reveal graph in Finder</span>
           </DropdownMenuItem>
           {/* Graph switching re-roots every window; note windows hide it. */}
-          {isMainWindow() ? (
+          {appWindow.isMainWindow() ? (
             <DropdownMenuItem onClick={() => void chooseGraph()} className={MENU_ITEM_CLASS}>
               <FolderOpen aria-hidden strokeWidth={1.75} className="size-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Open another graph…</span>
@@ -155,7 +152,7 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
           ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => void runCommand('settings.open', context)}
+            onClick={() => void context.app.commands.run('settings.open', context)}
             className={MENU_ITEM_CLASS}
           >
             <Settings aria-hidden strokeWidth={1.75} className="size-3.5 shrink-0" />
@@ -170,7 +167,7 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
             <span className="min-w-0 flex-1 truncate">Get Reflect apps…</span>
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => openUrlSync('https://reflect.academy')}
+            onClick={() => opener.openUrlSync('https://reflect.academy')}
             className={MENU_ITEM_CLASS}
           >
             <GraduationCap aria-hidden strokeWidth={1.75} className="size-3.5 shrink-0" />
@@ -187,7 +184,7 @@ export function GraphFooter({ graph, context }: GraphFooterProps): ReactElement 
               size="icon-sm"
               aria-label="Open settings"
               aria-current={settingsActive ? 'page' : undefined}
-              onClick={() => void runCommand('settings.open', context)}
+              onClick={() => void context.app.commands.run('settings.open', context)}
               className={cn(
                 'size-7 shrink-0 text-text-muted transition-colors duration-100 hover:bg-surface-hover hover:text-text-secondary',
                 settingsActive

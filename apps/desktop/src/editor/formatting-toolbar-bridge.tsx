@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useEditor } from '@meowdown/react'
 import { buildFileMarkdown, type EditorExtension } from '@meowdown/core'
 import { toPortableImageFile } from '@/lib/image-file.ts'
-import { isTouchEditorSurface } from '@/lib/platform-surface.ts'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { whenEditorMounted } from './when-editor-mounted.ts'
 import {
   clearFormattingToolbar,
@@ -40,9 +40,11 @@ export function FormattingToolbarBridge({
   saveFile,
 }: {
   /** Persist a file and resolve its markdown destination (undefined declines). */
-  saveFile?: (file: File) => Promise<string | undefined>
+  saveFile?: ((file: File) => Promise<string | undefined>) | undefined
 }): null {
   const editor = useEditor<EditorExtension>()
+  const { imageCodec, platform, logger } = useCoreServices()
+  const touchEditor = platform.surface.touchEditor
   // Read through a ref like the editor's other host callbacks: a changing
   // identity must not tear down and re-attach the published toolbar.
   const saveFileRef = useRef(saveFile)
@@ -52,7 +54,7 @@ export function FormattingToolbarBridge({
   const canAttachFiles = saveFile !== undefined
 
   useEffect(() => {
-    if (!isTouchEditorSurface()) {
+    if (!touchEditor) {
       return
     }
     const owner = Symbol('formatting-toolbar')
@@ -60,7 +62,7 @@ export function FormattingToolbarBridge({
 
     // Same mount dance as EditorInputTraits — see `whenEditorMounted` for
     // why the wait is bounded.
-    const cancel = whenEditorMounted(editor, () => {
+    const cancel = whenEditorMounted(logger, editor, () => {
       const dom = editor.view.dom
 
       function readCapabilities(): FormattingToolbarCapabilities {
@@ -89,8 +91,9 @@ export function FormattingToolbarBridge({
         dedent: () => run(() => editor.commands.dedentList()),
         moveUp: () => run(() => editor.commands.moveList('up')),
         moveDown: () => run(() => editor.commands.moveList('down')),
-        insertTrigger: (text: FormattingTriggerText) =>
-          run(() => editor.commands.insertTrigger(text)),
+        insertTrigger: (text: FormattingTriggerText) => {
+          run(() => editor.commands.insertTrigger(text))
+        },
         dismissKeyboard: () => editor.blur(),
         attachFiles: async (files: File[]) => {
           const save = saveFileRef.current
@@ -99,7 +102,7 @@ export function FormattingToolbarBridge({
           }
           const markdown: string[] = []
           for (const picked of files) {
-            const file = await toPortableImageFile(picked)
+            const file = await toPortableImageFile(imageCodec, picked)
             // `saveFile` owns its failures (it resolves undefined and the
             // pane raises the banner), so a file that did not land is
             // skipped and the ones that did are still linked.
@@ -158,18 +161,19 @@ export function FormattingToolbarBridge({
         }
       }
 
-      dom.addEventListener('focusin', handleFocusIn)
-      dom.addEventListener('focusout', handleFocusOut)
-      document.addEventListener('selectionchange', handleSelectionChange)
+      const listeners = new AbortController()
+      dom.addEventListener('focusin', handleFocusIn, { signal: listeners.signal })
+      dom.addEventListener('focusout', handleFocusOut, { signal: listeners.signal })
+      document.addEventListener('selectionchange', handleSelectionChange, {
+        signal: listeners.signal,
+      })
       // autoFocus can land before these listeners attach (the arrival-intent
       // focus fires on editor mount) — an already-focused editor publishes now.
       if (editor.focused) {
         publish()
       }
       teardown = () => {
-        dom.removeEventListener('focusin', handleFocusIn)
-        dom.removeEventListener('focusout', handleFocusOut)
-        document.removeEventListener('selectionchange', handleSelectionChange)
+        listeners.abort()
         if (publishTimer !== undefined) {
           clearTimeout(publishTimer)
         }
@@ -183,7 +187,7 @@ export function FormattingToolbarBridge({
     // `canAttachFiles` is fixed per editor in practice (a pane either has a
     // saveFile or does not), so re-attaching on a flip costs nothing and
     // keeps the published capability honest.
-  }, [editor, canAttachFiles])
+  }, [editor, canAttachFiles, imageCodec, touchEditor, logger])
 
   return null
 }

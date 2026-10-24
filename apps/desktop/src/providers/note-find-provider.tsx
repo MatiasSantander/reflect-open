@@ -1,7 +1,15 @@
+import { noteEditorHandleFor } from '@/editor/editor-handle-registry.ts'
+import { useToday } from '@/lib/use-today.ts'
+import { useFocusedDailyDate } from '@/providers/focused-daily-provider.tsx'
+import { focusedNotePathForRoute } from '@/routing/route.ts'
+import { useRouter } from '@/routing/router.tsx'
+import { useAppServices } from '@/services/services-provider.tsx'
+import type { FocusedNoteMenuCommand } from '@reflect/app'
+import { getIsComposing, isModEvent, type SearchStatus } from '@meowdown/core'
 import {
   createContext,
-  useCallback,
   use,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -9,17 +17,6 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react'
-import { getIsComposing, isModEvent, type SearchStatus } from '@meowdown/core'
-import { noteEditorHandleFor } from '@/editor/editor-handle-registry.ts'
-import {
-  listenForFocusedNoteMenuCommands,
-  type FocusedNoteMenuCommand,
-} from '@/lib/native-menu/dispatch.ts'
-import { useToday } from '@/lib/use-today.ts'
-import { isMainWindow } from '@/lib/windows/window-role.ts'
-import { useFocusedDailyDate } from '@/providers/focused-daily-provider.tsx'
-import { focusedNotePathForRoute } from '@/routing/route.ts'
-import { useRouter } from '@/routing/router.tsx'
 
 const NO_MATCHES: SearchStatus = { total: 0, active: 0 }
 
@@ -37,18 +34,18 @@ export interface NoteFindValue {
   /** Increments whenever a repeated ⌘F should reselect the query. */
   readonly focusRequest: number
   updateQuery(query: string): void
-  next(): void
-  previous(): void
+  next(this: void): void
+  previous(this: void): void
   close(restoreFocus: boolean): void
 }
 
 /** Find actions for command and native-menu dispatch, stable across renders. */
 export interface NoteFindActions {
   /** Opens Find for a note path. Returns false when there is no note to search. */
-  openForPath(path: string | null): boolean
-  next(): void
-  previous(): void
-  close(restoreFocus: boolean): void
+  openForPath(this: void, path: string | null): boolean
+  next(this: void): void
+  previous(this: void): void
+  close(this: void, restoreFocus: boolean): void
 }
 
 const NoteFindContext = createContext<NoteFindValue | null>(null)
@@ -58,6 +55,7 @@ const NoteFindReportContext = createContext<(path: string, status: SearchStatus)
 
 /** One note-local Find session for the current webview window. */
 export function NoteFindProvider({ children }: { children: ReactNode }): ReactElement {
+  const { nativeMenu, window: windowService } = useAppServices()
   const { route, arrivalSeq } = useRouter()
   const today = useToday()
   const focusedDailyDate = useFocusedDailyDate()
@@ -154,9 +152,7 @@ export function NoteFindProvider({ children }: { children: ReactNode }): ReactEl
   // A detached note window renders no command palette and installs no menu, so
   // it listens for the shortcuts and the routed menu events itself.
   useEffect(() => {
-    if (isMainWindow()) return
-    let disposed = false
-    let unlistenMenu = (): void => {}
+    if (windowService.isMainWindow()) return
 
     function onMenuCommand(command: FocusedNoteMenuCommand): void {
       switch (command) {
@@ -172,14 +168,7 @@ export function NoteFindProvider({ children }: { children: ReactNode }): ReactEl
       }
     }
 
-    void listenForFocusedNoteMenuCommands(onMenuCommand)
-      .then((unlisten) => {
-        if (disposed) unlisten()
-        else unlistenMenu = unlisten
-      })
-      .catch((cause: unknown) => {
-        console.error('note menu listener failed:', cause)
-      })
+    const unlistenMenu = nativeMenu.subscribeFocusedNoteCommands(onMenuCommand)
 
     function onKeyDown(event: KeyboardEvent): void {
       if (event.defaultPrevented || event.altKey || event.repeat || getIsComposing()) return
@@ -197,11 +186,10 @@ export function NoteFindProvider({ children }: { children: ReactNode }): ReactEl
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
-      disposed = true
       unlistenMenu()
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [next, notePath, openForPath, previous, query, target])
+  }, [nativeMenu, next, notePath, openForPath, previous, query, target, windowService])
 
   const value = useMemo<NoteFindValue>(
     () => ({

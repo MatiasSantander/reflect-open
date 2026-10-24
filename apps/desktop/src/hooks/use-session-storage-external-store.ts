@@ -1,5 +1,5 @@
-import { useMemo, useSyncExternalStore } from 'react'
-import { getSessionStorageStore } from '@/lib/session-storage.ts'
+import { useCallback, useSyncExternalStore } from 'react'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 /**
  * One sessionStorage key as React state, as the raw string it is stored as.
@@ -9,7 +9,19 @@ import { getSessionStorageStore } from '@/lib/session-storage.ts'
 export function useSessionStorageExternalStore(
   key: string,
 ): [value: string | null, setValue: (value: string | null) => void] {
-  const store = useMemo(() => getSessionStorageStore(key), [key])
-  const value = useSyncExternalStore(store.subscribe, store.get, store.get)
-  return [value, store.set]
+  const { storage } = useCoreServices()
+  const session = storage.session
+  const subscribe = useCallback(
+    (listener: () => void) => session.subscribe(key, listener),
+    [session, key],
+  )
+  const get = useCallback(() => session.get(key), [session, key])
+  const set = useCallback(
+    (value: string | null) => {
+      session.set(key, value)
+    },
+    [session, key],
+  )
+  const value = useSyncExternalStore(subscribe, get, get)
+  return [value, set]
 }

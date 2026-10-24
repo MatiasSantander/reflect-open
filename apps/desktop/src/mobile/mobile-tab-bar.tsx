@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type ReactElement } from 'react'
 import { CircleCheck, Files, MessageSquare, SquarePen } from 'lucide-react'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
 import type { Route } from '@/routing/route.ts'
 
 export type MobileTab = 'daily' | 'all' | 'tasks' | 'chat'
@@ -110,6 +111,7 @@ function TabButton({
   active: boolean
   onClick: () => void
 }): ReactElement {
+  const { haptics } = useMobileAppServices()
   return (
     <button
       type="button"
@@ -118,7 +120,7 @@ function TabButton({
       // V1 parity: a light haptic on every tab press, including the two taps
       // that make Daily's double-tap-to-today gesture.
       onClick={() => {
-        hapticImpactLight()
+        hapticImpactLight(haptics)
         onClick()
       }}
       className={cn(

@@ -7,7 +7,8 @@
     "beforeDevCommand": "pnpm sidecar && pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm sidecar && pnpm build",
-    "frontendDist": "../dist"
+    "frontendDist": "../dist",
+    "removeUnusedCommands": true
   },
   "app": {
     "windows": [
@@ -37,13 +38,15 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDREQ0RBRkJBN0ZDODdDMzkKUldRNWZNaC91cS9OVFhtTHdrSWVOV3p2cEdhc3RZbmtXM0g0bnpxUnZXVjlQMjZRNXFlWUdPNWMK",
       "endpoints": [
-        "https://github.com/team-reflect/reflect-open/releases/download/updater-beta/latest.json"
+        "https://github.com/team-reflect/reflect-open/releases/latest/download/latest.json"
       ]
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "shortDescription": "Local-first, Markdown-backed note-taking",
+    "copyright": "Copyright © 2026 Reflect App, LLC",
     "iOS": {
       "developmentTeam": "789ULN5MZB",
       "template": "src-tauri/ios.project.yml"
@@ -53,7 +56,8 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.ico",
+      "icons/Assets.car"
     ]
   }
 }

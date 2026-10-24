@@ -1,11 +1,6 @@
-import { renderHook } from 'vitest-browser-react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { afterEach, describe, expect, it } from 'vitest'
+import { renderHookInApp } from '@/test-utils/render-in-app.tsx'
 import { useTaskCheckboxHaptics } from './use-task-haptics.ts'
-
-vi.mock('@/mobile/haptics.ts', () => ({
-  hapticImpactLight: vi.fn(),
-}))
 
 /** The DOM shape meowdown/prosemirror-flat-list renders for list markers. */
 function installList(kind: 'task' | 'toggle', editable = true): HTMLInputElement {
@@ -29,10 +24,6 @@ function press(element: Element): void {
   element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
 }
 
-beforeEach(() => {
-  vi.mocked(hapticImpactLight).mockClear()
-})
-
 afterEach(() => {
   document.body.innerHTML = ''
 })
@@ -40,40 +31,40 @@ afterEach(() => {
 describe('useTaskCheckboxHaptics', () => {
   it('fires a light impact when a task checkbox is pressed', async () => {
     const checkbox = installList('task')
-    const view = await renderHook(() => useTaskCheckboxHaptics())
+    const view = await renderHookInApp(() => useTaskCheckboxHaptics())
     press(checkbox)
-    expect(hapticImpactLight).toHaveBeenCalledOnce()
+    expect(view.app.mobile.haptics.impacts()).toBe(1)
     await view.unmount()
   })
 
   it('stays silent for non-task list markers (toggle folds)', async () => {
     const checkbox = installList('toggle')
-    const view = await renderHook(() => useTaskCheckboxHaptics())
+    const view = await renderHookInApp(() => useTaskCheckboxHaptics())
     press(checkbox)
-    expect(hapticImpactLight).not.toHaveBeenCalled()
+    expect(view.app.mobile.haptics.impacts()).toBe(0)
     await view.unmount()
   })
 
   it('stays silent outside a live editing surface (protected notes)', async () => {
     const checkbox = installList('task', false)
-    const view = await renderHook(() => useTaskCheckboxHaptics())
+    const view = await renderHookInApp(() => useTaskCheckboxHaptics())
     press(checkbox)
-    expect(hapticImpactLight).not.toHaveBeenCalled()
+    expect(view.app.mobile.haptics.impacts()).toBe(0)
     await view.unmount()
   })
 
   it('stays silent for presses outside any list marker', async () => {
-    const view = await renderHook(() => useTaskCheckboxHaptics())
+    const view = await renderHookInApp(() => useTaskCheckboxHaptics())
     press(document.body)
-    expect(hapticImpactLight).not.toHaveBeenCalled()
+    expect(view.app.mobile.haptics.impacts()).toBe(0)
     await view.unmount()
   })
 
   it('stops listening after unmount', async () => {
     const checkbox = installList('task')
-    const view = await renderHook(() => useTaskCheckboxHaptics())
+    const view = await renderHookInApp(() => useTaskCheckboxHaptics())
     await view.unmount()
     press(checkbox)
-    expect(hapticImpactLight).not.toHaveBeenCalled()
+    expect(view.app.mobile.haptics.impacts()).toBe(0)
   })
 })

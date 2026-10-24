@@ -231,21 +231,19 @@ pub(crate) fn build_main_window<R: tauri::Runtime>(
 /// inside a cross-origin iframe) gets its URL in the default browser instead.
 fn open_new_window_in_browser<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
-) -> impl Fn(tauri::Url, NewWindowFeatures) -> NewWindowResponse<R> + Send + 'static {
+) -> impl Fn(tauri::Url, NewWindowFeatures) -> NewWindowResponse<R> + Send + 'static + use<R> {
     let app = app.clone();
     move |url, _features| {
-        if matches!(url.scheme(), "http" | "https") {
-            if let Err(err) = app.opener().open_url(url.as_str(), None::<&str>) {
-                tracing::warn!(error = %err, "failed to open a new-window URL in the browser");
-            }
+        if matches!(url.scheme(), "http" | "https")
+            && let Err(err) = app.opener().open_url(url.as_str(), None::<&str>)
+        {
+            tracing::warn!(error = %err, "failed to open a new-window URL in the browser");
         }
         NewWindowResponse::Deny
     }
 }
 
-fn lock_registry<'a>(
-    state: &'a State<'_, WindowInit>,
-) -> AppResult<MutexGuard<'a, WindowRegistry>> {
+fn lock_registry<'a>(state: &'a WindowInit) -> AppResult<MutexGuard<'a, WindowRegistry>> {
     state.registry.lock().map_err(|err| {
         tracing::error!(?err, "window registry lock poisoned by an earlier panic");
         AppError::io("window registry lock poisoned")
@@ -282,15 +280,15 @@ impl WindowRegistry {
         invoking_label: &str,
         live_labels: &HashSet<String>,
     ) -> WindowOpenPlan {
-        if let Some(preferred_label) = self.preferred_destinations.get(deep_link).cloned() {
-            if preferred_label != invoking_label {
-                if live_labels.contains(&preferred_label) {
-                    return WindowOpenPlan::Focus(preferred_label);
-                }
-                self.pending_bootstraps
-                    .insert(preferred_label.clone(), deep_link.to_owned());
-                return WindowOpenPlan::Create(preferred_label);
+        if let Some(preferred_label) = self.preferred_destinations.get(deep_link).cloned()
+            && preferred_label != invoking_label
+        {
+            if live_labels.contains(&preferred_label) {
+                return WindowOpenPlan::Focus(preferred_label);
             }
+            self.pending_bootstraps
+                .insert(preferred_label.clone(), deep_link.to_owned());
+            return WindowOpenPlan::Create(preferred_label);
         }
 
         let base_label = note_window_label(deep_link);

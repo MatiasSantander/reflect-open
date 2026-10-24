@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ParsedTask } from './task-model.ts'
 
 /**
  * The markdown document model (Plan 03) — the canonical, parser-agnostic shape
@@ -166,56 +167,6 @@ export interface AssetRef extends Span {
   /** The path as written in the link (e.g. `assets/img.png`). */
   path: string
 }
-
-/**
- * The write-back coordinates of one task's checkbox: where its marker sits and
- * what its line looked like. Carried from the index to the toggle ({@link
- * toggleTaskMarker}); `raw` is the staleness guard that lets the toggle relocate
- * the marker — or refuse — when the file drifted under it. {@link ParsedTask}
- * extends this with the rendered text and checked state.
- */
-export interface TaskMarker {
-  /**
-   * Character offset of the marker's `[` in the **original** file (UTF-16 code
-   * units, the unit Lezer reports — never UTF-8 bytes). The toggle splices the
-   * three marker characters here after re-confirming {@link raw}.
-   */
-  markerOffset: number
-  /**
-   * Exact source of the marker's physical line — the write-back staleness guard.
-   * Begins with the three-character marker, so `raw.slice(0, 3)` is `[ ]`/`[x]`.
-   */
-  raw: string
-}
-
-/**
- * A Reflect task item (`+ [ ] text` / `+ [x] text`) — the unit the Tasks view
- * (Plan 18) projects across the graph. Square checklist checkboxes stay in the
- * note only and are intentionally excluded from the aggregate Tasks view.
- */
-export interface ParsedTask extends TaskMarker {
-  /** Inline text of the item's marker line, markdown stripped, for display + search. */
-  text: string
-  /** Parent outline/list item text, top-down, for the Tasks view breadcrumb. */
-  breadcrumbs: readonly string[]
-  /** `[x]`/`[X]` → true, `[ ]` → false. */
-  checked: boolean
-  /**
-   * The task's explicit due date: the first calendar-valid `[[YYYY-MM-DD]]` link
-   * inside the item, or null. This is V1's "scheduling is association" mechanism —
-   * a date link *in the task* is its due date, distinct from (and overriding) the
-   * source note's own daily date. The Tasks view buckets Overdue strictly off this
-   * (a bare task in a past daily note is Current, not Overdue — Plan 18 / V1).
-   */
-  dueDate: string | null
-}
-
-/** Version of the extraction contract; bump on breaking shape changes.
- * 1 — Plan 03 baseline · 2 — `tasks: ParsedTask[]` (with `dueDate`) added (Plan 18) ·
- * 3 — tasks limited to round Meowdown `+ [ ]` / `+ [x]` syntax; square checklist
- * checkboxes are excluded.
- * 4 — task rows carry parent outline/list breadcrumbs. */
-export const PARSED_NOTE_VERSION = 4
 
 /** The full parse of one note — the stable contract downstream plans depend on. */
 export interface ParsedNote {

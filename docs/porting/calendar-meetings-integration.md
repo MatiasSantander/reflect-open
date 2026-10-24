@@ -8,7 +8,7 @@ changes completely is how calendars are reached.
 Landed as: the `calendar` Rust module
 (`apps/desktop/src-tauri/src/calendar.rs`), typed bindings + display policy
 in `packages/core/src/calendar/`, the `addMeetingToDaily` action
-(`packages/core/src/actions/add-meeting.ts`), the Settings **Calendar**
+(`packages/core/src/contacts/meeting-service.ts`), the Settings **Calendar**
 section, and the Events section in the daily context sidebar with its
 add-meeting dialog. iOS still inherits the EventKit approach later (its
 Info.plist/entitlements live in the generated Xcode project, not this
@@ -80,9 +80,11 @@ is added to [docs/privacy.md](../privacy.md)'s inventory.
   `objc2-event-kit` crates (the codebase is pure Rust today and stays that
   way — no Swift). Commands: request access, list calendars, list events
   for a date range.
-- **TypeScript owns policy.** `@reflect/core` gets bridge methods (via
-  `packages/core/src/ipc/bridge.ts`) and the note-writing action for "add
-  meeting"; the daily-note panel consumes them. Events are **fetched live,
+- **TypeScript owns policy.** `@reflect/core` gets a service over the commands
+  (`CalendarService`, `packages/core/src/calendar/calendar-service.ts`) and the
+  note-writing logic for "add meeting" (`MeetingService`,
+  `packages/core/src/contacts/meeting-service.ts`); the daily-note panel
+  consumes them. Events are **fetched live,
   not indexed** — EventKit is fast and local, the SQLite index stays a
   projection of markdown only, and no calendar data is ever persisted
   except the markdown the user explicitly creates.

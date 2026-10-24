@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { Button } from '@/components/ui/button.tsx'
-import { rebuildIndexVisibly } from '@/lib/rebuild-index.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { SettingsField } from './field.tsx'
 
 /**
@@ -9,20 +9,21 @@ import { SettingsField } from './field.tsx'
  * markdown files (the same action as the palette's "Rebuild search index").
  * Progress and failures surface through the operations status UI. The local
  * in-flight state only drives the label and disabled treatment —
- * rebuildIndexVisibly itself coalesces overlapping requests, including races
+ * `rebuildVisibly` itself coalesces overlapping requests, including races
  * with the palette command.
  */
 export function RebuildIndexField(): ReactElement {
   const { indexGeneration } = useGraph()
+  const { indexLifecycle } = useCoreServices()
   const [rebuilding, setRebuilding] = useState(false)
 
   const rebuild = async (): Promise<void> => {
-    if (indexGeneration === null || rebuilding) {
+    if (rebuilding) {
       return
     }
     setRebuilding(true)
     try {
-      await rebuildIndexVisibly(indexGeneration)
+      await indexLifecycle.rebuildVisibly()
     } finally {
       setRebuilding(false)
     }

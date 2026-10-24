@@ -1,36 +1,23 @@
-import { createRef } from 'react'
-import { openUrl } from '@tauri-apps/plugin-opener'
+import type { MaybePromise } from '@reflect/utils'
+import { createRef, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
-import { render } from 'vitest-browser-react'
-import { dispatchDeepLink } from '@/lib/deep-links/intake.ts'
-import { setPlatformSurface } from '@/lib/platform-surface.ts'
+import type { TestPlatformOptions } from '@reflect/core/testing'
 import { expectLocatorToHaveCount } from '@/test-utils/expect.ts'
 import { pasteFiles } from '@/test-utils/file-events.ts'
 import '@/test-utils/locator.ts'
 import { hover, unhover } from '@/test-utils/mouse.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import type { XPost } from '@post-embed/types'
 import { NoteEditor, type NoteEditorHandle } from './note-editor.tsx'
-
-vi.mock('@tauri-apps/plugin-opener', () => ({
-  openUrl: vi.fn(async () => {}),
-}))
-
-vi.mock('@/lib/deep-links/intake.ts', () => ({
-  dispatchDeepLink: vi.fn(),
-}))
-
-const openDeepLinkInNewWindow = vi.hoisted(() => vi.fn<() => Promise<boolean>>())
-vi.mock('@/lib/windows/open-in-new-window.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/windows/open-in-new-window.ts')>()),
-  openDeepLinkInNewWindow,
-}))
 
 // Media that loads without the network: the card hides a photo that fails.
 const X_PHOTO_URL =
   "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='100'%20height='100'/%3E"
 const X_VIDEO_URL = 'data:video/mp4;base64,'
 
+// The real resolver only lets `reflect-asset:` media through, which no test
+// browser can load.
 vi.mock('@/editor/use-x-post-resolver.ts', () => ({
   X_MEDIA_URL_PROTOCOLS: ['data:'],
   useXPostResolver: () => (): XPost => ({
@@ -50,6 +37,27 @@ vi.mock('@/editor/use-x-post-resolver.ts', () => ({
     ],
   }),
 }))
+
+/**
+ * Render `ui` in the app, on a platform with the facts `platform`.
+ */
+async function render(ui: ReactNode, platform?: TestPlatformOptions) {
+  return await renderInApp(ui, platform === undefined ? {} : { platform })
+}
+
+const TOUCH_EDITOR: TestPlatformOptions = { surface: { touchEditor: true } }
+const MOBILE_APP: TestPlatformOptions = { surface: { mobileApp: true } }
+
+/**
+ * Wait until the lightbox's view transition has finished. The dialog is in
+ * (or out of) the DOM while the transition is still preparing, and React
+ * warns when a synchronous update, such as the unmount after a test, cancels
+ * a preparing transition.
+ */
+async function settleViewTransition(): Promise<void> {
+  const transition = document.activeViewTransition
+  await transition?.finished
+}
 
 const pmRoot = page.locate('.ProseMirror')
 
@@ -75,7 +83,8 @@ const YOUTUBE_NOTE = `![](https://www.youtube.com/watch?v=aqz-KE-bpKQ)<!-- ${JSO
 const IMAGE_NOTE = 'A photo\n\n![Cat](assets/cat.png)'
 
 function renderEditor(
-  openAsset: (path: string) => Promise<void> | void = vi.fn(async () => {}),
+  openAsset: (path: string) => MaybePromise<void> = vi.fn(async () => {}),
+  platform?: TestPlatformOptions,
 ): ReturnType<typeof render> {
   return render(
     <NoteEditor
@@ -84,6 +93,7 @@ function renderEditor(
       resolveAssetOpenPath={(src) => (src === 'assets/cat.png' ? 'assets/cat.png' : null)}
       openAsset={openAsset}
     />,
+    platform,
   )
 }
 
@@ -91,8 +101,8 @@ function firePointer(element: Element, type: string, init: PointerEventInit): vo
   element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, ...init }))
 }
 
-afterEach(() => {
-  setPlatformSurface({ touchEditor: false, mobileApp: false })
+afterEach(async () => {
+  await settleViewTransition()
   vi.clearAllMocks()
 })
 
@@ -117,6 +127,10 @@ describe('NoteEditor wiki-link hover card', () => {
   })
 
   it('shows the host-rendered card body when a wiki link is hovered', async () => {
+    // Park the mouse first: the previous test left it where this wiki link
+    // renders, and a pointer that is already on a mark while the editor
+    // mounts reports its `mouseover` before the hover handlers are attached.
+    await unhover()
     await render(
       <NoteEditor
         initialContent="see [[Note]] here"
@@ -150,10 +164,14 @@ describe('NoteEditor wiki-link chips', () => {
 
 describe('NoteEditor link preview', () => {
   it('forwards host-resolved metadata to the link popup', async () => {
-    const resolveLinkPreview = vi.fn(async () => ({
-      title: 'Example Domain',
-      description: 'An example description.',
-    }))
+    const resolveLinkPreview = vi.fn(() => {
+      return Promise.resolve({
+        title: 'Example Domain',
+        description: 'An example description.',
+      })
+    })
+    // Park the mouse first, for the same reason as the wiki-link hover card.
+    await unhover()
     await render(
       <NoteEditor
         initialContent="[https://example.com](https://example.com)"
@@ -229,8 +247,7 @@ describe('NoteEditor touch-surface input hygiene', () => {
   })
 
   it('pins spellcheck off on the touch surface (iOS smart-punctuation gate)', async () => {
-    setPlatformSurface({ touchEditor: true })
-    await render(<NoteEditor initialContent="Hello" spellCheck={true} />)
+    await render(<NoteEditor initialContent="Hello" spellCheck={true} />, TOUCH_EDITOR)
     await expect.element(pmRoot).toBeVisible()
     const editable = pmRoot.element()
     expect(editable).toBeInstanceOf(HTMLElement)
@@ -253,17 +270,15 @@ describe('NoteEditor touch-surface input hygiene', () => {
   })
 
   it('pins the block handle off on the touch surface', async () => {
-    setPlatformSurface({ touchEditor: true })
     await unhover()
-    await render(<NoteEditor initialContent="Hello" blockHandle={true} />)
+    await render(<NoteEditor initialContent="Hello" blockHandle={true} />, TOUCH_EDITOR)
     await hover(pmRoot.getByText('Hello'))
     await expect.element(pmRoot.getByText('Hello')).toBeVisible()
     await expectLocatorToHaveCount(page.getByTestId('block-handle'), 0)
   })
 
   it('sets explicit input traits on the contenteditable on the touch surface', async () => {
-    setPlatformSurface({ touchEditor: true })
-    await render(<NoteEditor initialContent="Hello" />)
+    await render(<NoteEditor initialContent="Hello" />, TOUCH_EDITOR)
     await expect.element(pmRoot).toHaveAttribute('autocapitalize', 'sentences')
     await expect.element(pmRoot).toHaveAttribute('autocorrect', 'on')
   })
@@ -328,8 +343,7 @@ describe('NoteEditor image lightbox', () => {
   })
 
   it('shows mobile close chrome inside iOS safe-area bounds', async () => {
-    setPlatformSurface({ mobileApp: true })
-    await renderEditor()
+    await renderEditor(undefined, MOBILE_APP)
 
     await pmRoot.getByAltText('Cat').click()
     const close = page.getByRole('button', { name: 'Close', exact: true })
@@ -346,8 +360,7 @@ describe('NoteEditor image lightbox', () => {
   })
 
   it('dismisses the mobile image lightbox with a downward drag', async () => {
-    setPlatformSurface({ mobileApp: true })
-    await renderEditor()
+    await renderEditor(undefined, MOBILE_APP)
 
     await pmRoot.getByAltText('Cat').click()
     const preview = page.getByRole('button', { name: 'Close image preview' })
@@ -421,6 +434,8 @@ describe('NoteEditor image lightbox', () => {
 
     await pmRoot.getByAltText('Cat').click()
     await expect.element(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible()
+    // The rerender is a synchronous update too.
+    await settleViewTransition()
 
     await screen.rerender(
       <NoteEditor
@@ -506,80 +521,20 @@ describe('NoteEditor attachment resolution', () => {
 })
 
 describe('NoteEditor link opening', () => {
-  it('opens external links through the OS opener', async () => {
-    await render(<NoteEditor initialContent="see [Docs](https://example.com) here" />)
-
-    await pmRoot.getByRole('link').click()
-    await vi.waitFor(() => {
-      expect(openUrl).toHaveBeenCalledWith('https://example.com')
-    })
-  })
-
-  it('opens a custom app scheme link via the URL opener', async () => {
-    await render(
-      <NoteEditor initialContent="[note](x-devonthink-item://40C88434-68B6-4DCB) here" />,
-    )
-
-    await pmRoot.getByRole('link').click()
-    await vi.waitFor(() => {
-      expect(openUrl).toHaveBeenCalledWith('x-devonthink-item://40C88434-68B6-4DCB')
-    })
-  })
-
-  it('drops an unsafe scheme link without opening anything', async () => {
-    await render(<NoteEditor initialContent="[secret](file:///etc/passwd) here" />)
-
-    await pmRoot.getByRole('link').click()
-    await expect.element(pmRoot.getByRole('link')).toBeVisible()
-    expect(openUrl).not.toHaveBeenCalled()
-    expect(dispatchDeepLink).not.toHaveBeenCalled()
-  })
-
-  it('opens an assets/ link through the graph asset opener, not the URL opener', async () => {
-    const openAsset = vi.fn(async () => {})
+  it('reports a clicked link to the host', async () => {
+    const onLinkClick = vi.fn()
     await render(
       <NoteEditor
-        initialContent="[cat](assets/cat.png) here"
-        resolveAssetOpenPath={(src) => (src === 'assets/cat.png' ? 'assets/cat.png' : null)}
-        openAsset={openAsset}
+        initialContent="see [Docs](https://example.com) here"
+        onLinkClick={onLinkClick}
       />,
     )
 
     await pmRoot.getByRole('link').click()
     await vi.waitFor(() => {
-      expect(openAsset).toHaveBeenCalledWith('assets/cat.png')
-    })
-    expect(openUrl).not.toHaveBeenCalled()
-  })
-
-  it('routes a reflect:// link through the in-app deep-link intake, not the URL opener', async () => {
-    await render(<NoteEditor initialContent="[note](reflect://note/abc123) here" />)
-
-    await pmRoot.getByRole('link').click()
-    await vi.waitFor(() => {
-      expect(dispatchDeepLink).toHaveBeenCalledWith('reflect://note/abc123')
-    })
-    expect(openUrl).not.toHaveBeenCalled()
-  })
-
-  it('⌘-click sends a reflect:// link to a new window instead of dispatching', async () => {
-    openDeepLinkInNewWindow.mockResolvedValue(true)
-    await render(<NoteEditor initialContent="[note](reflect://note/abc123) here" />)
-
-    await pmRoot.getByRole('link').click({ modifiers: ['ControlOrMeta'] })
-    await vi.waitFor(() => {
-      expect(openDeepLinkInNewWindow).toHaveBeenCalledWith('reflect://note/abc123')
-    })
-    expect(dispatchDeepLink).not.toHaveBeenCalled()
-  })
-
-  it('a declined ⌘-click open degrades to the normal deep-link dispatch', async () => {
-    openDeepLinkInNewWindow.mockResolvedValue(false)
-    await render(<NoteEditor initialContent="[append](reflect://append?text=hi) here" />)
-
-    await pmRoot.getByRole('link').click({ modifiers: ['ControlOrMeta'] })
-    await vi.waitFor(() => {
-      expect(dispatchDeepLink).toHaveBeenCalledWith('reflect://append?text=hi')
+      expect(onLinkClick).toHaveBeenCalledWith(
+        expect.objectContaining({ href: 'https://example.com', mod: false }),
+      )
     })
   })
 })
@@ -608,29 +563,29 @@ describe('NoteEditor file pills', () => {
     await expectLocatorToHaveCount(pmRoot.getByTestId('file-pill'), 0)
   })
 
-  it('opens a clicked assets/ pill through the graph asset opener, not the URL opener', async () => {
-    const openAsset = vi.fn(async () => {})
+  it('reports a clicked pill to the host like a link click', async () => {
+    const onLinkClick = vi.fn()
     await render(
       <NoteEditor
         initialContent="[cat.png](assets/cat.png)"
         resolveFileLink={claimAssets}
-        resolveAssetOpenPath={(src) => (src === 'assets/cat.png' ? 'assets/cat.png' : null)}
-        openAsset={openAsset}
+        onLinkClick={onLinkClick}
       />,
     )
 
     await pmRoot.getByTestId('file-pill').click()
     await vi.waitFor(() => {
-      expect(openAsset).toHaveBeenCalledWith('assets/cat.png')
+      expect(onLinkClick).toHaveBeenCalledWith(
+        expect.objectContaining({ href: 'assets/cat.png', mod: false }),
+      )
     })
-    expect(openUrl).not.toHaveBeenCalled()
   })
 })
 
 describe('NoteEditor file paste', () => {
   it('persists a pasted file through saveFile and inserts its destination', async () => {
     const handleRef = createRef<NoteEditorHandle>()
-    const saveFile = vi.fn(async () => 'assets/report.pdf')
+    const saveFile = vi.fn(() => Promise.resolve('assets/report.pdf'))
     await render(
       <NoteEditor
         initialContent=""
@@ -651,7 +606,7 @@ describe('NoteEditor file paste', () => {
 
   it('declines the paste when saveFile returns null', async () => {
     const handleRef = createRef<NoteEditorHandle>()
-    const saveFile = vi.fn(async () => null)
+    const saveFile = vi.fn(() => Promise.resolve(null))
     await render(<NoteEditor initialContent="" handleRef={handleRef} saveFile={saveFile} />)
     await expect.element(pmRoot).toBeInTheDocument()
 
@@ -661,5 +616,35 @@ describe('NoteEditor file paste', () => {
       expect(saveFile).toHaveBeenCalled()
     })
     expect(handleRef.current?.getMarkdown()).toBe('\n')
+  })
+})
+
+describe('NoteEditor single paragraph', () => {
+  it('keeps a typed task marker as text and reports paragraph markdown', async () => {
+    const handleRef = createRef<NoteEditorHandle>()
+    await render(<NoteEditor initialContent="" singleParagraph handleRef={handleRef} />)
+
+    await pmRoot.click()
+    // `[` is escaped by doubling it in `userEvent.keyboard`.
+    await userEvent.keyboard('+ [[ ] task')
+
+    await vi.waitFor(() => {
+      expect(handleRef.current?.getMarkdown()).toBe('+ [ ] task')
+    })
+    expect(pmRoot.element().querySelector('input[type="checkbox"]')).toBeNull()
+  })
+
+  it('turns the same keystrokes into a task item in a note', async () => {
+    const handleRef = createRef<NoteEditorHandle>()
+    await render(<NoteEditor initialContent="" handleRef={handleRef} />)
+
+    await pmRoot.click()
+    await userEvent.keyboard('+ [[ ] task')
+
+    // `+ ` opens the circle task; the `[ ] ` typed inside it stays text.
+    await vi.waitFor(() => {
+      expect(handleRef.current?.getMarkdown()).toMatch(/^\+ \[ \] /)
+    })
+    expect(pmRoot.element().querySelector('input[type="checkbox"]')).not.toBeNull()
   })
 })

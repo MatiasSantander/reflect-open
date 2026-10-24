@@ -76,6 +76,28 @@ describe('blockContextAt', () => {
     )
   })
 
+  it('skips an H1 with only closing `#`s when picking the title heading', () => {
+    for (const empty of ['#   ', '# ##']) {
+      const content = `${empty}\n\n# Meeting [[Target]]\n\nagenda\n`
+      expect(blockContextAt(content, posOf(content, '[[Target]]'))).toBe('# Meeting [[Target]]')
+    }
+  })
+
+  it('picks an H1 with a closing sequence as the title heading', () => {
+    for (const title of ['# Title ##', '# Title #   ', '# foo#']) {
+      const content = `${title}\n\n# Second [[Target]]\n\nsection body\n`
+      expect(blockContextAt(content, posOf(content, '[[Target]]'))).toBe(
+        '# Second [[Target]]\n\nsection body',
+      )
+    }
+  })
+
+  it('handles a heading with a long run of spaces in linear time', () => {
+    const heading = `# a${' '.repeat(5_000)}b [[Target]]`
+    const content = `${heading}\n\nbody\n`
+    expect(blockContextAt(content, posOf(content, '[[Target]]'))).toBe(heading)
+  })
+
   it('treats a setext H1 title the same as an ATX title', () => {
     const content = 'With [[Target]]\n====\n\nbody paragraph\n'
     expect(blockContextAt(content, posOf(content, '[[Target]]'))).toBe('With [[Target]]\n====')
@@ -215,15 +237,11 @@ describe('blockContextLinesAt', () => {
    * every snippet line must read back verbatim from the source at its origin.
    */
   function expectOriginsAnchor(content: string, pos: number, targetKeys?: Set<string>): void {
-    const { text, lineOrigins, lineSourceTexts } = blockContextLinesAt(content, pos, targetKeys)
+    const { text, lineOrigins } = blockContextLinesAt(content, pos, targetKeys)
     const lines = text.split('\n')
     expect(lineOrigins).toHaveLength(lines.length)
-    expect(lineSourceTexts).toHaveLength(lines.length)
     for (const [index, line] of lines.entries()) {
       expect(content.slice(lineOrigins[index], lineOrigins[index]! + line.length)).toBe(line)
-      expect(
-        content.slice(lineOrigins[index], lineOrigins[index]! + lineSourceTexts[index]!.length),
-      ).toBe(lineSourceTexts[index])
     }
   }
 
@@ -238,11 +256,10 @@ describe('blockContextLinesAt', () => {
     expectOriginsAnchor(content, posOf(content, '[[Target]]'))
   })
 
-  it('keeps untrimmed source text for a trailing task line', () => {
+  it('trims trailing whitespace from a task line', () => {
     const content = '- [[Target]] kickoff\n  + [ ] prep agenda   \n'
-    const { text, lineSourceTexts } = blockContextLinesAt(content, posOf(content, '[[Target]]'))
+    const { text } = blockContextLinesAt(content, posOf(content, '[[Target]]'))
     expect(text).toBe('- [[Target]] kickoff\n  + [ ] prep agenda')
-    expect(lineSourceTexts).toEqual(['- [[Target]] kickoff', '  + [ ] prep agenda   '])
   })
 
   it('anchors across frontmatter with whole-file offsets', () => {

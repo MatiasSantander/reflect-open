@@ -1,8 +1,10 @@
 import { memo, type ReactElement } from 'react'
 import { format } from 'date-fns'
-import { addDaysIso, parseIsoDate } from '@/lib/dates.ts'
+import { addDaysIso, formatDayLabel, parseIsoDate } from '@/lib/dates.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useDateFormat } from '@/hooks/use-date-format.ts'
 
 interface WeekRowProps {
   /** The ISO date of this week's first day (per the week-start setting). */
@@ -32,6 +34,8 @@ function WeekRowComponent({
   dailyNoteDates,
   onSelect,
 }: WeekRowProps): ReactElement {
+  const { haptics } = useMobileAppServices()
+  const dateFormat = useDateFormat()
   const days = Array.from({ length: 7 }, (_, index) => addDaysIso(weekStart, index))
   const selectedIndex = selectedDay ? days.indexOf(selectedDay) : -1
   return (
@@ -65,10 +69,10 @@ function WeekRowComponent({
           <button
             key={day}
             type="button"
-            aria-label={`${format(parseIsoDate(day), 'EEEE, MMMM do')}${hasDailyNote ? ', has daily note' : ''}`}
+            aria-label={`${formatDayLabel(day, dateFormat)}${hasDailyNote ? ', has daily note' : ''}`}
             aria-current={selected ? 'date' : undefined}
             onClick={() => {
-              hapticImpactLight()
+              hapticImpactLight(haptics)
               onSelect(day)
             }}
             className="relative flex flex-1 flex-col items-center gap-0.5 py-1"

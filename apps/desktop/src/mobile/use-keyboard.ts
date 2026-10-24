@@ -1,43 +1,7 @@
-import { useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import { focusedEditorCommands } from '@/editor/formatting-toolbar-store.ts'
-
-let currentKeyboardHeight = 0
-const keyboardListeners = new Set<() => void>()
-
-/**
- * The last published keyboard overlap in px — `0` when the keyboard is closed.
- * A plain getter (not a hook) so imperative call sites — Embla's `watchDrag`
- * predicate fires at drag start, outside React — can read the live value.
- */
-export function getKeyboardHeight(): number {
-  return currentKeyboardHeight
-}
-
-/**
- * Record the keyboard overlap height. Called by {@link useKeyboardHeightVar}
- * as the visual viewport changes; exported so tests can drive keyboard state
- * without a real keyboard.
- */
-export function publishKeyboardHeight(height: number): void {
-  if (height === currentKeyboardHeight) {
-    return
-  }
-  currentKeyboardHeight = height
-  for (const listener of keyboardListeners) {
-    listener()
-  }
-}
-
-function subscribeKeyboard(listener: () => void): () => void {
-  keyboardListeners.add(listener)
-  return () => {
-    keyboardListeners.delete(listener)
-  }
-}
-
-function keyboardVisibleSnapshot(): boolean {
-  return currentKeyboardHeight > 0
-}
+import { useAppServices } from '@/services/services-provider.tsx'
+import { useServiceState } from '@/services/use-service-state.ts'
 
 /**
  * Whether the software keyboard is up, as reactive state. The tab bar hides
@@ -46,7 +10,8 @@ function keyboardVisibleSnapshot(): boolean {
  * keyboard cover it instead.
  */
 export function useKeyboardVisible(): boolean {
-  return useSyncExternalStore(subscribeKeyboard, keyboardVisibleSnapshot, keyboardVisibleSnapshot)
+  const { keyboard } = useAppServices()
+  return useServiceState(keyboard, keyboard.isVisible)
 }
 
 /**
@@ -81,19 +46,21 @@ function readKeyboardOverlap(): number {
  * keyboard signal and no native event bridge is needed. The mobile shell root
  * sizes itself to `calc(100dvh - var(--keyboard-height))`, and `DrawerContent`
  * pads its bottom past it so drawers end above the keyboard.
- * The height is also published to {@link getKeyboardHeight} /
- * {@link useKeyboardVisible} for non-layout consumers (the carousel's swipe
- * guard, the tab bar hiding).
+ * The height is also published to the `KeyboardService` for non-layout
+ * consumers (`KeyboardService.getHeight` for the carousel's swipe guard,
+ * {@link useKeyboardVisible} for the tab bar hiding).
  */
 export function useKeyboardHeightVar(): void {
-  // Viewport reader: feeds the store, which drops no-op publishes.
+  const { keyboard } = useAppServices()
+
+  // Viewport reader: feeds the service, which drops no-op publishes.
   useEffect(() => {
     const viewport = window.visualViewport
     if (!viewport) {
       return
     }
     const apply = (): void => {
-      publishKeyboardHeight(readKeyboardOverlap())
+      keyboard.publish(readKeyboardOverlap())
     }
     // iOS 26.0 leaves the visual viewport stale after the keyboard closes
     // (https://developer.apple.com/forums/thread/800125, fixed in 26.1). If
@@ -108,7 +75,7 @@ export function useKeyboardHeightVar(): void {
         const editing =
           (el instanceof HTMLElement && el.isContentEditable) || focusedKeyboardField() !== null
         if (!editing && readKeyboardOverlap() > 0) {
-          publishKeyboardHeight(0)
+          keyboard.publish(0)
         }
       }, KEYBOARD_STALE_DELAY_MS)
     }
@@ -119,13 +86,13 @@ export function useKeyboardHeightVar(): void {
       viewport.removeEventListener('resize', apply)
       document.removeEventListener('focusout', onFocusOut)
       clearTimeout(watchdog)
-      publishKeyboardHeight(0)
+      keyboard.publish(0)
     }
-  }, [])
+  }, [keyboard])
 
-  // Store subscriber: touches the CSS variable only when the value changed,
+  // Service subscriber: touches the CSS variable only when the value changed,
   // in a layout effect so the shell resizes in the same paint.
-  const height = useSyncExternalStore(subscribeKeyboard, getKeyboardHeight, getKeyboardHeight)
+  const height = useServiceState(keyboard, keyboard.getHeight)
   useLayoutEffect(() => {
     document.documentElement.style.setProperty('--keyboard-height', `${height}px`)
     return () => {
@@ -169,7 +136,8 @@ function focusedKeyboardField(): HTMLElement | null {
  * own reveal, so one plain `scrollIntoView` is enough.
  */
 export function useKeyboardFieldReveal(): void {
-  const height = useSyncExternalStore(subscribeKeyboard, getKeyboardHeight, getKeyboardHeight)
+  const { keyboard } = useAppServices()
+  const height = useServiceState(keyboard, keyboard.getHeight)
 
   useEffect(() => {
     if (height <= 0) {
@@ -200,7 +168,8 @@ export function useKeyboardFieldReveal(): void {
  * the caret is already visible.
  */
 export function useKeyboardCaretReveal(): void {
-  const height = useSyncExternalStore(subscribeKeyboard, getKeyboardHeight, getKeyboardHeight)
+  const { keyboard } = useAppServices()
+  const height = useServiceState(keyboard, keyboard.getHeight)
 
   useEffect(() => {
     if (height <= 0) {

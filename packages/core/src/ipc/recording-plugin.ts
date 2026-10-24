@@ -40,41 +40,41 @@ export type StagedRecordingFile = z.infer<typeof stagedFileSchema>
 const listStagedSchema = z.object({ files: z.array(stagedFileSchema) })
 
 // Command args mirror the serde request models (`StartRequest`,
-// `StagedPathRequest`) under the command's `request` parameter.
-const startRecordingCommand = definePluginCommand<
+// `StagedPathRequest`) under the command's `request` parameter. The commands
+// and events below take the bridge explicitly.
+export const startRecordingCommand = definePluginCommand<
   { request: StartRecordingOptions },
   RecordingSessionStart
 >('recording', 'start_recording', startResponseSchema)
-const stopRecordingCommand = definePluginCommand<Record<string, never>, RecordingStopResponse>(
-  'recording',
-  'stop_recording',
-  stopResponseSchema,
-)
-const cancelRecordingCommand = definePluginCommand<Record<string, never>, unknown>(
+export const stopRecordingCommand = definePluginCommand<
+  Record<string, never>,
+  RecordingStopResponse
+>('recording', 'stop_recording', stopResponseSchema)
+export const cancelRecordingCommand = definePluginCommand<Record<string, never>, unknown>(
   'recording',
   'cancel_recording',
   ignoredResult,
 )
-const recordingStatusCommand = definePluginCommand<Record<string, never>, RecordingStatus>(
+export const recordingStatusCommand = definePluginCommand<Record<string, never>, RecordingStatus>(
   'recording',
   'recording_status',
   recordingStatusSchema,
 )
-const actionsReadyCommand = definePluginCommand<Record<string, never>, unknown>(
+export const actionsReadyCommand = definePluginCommand<Record<string, never>, unknown>(
   'recording',
   'actions_ready',
   ignoredResult,
 )
-const actionPerformedCommand = definePluginCommand<Record<string, never>, unknown>(
+export const actionPerformedCommand = definePluginCommand<Record<string, never>, unknown>(
   'recording',
   'action_performed',
   ignoredResult,
 )
-const listStagedCommand = definePluginCommand<
+export const listStagedCommand = definePluginCommand<
   Record<string, never>,
   { files: StagedRecordingFile[] }
 >('recording', 'list_staged', listStagedSchema)
-const deleteStagedCommand = definePluginCommand<{ request: { path: string } }, unknown>(
+export const deleteStagedCommand = definePluginCommand<{ request: { path: string } }, unknown>(
   'recording',
   'delete_staged',
   ignoredResult,
@@ -92,49 +92,6 @@ export interface StartRecordingOptions {
    * cleared by whatever ends the session.
    */
   reminderMs: number
-}
-
-/** Ask for the microphone and start a recording session. */
-export async function startRecording(
-  options: StartRecordingOptions,
-): Promise<RecordingSessionStart> {
-  return await startRecordingCommand({ request: options })
-}
-
-/** Stop the active recording; rejects when nothing is recording. */
-export async function stopRecording(): Promise<RecordingStopResponse> {
-  return await stopRecordingCommand({})
-}
-
-/** Stop the active recording and discard its file. */
-export async function cancelRecording(): Promise<void> {
-  await cancelRecordingCommand({})
-}
-
-/** Whether a native recording is live right now (webview-reload reconcile). */
-export async function recordingStatus(): Promise<RecordingStatus> {
-  return await recordingStatusCommand({})
-}
-
-/** The webview's action surface is mounted — deliver any queued native action. */
-export async function actionsReady(): Promise<void> {
-  await actionsReadyCommand({})
-}
-
-/** Retire the delivered native action so it doesn't re-fire on next launch. */
-export async function actionPerformed(): Promise<void> {
-  await actionPerformedCommand({})
-}
-
-/** Finished recordings still in staging (crash orphans, files mid-ingest). */
-export async function listStaged(): Promise<StagedRecordingFile[]> {
-  const { files } = await listStagedCommand({})
-  return files
-}
-
-/** Remove a staged recording once its bytes are durable in the graph. */
-export async function deleteStaged(path: string): Promise<void> {
-  await deleteStagedCommand({ request: { path } })
 }
 
 /** Mirrors Swift `RecordingLevel` (~10 Hz while recording, foreground only). */
@@ -163,22 +120,22 @@ export type RecordingStoppedEvent = z.infer<typeof stoppedEventSchema>
 const nativeActionSchema = z.object({ action: z.string() })
 export type RecordingNativeActionEvent = z.infer<typeof nativeActionSchema>
 
-export const subscribeRecordingLevel = definePluginEvent(
+export const recordingLevelEvent = definePluginEvent(
   'recording',
   'recordingLevel',
   levelEventSchema,
 )
-export const subscribeRecordingSegment = definePluginEvent(
+export const recordingSegmentEvent = definePluginEvent(
   'recording',
   'recordingSegment',
   segmentEventSchema,
 )
-export const subscribeRecordingStopped = definePluginEvent(
+export const recordingStoppedEvent = definePluginEvent(
   'recording',
   'recordingStopped',
   stoppedEventSchema,
 )
-export const subscribeRecordingNativeAction = definePluginEvent(
+export const recordingNativeActionEvent = definePluginEvent(
   'recording',
   'nativeAction',
   nativeActionSchema,

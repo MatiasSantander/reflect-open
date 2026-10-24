@@ -1,22 +1,21 @@
+import { AppError } from '@reflect/core'
+import { act } from '@/test-utils/act.ts'
 import { describe, expect, it } from 'vitest'
 import { renderHook } from 'vitest-browser-react'
 import { useAsyncAction } from './use-async-action.ts'
 
 describe('useAsyncAction', () => {
   it('flips pending for the duration of the action', async () => {
-    const { result, act } = await renderHook(() => useAsyncAction())
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { result } = await renderHook(() => useAsyncAction())
+    const gate = Promise.withResolvers<void>()
 
     let running: Promise<void> = Promise.resolve()
     await act(() => {
-      running = result.current.run(() => gate)
+      running = result.current.run(() => gate.promise)
     })
     expect(result.current.pending).toBe(true)
 
-    release()
+    gate.resolve()
     await act(async () => {
       await running
     })
@@ -25,12 +24,10 @@ describe('useAsyncAction', () => {
   })
 
   it('captures a failure as a message and clears it on the next run', async () => {
-    const { result, act } = await renderHook(() => useAsyncAction())
+    const { result } = await renderHook(() => useAsyncAction())
 
     await act(async () => {
-      await result.current.run(async () => {
-        throw { kind: 'auth', message: 'token rejected' }
-      })
+      await result.current.run(() => Promise.reject(new AppError('auth', 'token rejected')))
     })
     expect(result.current.error).toBe('token rejected')
     expect(result.current.pending).toBe(false)
@@ -42,7 +39,7 @@ describe('useAsyncAction', () => {
   })
 
   it('setError surfaces a validation message without running anything', async () => {
-    const { result, act } = await renderHook(() => useAsyncAction())
+    const { result } = await renderHook(() => useAsyncAction())
     await act(() => {
       result.current.setError('Name the new repository.')
     })

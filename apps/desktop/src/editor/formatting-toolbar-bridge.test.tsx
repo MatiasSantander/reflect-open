@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
-import { render } from 'vitest-browser-react'
-import { setPlatformSurface } from '@/lib/platform-surface.ts'
 import '@/test-utils/locator.ts'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
 import { useFormattingToolbar, type FormattingToolbar } from './formatting-toolbar-store.ts'
 import { NoteEditor, type NoteEditorHandle } from './note-editor.tsx'
 
@@ -30,23 +29,23 @@ async function setupEditor(
   touchEditor = true,
   saveFile?: (file: File) => Promise<string | null>,
 ): Promise<Setup> {
-  setPlatformSurface({ touchEditor })
   const grabbed: { current: NoteEditorHandle | null } = { current: null }
   const editor = (
     <NoteEditor
       initialContent={initialContent}
-      onWikilinkSearch={async () => []}
-      {...(saveFile !== undefined ? { saveFile } : {})}
+      onWikilinkSearch={() => []}
+      saveFile={saveFile}
       handleRef={(handle) => {
         grabbed.current = handle
       }}
     />
   )
-  const screen = await render(
+  const screen = await renderInApp(
     <>
       {editor}
       <ToolbarProbe />
     </>,
+    { platform: { surface: { touchEditor } } },
   )
   await expect.element(pmRoot).toBeInTheDocument()
   return {
@@ -63,7 +62,6 @@ async function setupEditor(
 }
 
 afterEach(() => {
-  setPlatformSurface({ touchEditor: false })
   captured.toolbar = null
 })
 
@@ -165,7 +163,7 @@ describe('FormattingToolbarBridge', () => {
   })
 
   it('persists attached files and inserts their markdown', async () => {
-    const saveFile = vi.fn(async (file: File) => `assets/${file.name}`)
+    const saveFile = vi.fn((file: File) => Promise.resolve(`assets/${file.name}`))
     const { handle } = await setupEditor('alpha', true, saveFile)
 
     await pmRoot.getByText('alpha').click()
@@ -188,7 +186,7 @@ describe('FormattingToolbarBridge', () => {
   })
 
   it('inserts nothing when the save declines the file', async () => {
-    const saveFile = vi.fn(async () => null)
+    const saveFile = vi.fn(() => Promise.resolve(null))
     const { handle } = await setupEditor('alpha', true, saveFile)
 
     await pmRoot.getByText('alpha').click()

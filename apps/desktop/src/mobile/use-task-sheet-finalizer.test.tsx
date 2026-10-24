@@ -1,8 +1,8 @@
-import { act } from 'react'
+import { act } from '@/test-utils/act.ts'
 import { renderHook } from 'vitest-browser-react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenTask } from '@reflect/core'
-import { makeOpenTask } from '@/lib/tasks/open-task-fixture.ts'
+import { makeOpenTask } from '@reflect/core/testing'
 import { useTaskSheetFinalizer, type TaskSheetFinalizerDeps } from './use-task-sheet-finalizer.ts'
 
 /**
@@ -49,9 +49,9 @@ describe('useTaskSheetFinalizer', () => {
     )
 
     // A reindex rewrites the row's content while the sheet stays open.
-    await rerender(deps({ task: task({ text: 'beta', raw: '[ ] beta' }) }))
+    await rerender(deps({ task: task({ text: 'beta', markdown: 'beta' }) }))
 
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.handleOpenChange(false))
 
     // The draft still reads "alpha" but so does the frozen baseline — this is
     // a cancel, not a commit of stale text over the external change.
@@ -63,8 +63,8 @@ describe('useTaskSheetFinalizer', () => {
   it('commits a changed draft on dismissal', async () => {
     const { result } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(edit).toHaveBeenCalledTimes(1)
     expect(edit.mock.calls[0]?.[1]).toBe('alpha edited')
@@ -73,31 +73,31 @@ describe('useTaskSheetFinalizer', () => {
   it('deletes an emptied draft on dismissal', async () => {
     const { result } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft(''))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft(''))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(remove).toHaveBeenCalledTimes(1)
     expect(edit).not.toHaveBeenCalled()
   })
 
   it('deletes an abandoned-empty task on dismissal, but not on navigate', async () => {
-    const empty = task({ text: '', raw: '[ ] ' })
+    const empty = task({ text: '', markdown: '' })
 
     const navigated = await renderHook(() => useTaskSheetFinalizer(deps({ task: empty })))
-    act(() => navigated.result.current.closeNavigate())
+    await act(() => navigated.result.current.closeNavigate())
     expect(remove).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
 
     const dismissed = await renderHook(() => useTaskSheetFinalizer(deps({ task: empty })))
-    act(() => dismissed.result.current.handleOpenChange(false))
+    await act(() => dismissed.result.current.handleOpenChange(false))
     expect(remove).toHaveBeenCalledTimes(1)
   })
 
   it('commits a changed draft on navigate', async () => {
     const { result } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.closeNavigate())
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.closeNavigate())
 
     expect(edit).toHaveBeenCalledTimes(1)
     expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -106,11 +106,11 @@ describe('useTaskSheetFinalizer', () => {
   it('commits once across a duplicate dismissal and the unmount flush', async () => {
     const { result, unmount } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.handleOpenChange(false))
     // A second gesture callback before the parent re-renders, then the
     // unmount flush with the open prop still true — neither may double-write.
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.handleOpenChange(false))
     await unmount()
 
     expect(edit).toHaveBeenCalledTimes(1)
@@ -119,10 +119,10 @@ describe('useTaskSheetFinalizer', () => {
   it('skips the dismissal commit after an action already handled the close', async () => {
     const { result } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.closeHandled())
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.closeHandled())
     // A dismissal callback racing the programmatic close must not double-write.
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(edit).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
@@ -134,40 +134,40 @@ describe('useTaskSheetFinalizer', () => {
       { initialProps: deps() },
     )
 
-    act(() => result.current.setDraft('scratch'))
-    act(() => result.current.closeHandled())
+    await act(() => result.current.setDraft('scratch'))
+    await act(() => result.current.closeHandled())
     await rerender(deps({ open: false }))
 
     // Reopen for a row an action rewrote in the meantime.
-    await rerender(deps({ task: task({ text: 'rewritten', raw: '[ ] rewritten' }) }))
+    await rerender(deps({ task: task({ text: 'rewritten', markdown: 'rewritten' }) }))
 
     expect(result.current.draft).toBe('rewritten')
     expect(onReseed).toHaveBeenCalledTimes(1)
     // The reseeded baseline makes the untouched reopen a cancel again.
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.handleOpenChange(false))
     expect(edit).not.toHaveBeenCalled()
   })
 
   it('resolves against the live surface when readDraft is fresher than the mirrored state', async () => {
     // An uncontrolled editor can hold a change whose onChange hasn't
     // re-rendered into the draft state yet — the commit must not drop it.
-    const { result } = await renderHook(() =>
-      useTaskSheetFinalizer(deps({ readDraft: () => 'alpha typed live' })),
-    )
+    const { result } = await renderHook(() => {
+      return useTaskSheetFinalizer(deps({ readDraft: () => 'alpha typed live' }))
+    })
 
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(edit).toHaveBeenCalledTimes(1)
     expect(edit.mock.calls[0]?.[1]).toBe('alpha typed live')
   })
 
   it('falls back to the mirrored draft when readDraft cannot answer', async () => {
-    const { result } = await renderHook(() =>
-      useTaskSheetFinalizer(deps({ readDraft: () => null })),
-    )
+    const { result } = await renderHook(() => {
+      return useTaskSheetFinalizer(deps({ readDraft: () => null }))
+    })
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(edit).toHaveBeenCalledTimes(1)
     expect(edit.mock.calls[0]?.[1]).toBe('alpha edited')
@@ -177,11 +177,11 @@ describe('useTaskSheetFinalizer', () => {
     // readDraft is contractually fed by the surface's own onChange stream
     // (never an imperative editor read), so its value — including a genuine
     // clear — is authoritative even while the tree unmounts.
-    const { result, unmount } = await renderHook(() =>
-      useTaskSheetFinalizer(deps({ readDraft: () => 'alpha typed live' })),
-    )
+    const { result, unmount } = await renderHook(() => {
+      return useTaskSheetFinalizer(deps({ readDraft: () => 'alpha typed live' }))
+    })
 
-    act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.setDraft('alpha edited'))
     await unmount()
 
     expect(edit).toHaveBeenCalledTimes(1)
@@ -193,8 +193,8 @@ describe('useTaskSheetFinalizer', () => {
     // draft, so an abandoning dismissal deletes rather than resurrecting text.
     const { result } = await renderHook(() => useTaskSheetFinalizer(deps({ readDraft: () => '' })))
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.handleOpenChange(false))
 
     expect(remove).toHaveBeenCalledTimes(1)
     expect(edit).not.toHaveBeenCalled()
@@ -203,7 +203,7 @@ describe('useTaskSheetFinalizer', () => {
   it('flushes like a dismissal when unmounted under an open sheet', async () => {
     const { result, unmount } = await renderHook(() => useTaskSheetFinalizer(deps()))
 
-    act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.setDraft('alpha edited'))
     await unmount()
 
     expect(edit).toHaveBeenCalledTimes(1)
@@ -216,8 +216,8 @@ describe('useTaskSheetFinalizer', () => {
       { initialProps: deps() },
     )
 
-    act(() => result.current.setDraft('alpha edited'))
-    act(() => result.current.handleOpenChange(false))
+    await act(() => result.current.setDraft('alpha edited'))
+    await act(() => result.current.handleOpenChange(false))
     edit.mockReset()
     await rerender(deps({ open: false }))
     await unmount()

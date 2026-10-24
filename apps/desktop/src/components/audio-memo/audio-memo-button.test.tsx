@@ -1,20 +1,24 @@
-import { render, type RenderResult } from 'vitest-browser-react'
+import type { RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TooltipProvider } from '@/components/ui/tooltip.tsx'
+import { renderInApp } from '@/test-utils/render-in-app.tsx'
+import type { AudioMemoContextValue } from '@/providers/audio-memo-provider.tsx'
+import type { Mutable } from '@reflect/utils'
 
-const memo = vi.hoisted(() => ({
-  phase: 'idle' as 'idle' | 'requesting' | 'recording' | 'transcribing' | 'error',
+const memo = vi.hoisted((): Mutable<AudioMemoContextValue> => ({
+  phase: 'idle',
   elapsedMs: 0,
   stream: null,
   available: true,
-  unavailableReason: null as string | null,
-  error: null as string | null,
+  unavailableReason: null,
+  error: null,
   canRetry: false,
   toggle: vi.fn(),
   cancel: vi.fn(),
   retry: vi.fn(),
   discard: vi.fn(),
+  pendingCount: 0,
+  recorderState: 'idle',
 }))
 
 vi.mock('@/providers/audio-memo-provider.tsx', () => ({
@@ -24,11 +28,7 @@ vi.mock('@/providers/audio-memo-provider.tsx', () => ({
 const { AudioMemoButton } = await import('./audio-memo-button.tsx')
 
 function renderButton(): Promise<RenderResult> {
-  return render(
-    <TooltipProvider>
-      <AudioMemoButton />
-    </TooltipProvider>,
-  )
+  return renderInApp(<AudioMemoButton />)
 }
 
 beforeEach(() => {

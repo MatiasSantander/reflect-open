@@ -1,14 +1,13 @@
 import { useXPostResolver, X_MEDIA_URL_PROTOCOLS } from '@/editor/use-x-post-resolver.ts'
-import { resolveYouTubeVideo } from '@/editor/youtube-video-resolver.ts'
+import { useYouTubeVideoResolver } from '@/editor/youtube-video-resolver.ts'
 import type { ReactElement } from 'react'
 import { MarkdownView } from '@meowdown/react'
 import type { WikilinkClickHandler } from '@meowdown/core'
 import type { SnippetTask } from '@reflect/core'
-import { useOpenExternalLink } from '@/editor/open-external-link.ts'
-import { resolveWikilink } from '@/editor/resolve-wikilink.ts'
+import { useMarkdownLinkClick } from '@/editor/use-markdown-link-click.ts'
+import { useWikilinkResolver } from '@/editor/resolve-wikilink.ts'
 import { useNoteAttachments } from '@/editor/use-note-attachments.ts'
 import { useSnippetTaskToggle } from '@/hooks/use-snippet-task-toggle.ts'
-import { useGraph } from '@/providers/graph-provider.tsx'
 
 interface BacklinkSnippetProps {
   /** The referencing block context's Markdown source (may span several lines). */
@@ -44,11 +43,12 @@ export function BacklinkSnippet({
   tasks,
   onWikilinkClick,
 }: BacklinkSnippetProps): ReactElement {
-  const generation = useGraph({ optional: true })?.graph?.generation ?? null
-  const { resolveImageUrl, resolveWikiEmbed } = useNoteAttachments(generation, notePath)
+  const { resolveImageUrl, resolveWikiEmbed } = useNoteAttachments(notePath)
   const resolveXPost = useXPostResolver()
+  const resolveYouTubeVideo = useYouTubeVideoResolver()
+  const resolveWikilink = useWikilinkResolver()
   const onTaskClick = useSnippetTaskToggle(notePath, tasks)
-  const openExternalLink = useOpenExternalLink()
+  const onLinkClick = useMarkdownLinkClick(notePath)
   return (
     <div className="reflect-backlink-snippet select-text text-xs text-text">
       <MarkdownView
@@ -60,7 +60,7 @@ export function BacklinkSnippet({
         expandCollapsed
         resolveWikilink={resolveWikilink}
         onWikilinkClick={onWikilinkClick}
-        onLinkClick={openExternalLink}
+        onLinkClick={onLinkClick}
         {...(onTaskClick ? { onTaskClick } : {})}
         resolveImageUrl={resolveImageUrl}
         resolveWikiEmbed={resolveWikiEmbed}

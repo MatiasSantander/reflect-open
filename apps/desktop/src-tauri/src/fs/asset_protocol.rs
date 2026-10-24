@@ -22,7 +22,7 @@
 
 use std::borrow::Cow;
 
-use tauri::http::{header, Request, Response, StatusCode};
+use tauri::http::{Request, Response, StatusCode, header};
 use tauri::utils::mime_type::MimeType;
 use tauri::{AppHandle, Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
@@ -113,7 +113,7 @@ fn serve<R: Runtime>(
     let (generation, rel) = parse_request_path(request_path)?;
     let state = app.state::<GraphState>();
     let root = super::root_for_generation(&state, generation).map_err(|_| StatusCode::FORBIDDEN)?;
-    let abs = super::resolve::resolve(&root, rel).map_err(|_| StatusCode::FORBIDDEN)?;
+    let abs = super::resolve(&root, rel).map_err(|_| StatusCode::FORBIDDEN)?;
     // On an iCloud graph this read blocks until the file is materialized on
     // the device — acceptable here on the blocking pool, and exactly the wait
     // that must never happen on the UI thread.

@@ -5,6 +5,7 @@ import { Drawer, DrawerContent, DrawerTitle } from '@/components/ui/drawer.tsx'
 import { monthLabel, monthShortLabel } from '@/lib/month-grid.ts'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
+import { useMobileAppServices } from '@/mobile/mobile-services.ts'
 
 interface MonthPickerDrawerProps {
   open: boolean
@@ -37,6 +38,7 @@ export function MonthPickerDrawer({
   today,
   onPick,
 }: MonthPickerDrawerProps): ReactElement {
+  const { haptics } = useMobileAppServices()
   const [year, setYear] = useState(() => yearOf(month))
   // Each open starts from the currently displayed month's year, not wherever
   // the previous visit browsed to. Adjust-on-render, mirroring MonthTitle.
@@ -90,7 +92,7 @@ export function MonthPickerDrawer({
                 aria-pressed={isSelected}
                 aria-current={isThisMonth ? 'date' : undefined}
                 onClick={() => {
-                  hapticImpactLight()
+                  hapticImpactLight(haptics)
                   onPick(candidate)
                 }}
                 className={cn(

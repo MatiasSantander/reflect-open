@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ChatStreamEvent } from './stream-chat.ts'
+import type { ChatStreamEvent } from './chat-engine-service.ts'
 import {
   appendEvent,
   buildHistory,
