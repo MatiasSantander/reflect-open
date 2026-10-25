@@ -291,6 +291,20 @@ describe('GithubAuthService.getSignedInUser', () => {
     http.on('GET', USER_URL, jsonResponse({ login: 'alex' }))
 
     expect(await auth.getSignedInUser()).toEqual({ login: 'alex', avatarUrl: null })
+    expect(auth.getState().connected).toBe(true)
+  })
+
+  it('does not mark the machine connected when a sign-out landed during the probe', async () => {
+    const { auth, http } = setup({
+      secrets: { 'github-auth': JSON.stringify({ kind: 'pat', token: 'ghp_abc' }) },
+    })
+    http.on('GET', USER_URL, async () => {
+      await auth.clear()
+      return jsonResponse({ login: 'alex' })
+    })
+
+    expect(await auth.getSignedInUser()).toEqual({ login: 'alex', avatarUrl: null })
+    expect(auth.getState().connected).toBe(false)
   })
 
   it('returns null without network when nothing is stored', async () => {

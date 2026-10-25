@@ -22,7 +22,7 @@ function statusFor(gitSync: GitSyncState): MobileSyncStatus | null {
 }
 
 describe('engine state', () => {
-  it('has nothing to say without a configured backup', () => {
+  it('has nothing to say without a configured remote', () => {
     expect(statusFor({ phase: 'loading' })).toBeNull()
     expect(statusFor({ phase: 'disconnected' })).toBeNull()
   })
@@ -37,11 +37,14 @@ describe('engine state', () => {
     ).toEqual({
       label: 'Sign-in needed',
       tone: 'attention',
-      detail: { kind: 'message', text: 'Sign in to GitHub to resume backing up.' },
+      detail: {
+        kind: 'message',
+        text: 'Signed out of GitHub. Sign in under Accounts to resume.',
+      },
     })
   })
 
-  it('points a host remote at its SSH form, and plain HTTP at the reason', () => {
+  it('asks a host remote for its sign-in, and names the reason for plain HTTP', () => {
     const waiting = (origin: string): GitSyncState => ({
       phase: 'needsCredential',
       remoteUrl: `${origin}/alex/notes.git`,
@@ -52,23 +55,23 @@ describe('engine state', () => {
       tone: 'attention',
       detail: {
         kind: 'message',
-        text: 'This host needs a sign-in, which is not available on this device yet. Switch the remote to its SSH form to resume.',
+        text: 'gitlab.com needs a username and an access token or password.',
       },
     })
     expect(statusFor(waiting('http://gitea.local'))?.detail).toEqual({
       kind: 'message',
-      text: 'A sign-in is never sent over plain HTTP. Switch the remote to its SSH form to resume.',
+      text: 'Reflect does not send sign-ins over plain http. Use the https address of this repository.',
     })
   })
 
-  it('rests on Backed up — the quiet tone the pill hides on', () => {
+  it('rests on Up to date — the quiet tone the pill hides on', () => {
     const status = statusFor(connected({ state: 'idle' }))
-    expect(status).toEqual({ label: 'Backed up', tone: 'ok', detail: null })
+    expect(status).toEqual({ label: 'Up to date', tone: 'ok', detail: null })
   })
 
-  it('maps a waiting window to Backed up with the time the backup is due', () => {
+  it('maps a waiting window to Up to date with the time the next sync is due', () => {
     expect(statusFor(connected({ state: 'waiting', until: 2 * 60_000 + 1 }))).toEqual({
-      label: 'Backed up',
+      label: 'Up to date',
       tone: 'ok',
       detail: { kind: 'countdown', until: 2 * 60_000 + 1 },
     })
@@ -102,7 +105,7 @@ describe('engine state', () => {
 })
 
 describe('getMobileSyncStatus', () => {
-  it('has nothing to say without a backup lifecycle', () => {
+  it('has nothing to say without a sync lifecycle', () => {
     expect(getMobileSyncStatus(null)).toBeNull()
   })
 

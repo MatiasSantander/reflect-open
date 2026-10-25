@@ -17,7 +17,7 @@ export type ResolvedCredential =
 
 /**
  * Which sign-in a remote gets. The GitHub account only ever reaches
- * `github` remotes and a host entry only ever reaches its own origin; SSH
+ * `github` remotes and a git host entry only ever reaches its own origin; SSH
  * and path remotes get none, and Rust resolves them locally.
  */
 export interface CredentialResolver {
@@ -26,7 +26,7 @@ export interface CredentialResolver {
 
 export interface CredentialResolverDeps {
   readonly githubAuth: GithubAuthService
-  readonly hostCredentials: GitHostCredentialService
+  readonly gitHostCredentials: GitHostCredentialService
   readonly logger: LoggerService
 }
 
@@ -38,7 +38,7 @@ class CredentialResolverImpl implements CredentialResolver {
   }
 
   async resolve(remote: GitRemote): Promise<ResolvedCredential> {
-    const { githubAuth, hostCredentials, logger } = this.#deps
+    const { githubAuth, gitHostCredentials, logger } = this.#deps
     switch (remote.kind) {
       case 'github': {
         // A keychain the app cannot read is indistinguishable from a signed-out
@@ -64,12 +64,12 @@ class CredentialResolverImpl implements CredentialResolver {
         if (!remote.origin.startsWith('https:')) {
           return { kind: 'missing' }
         }
-        const stored = await hostCredentials.load(remote.origin)
+        const stored = await gitHostCredentials.load(remote.origin)
         if (stored === null) {
           return { kind: 'missing' }
         }
         // Re-read per cycle so an updated sign-in takes effect without a restart.
-        return { kind: 'ready', get: () => hostCredentials.load(remote.origin) }
+        return { kind: 'ready', get: () => gitHostCredentials.load(remote.origin) }
       }
       case 'ssh':
       case 'path':

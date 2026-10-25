@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.16.0-beta.15](https://github.com/team-reflect/reflect-open/compare/v0.16.0-beta.14...v0.16.0-beta.15) (2026-10-24)
+
+
+### Bug Fixes
+
+* update meowdown ([#1721](https://github.com/team-reflect/reflect-open/issues/1721)) ([db3cd0b](https://github.com/team-reflect/reflect-open/commit/db3cd0ba4e173e4d996c802f7d6ed8fd523c82bd))
+
+## [0.16.0-beta.14](https://github.com/team-reflect/reflect-open/compare/v0.16.0-beta.13...v0.16.0-beta.14) (2026-10-24)
+
+
+### Features
+
+* **mobile:** show the prerelease version on TestFlight builds ([#1711](https://github.com/team-reflect/reflect-open/issues/1711)) ([f55c692](https://github.com/team-reflect/reflect-open/commit/f55c692cf7d93baded86eb5c5218734e3d2eda68))
+
+
+### Bug Fixes
+
+* align leftover copy with the sync wording ([#1709](https://github.com/team-reflect/reflect-open/issues/1709)) ([cd3a093](https://github.com/team-reflect/reflect-open/commit/cd3a0936583494a80e723e366f0027ac6412fe43))
+* **desktop:** drop unhelpful Settings text ([#1713](https://github.com/team-reflect/reflect-open/issues/1713)) ([9877ae1](https://github.com/team-reflect/reflect-open/commit/9877ae1358afaf5044a279b07ea27f92bb49245a))
+
+## [0.16.0-beta.13](https://github.com/team-reflect/reflect-open/compare/v0.16.0-beta.12...v0.16.0-beta.13) (2026-10-24)
+
+
+### Features
+
+* connect a repository on any git host ([#1702](https://github.com/team-reflect/reflect-open/issues/1702)) ([636a2d5](https://github.com/team-reflect/reflect-open/commit/636a2d551179d3ba2016f0edfbef461008bcaeef))
+* **mobile:** support iPhone Duo safe areas ([#1704](https://github.com/team-reflect/reflect-open/issues/1704)) ([727552a](https://github.com/team-reflect/reflect-open/commit/727552a3b6393fa3ff6346cd2f8e6ec368a6f41e))
+
+## [0.16.0-beta.12](https://github.com/team-reflect/reflect-open/compare/v0.16.0-beta.11...v0.16.0-beta.12) (2026-10-23)
+
+
+### Features
+
+* classify remotes and resolve a sign-in per remote ([#1690](https://github.com/team-reflect/reflect-open/issues/1690)) ([25f07d3](https://github.com/team-reflect/reflect-open/commit/25f07d37e80f5839bfbe63d5190a01da63206bb6))
+* **desktop:** rebuild app icons as layered artwork ([#1699](https://github.com/team-reflect/reflect-open/issues/1699)) ([eb1e5ea](https://github.com/team-reflect/reflect-open/commit/eb1e5eaac0aa4c7f9aef99dc85a88b274113213f))
+
+
+### Bug Fixes
+
+* bind a stored sign-in to scheme, host and port ([#1691](https://github.com/team-reflect/reflect-open/issues/1691)) ([f28b9ef](https://github.com/team-reflect/reflect-open/commit/f28b9efe71eb02bbe1d762dd054dcaf31ad3c5c0))
+
 ## [0.16.0-beta.11](https://github.com/team-reflect/reflect-open/compare/v0.16.0-beta.10...v0.16.0-beta.11) (2026-10-20)
 
 

@@ -9,9 +9,9 @@ interface GithubSignInDrawerProps {
 
 /**
  * The mobile "Sign in to GitHub" bottom sheet: the connect wizard's own
- * sign-in step on its own, for a GitHub remote whose sign-in is gone. It
- * closes once GitHub has confirmed the credential. The body mounts per open
- * cycle so a dismissed device flow stops polling.
+ * sign-in step on its own, for the GitHub account group. It closes once
+ * GitHub has confirmed the credential. The body mounts per open cycle so a
+ * dismissed device flow stops polling.
  */
 export function GithubSignInDrawer({ open, onOpenChange }: GithubSignInDrawerProps): ReactElement {
   return (
@@ -21,9 +21,6 @@ export function GithubSignInDrawer({ open, onOpenChange }: GithubSignInDrawerPro
           <>
             <DrawerTitle>Sign in to GitHub</DrawerTitle>
             <DrawerBody>
-              <p className="text-xs text-text-muted">
-                This graph resumes backing up to its repository once you are signed in.
-              </p>
               <GithubAuthStep onAuthed={() => onOpenChange(false)} />
             </DrawerBody>
           </>

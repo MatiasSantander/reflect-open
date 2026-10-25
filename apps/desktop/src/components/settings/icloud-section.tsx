@@ -14,34 +14,16 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog.tsx'
 import { queryKeys } from '@/lib/query-client.ts'
-import { createDuplicateNoteIdsQueryOptions } from '@/lib/query-options.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { useGitSync } from '@/providers/sync-provider.tsx'
 import { useCoreServices } from '@/services/services-provider.tsx'
 
 const PENDING_NOTES_REFETCH_MS = 5_000
 
-function graphCountLine(count: number): string {
-  if (count === 0) {
-    return 'No graphs in iCloud Drive yet.'
-  }
-  return count === 1 ? '1 graph in iCloud Drive.' : `${count} graphs in iCloud Drive.`
-}
-
 function pendingNotesLine(count: number): string {
-  if (count === 0) {
-    return 'All note files are downloaded.'
-  }
   return count === 1
     ? '1 note is still downloading from iCloud.'
     : `${count} notes are still downloading from iCloud.`
-}
-
-function forkLine(forkCount: number): string {
-  if (forkCount === 0) {
-    return 'No sync forks.'
-  }
-  return forkCount === 1 ? '1 sync fork' : `${forkCount} sync forks`
 }
 
 /**
@@ -59,7 +41,7 @@ function forkLine(forkCount: number): string {
 export function IcloudSettingsField(): ReactElement | null {
   const { graph, openRecent } = useGraph()
   const { state, disconnectGraph } = useGitSync()
-  const { icloudMigration: migration, icloudNative, indexQuery, platform } = useCoreServices()
+  const { icloudMigration: migration, icloudNative, platform } = useCoreServices()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -81,10 +63,6 @@ export function IcloudSettingsField(): ReactElement | null {
       return typeof count === 'number' && count > 0 ? PENDING_NOTES_REFETCH_MS : false
     },
   })
-  const duplicateIds = useQuery({
-    ...createDuplicateNoteIdsQueryOptions(indexQuery, graph?.root),
-    enabled: hosted,
-  })
 
   // The navigator hides the entry off macOS through the same gate — the two
   // must agree (see use-visible-settings-sections).
@@ -92,7 +70,6 @@ export function IcloudSettingsField(): ReactElement | null {
     return null
   }
   const gitSyncConnected = state.phase === 'connected'
-  const forkCount = duplicateIds.data?.length
 
   async function moveToICloud(): Promise<void> {
     setBusy(true)
@@ -124,20 +101,8 @@ export function IcloudSettingsField(): ReactElement | null {
               : 'iCloud Drive isn’t reachable from this app — sign in to iCloud, or use a build with iCloud enabled.'
         }
       >
-        {hosted ? (
-          <div className="mt-3 flex flex-col gap-1 text-xs text-text-muted">
-            {pendingNotes.isPending ? <p>Checking downloaded notes...</p> : null}
-            {pendingNotes.data !== undefined ? <p>{pendingNotesLine(pendingNotes.data)}</p> : null}
-            {forkCount !== undefined ? (
-              <p className={forkCount > 0 ? 'text-amber-700 dark:text-amber-300' : undefined}>
-                {forkLine(forkCount)}
-              </p>
-            ) : null}
-          </div>
-        ) : status?.available === true ? (
-          <p className="mt-3 text-xs text-text-muted">
-            {graphCountLine(status.existingGraphRoots.length)}
-          </p>
+        {hosted && pendingNotes.data !== undefined && pendingNotes.data > 0 ? (
+          <p className="mt-3 text-xs text-text-muted">{pendingNotesLine(pendingNotes.data)}</p>
         ) : null}
         {hosted ? null : (
           <div className="mt-2">

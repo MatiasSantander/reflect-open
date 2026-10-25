@@ -47,9 +47,11 @@ runs:
 
     - name: Install Rust toolchain
       shell: bash
-      run: |
-        rustup toolchain install --no-self-update
-        rustc --version --verbose
+      run: rustup toolchain install --no-self-update
+
+    - name: Print rustc version
+      shell: bash
+      run: rustc --version --verbose
 
     # Build scripts (ort-sys, swift-rs) write the path of Xcode's clang runtime
     # into their cached output, and cargo does not rerun them when Xcode
@@ -58,6 +60,7 @@ runs:
     - name: Scope the cargo cache to Xcode
       if: runner.os == 'macOS'
       shell: bash
+      # Ensures the setup-xcode action has run before setup-rust, so that xcrun clang points to the selected Xcode version.
       run: echo "RUST_CACHE_CLANG_DIR=$(xcrun clang --print-resource-dir)" >> "$GITHUB_ENV"
 
     # ort-sys (fastembed → ort) downloads prebuilt ONNX Runtime binaries at
@@ -76,13 +79,13 @@ runs:
     # starts from a cold cache instead of a target/ that points to the old one.
     - name: Cache cargo build
       if: inputs.cache == 'true'
-      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: ${{ inputs.cache-key }}
         env-vars: ORT_CACHE_DIR
         cache-directories: ${{ env.ORT_CACHE_DIR }}
 
-    # Fails if Cargo.lock is out of date, like `pnpm install --frozen-lockfile`.
+    # Fails if Cargo.lock is out of date.
     - name: Check Cargo.lock
       shell: bash
       run: cargo update --workspace --locked

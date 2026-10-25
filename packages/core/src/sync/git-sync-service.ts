@@ -6,7 +6,7 @@ import type { LoggerService } from '../ports/logger-service.ts'
 import type { PersistenceFlushService } from '../graph/persistence-flush-service.ts'
 import type { PlatformFacts } from '../ports/platform-facts.ts'
 import { isMobilePlatform } from '../ports/platform-facts.ts'
-import { AppError, errorMessage, isAppError } from '../errors.ts'
+import { errorMessage } from '../errors.ts'
 import { isNotePath } from '../graph/paths.ts'
 import type { FileChangeService } from '../indexing/file-change-service.ts'
 import type { IndexLifecycleService } from '../indexing/index-lifecycle-service.ts'
@@ -20,9 +20,8 @@ import type { CredentialResolver } from './credential-resolver.ts'
 import type { GitHostCredentialService } from './git-host-credential-service.ts'
 import type { ChangedFile, GitCredential, GitRepositoryService } from './git-repository-service.ts'
 import type { GithubAuthService } from './github-auth-service.ts'
-import type { GithubRepoService } from './github-repo-service.ts'
-import type { GithubRepoRef } from './types.ts'
-import { classifyRemote, githubRemoteUrl, type GitRemote } from './remote-url.ts'
+import { classifyForbiddenStatus } from './github-forbidden.ts'
+import { classifyRemote, type GitRemote } from './remote-url.ts'
 
 /**
  * Git sync state as the UI sees it. `connected` means the graph has a repo,
@@ -51,11 +50,6 @@ export type GitSyncState =
       isPrimaryChannel: boolean
       status: SyncStatus
     }
-
-/**
- * Outcome of connecting to an existing repo (the public case needs consent).
- */
-export type ConnectExistingResult = 'connected' | 'needsPublicConfirm' | 'notFound'
 
 /**
  * Quiet period after the last edit before a backup commit, on mobile.
@@ -107,9 +101,12 @@ export interface GitSyncServiceDeps {
    * Which sign-in the graph's remote gets.
    */
   readonly credentials: CredentialResolver
+  /**
+   * A change to either sign-in store restarts the service, so a remote that
+   * needed a sign-in picks it up and one that lost it stops.
+   */
   readonly githubAuth: GithubAuthService
-  readonly hostCredentials: GitHostCredentialService
-  readonly githubRepos: GithubRepoService
+  readonly gitHostCredentials: GitHostCredentialService
   readonly fileChanges: FileChangeService
   /**
    * Applies the notes a pull changed.
@@ -139,11 +136,13 @@ export interface GitSyncServiceDeps {
  * Owns: the connection probe, the sync engine, the watcher subscription that
  * feeds its debounce, the resume triggers (launch, window focus, visibility →
  * visible for mobile app resume, and back-online pulls), the quit-commit
- * hook, and the connect / disconnect / sign-out / back-up-now actions.
+ * hook, and the connect / disconnect / sync-now actions. Which remote to
+ * connect is the connectors' business (`GithubConnector`, `GitHostConnector`).
  */
 export interface GitSyncService {
   /**
-   * Probe the graph and start the engine if fully connected. Idempotent.
+   * Probe the graph and start the engine if fully connected. Idempotent;
+   * overlapping calls run one after the other.
    */
   start(): MaybePromise<void>
   getState: () => GitSyncState
@@ -152,30 +151,15 @@ export interface GitSyncService {
    */
   subscribe: (listener: () => void) => Unlisten
   /**
-   * Create a new **private** repo for the signed-in user and connect it.
-   * `manualCreateNeeded` means the token *type* can't create repositories
-   * (fine-grained PATs can't call `POST /user/repos`) — the dialog falls
-   * back to the prefilled github.com/new handoff and connects afterwards.
+   * Point `origin` at `remoteUrl`, align the local branch with `branch` (the
+   * remote's default, so sync never forks a parallel branch), and restart.
    */
-  connectNewRepo(name: string): Promise<'connected' | 'manualCreateNeeded'>
+  connectRemote(remoteUrl: string, branch: string | null): Promise<void>
   /**
-   * Connect an existing repo. A public repo returns `needsPublicConfirm`
-   * unless `allowPublic` — everything in the graph (including `private:
-   * true` notes) would be world-readable, so that needs an explicit yes.
-   */
-  connectExistingRepo(
-    ref: GithubRepoRef,
-    options?: { allowPublic?: boolean | undefined },
-  ): Promise<ConnectExistingResult>
-  /**
-   * Stop backing **this graph** up (drops its remote; history and the
-   * machine-level GitHub credential stay — other graphs keep syncing).
+   * Stop syncing **this graph** (drops its remote; history and every
+   * sign-in stay — other graphs keep syncing).
    */
   disconnectGraph(): MaybePromise<void>
-  /**
-   * Sign this machine out of GitHub — every connected graph stops syncing.
-   */
-  signOut(): MaybePromise<void>
   /**
    * Full cycle now: fetch, pull, push. On an iCloud-hosted graph with a remote
    * it commits, and opens a quiet window only when none is open.
@@ -335,54 +319,18 @@ class GitSyncServiceImpl implements GitSyncService {
     }
   }
 
-  async connectNewRepo(name: string): Promise<'connected' | 'manualCreateNeeded'> {
-    const { githubRepos } = this.#deps
-    const token = await this.#requireToken()
-    const repo = await githubRepos.createRepo(token, name, { isPrivate: true })
-    if (repo === null) {
-      return 'manualCreateNeeded' // fine-grained PATs can't create repos
-    }
-    const [owner, repoName, ...rest] = repo.fullName.split('/')
-    if (owner === undefined || repoName === undefined || rest.length > 0) {
-      throw new AppError('parse', `unexpected repository name from GitHub: ${repo.fullName}`)
-    }
-    // Align with the account's default branch for new repos so the first
-    // push creates the branch GitHub already considers the default.
-    await this.#connectRemote(githubRemoteUrl({ owner, name: repoName }), repo.defaultBranch)
-    return 'connected'
-  }
-
-  async connectExistingRepo(
-    ref: GithubRepoRef,
-    connectOptions: { allowPublic?: boolean } = {},
-  ): Promise<ConnectExistingResult> {
-    const { githubRepos } = this.#deps
-    const token = await this.#requireToken()
-    const repo = await githubRepos.getRepo(token, ref)
-    if (repo === null) {
-      return 'notFound'
-    }
-    if (!repo.isPrivate && connectOptions.allowPublic !== true) {
-      return 'needsPublicConfirm'
-    }
-    // The repo's default branch is where its existing backup history lives —
-    // the local branch must match or sync would fork a parallel branch.
-    await this.#connectRemote(githubRemoteUrl(ref), repo.defaultBranch)
-    return 'connected'
-  }
-
   async disconnectGraph(): Promise<void> {
     await this.#deps.git.disconnect(this.#generation)
     await this.start()
   }
 
-  async signOut(): Promise<void> {
-    await this.#deps.githubAuth.clear()
-    await this.start()
-  }
-
   async syncNow(): Promise<void> {
     await this.#engine?.syncNow()
+  }
+
+  async connectRemote(remoteUrl: string, branch: string | null): Promise<void> {
+    await this.#deps.git.setup(remoteUrl, branch, this.#generation)
+    await this.start()
   }
 
   dispose(): void {
@@ -415,7 +363,7 @@ class GitSyncServiceImpl implements GitSyncService {
     }
     this.#credentialDisposers.push(
       this.#deps.githubAuth.subscribe(onChange),
-      this.#deps.hostCredentials.subscribe(onChange),
+      this.#deps.gitHostCredentials.subscribe(onChange),
     )
   }
 
@@ -624,65 +572,17 @@ class GitSyncServiceImpl implements GitSyncService {
     }
   }
 
-  /**
-   * GitHub answers 403 both for a token without access to the repository
-   * and for rate limiting. libgit2 cannot tell either from a bad token, so
-   * the engine reports `auth` and the UI offers "reconnect GitHub", which
-   * fixes neither. Ask GitHub whether the token itself is good: when it is,
-   * the push was refused for another reason and the status names it.
-   */
   async #classifyForbidden(
     status: SyncStatus,
     remoteUrl: string,
     remote: Extract<GitRemote, { kind: 'github' }>,
     isPrimaryChannel: boolean,
   ): Promise<void> {
-    const { githubAuth } = this.#deps
-    const { repo } = remote
-    let next: SyncStatus
-    try {
-      const token = await githubAuth.getToken()
-      if (token === null) {
-        return
-      }
-      await githubAuth.getAuthenticatedUser(token)
-      next = {
-        state: 'error',
-        errorKind: 'rejected',
-        message: `GitHub refused the sync (403). Check that Reflect has access to ${repo.owner}/${repo.name}, or wait a few minutes if GitHub is rate limiting.`,
-      }
-    } catch (cause) {
-      // A rejected probe confirms the bad credential: `auth` stands. Anything
-      // else (GitHub throttling, a fetch that never reached it, an unparsable
-      // reply) says nothing about the credential, so it must not keep asking
-      // for a reconnect either.
-      if (isAppError(cause) && cause.kind === 'auth') {
-        return
-      }
-      next = {
-        state: 'offline',
-        message: 'GitHub is rate limiting or unreachable; the backup will retry',
-      }
-    }
+    const next = await classifyForbiddenStatus(this.#deps.githubAuth, remote.repo)
     // Only replace the exact status this probe was asked about.
-    if (this.#state.phase === 'connected' && this.#state.status === status) {
+    if (next !== null && this.#state.phase === 'connected' && this.#state.status === status) {
       this.#setState({ phase: 'connected', remoteUrl, remote, isPrimaryChannel, status: next })
     }
-  }
-
-  async #requireToken(): Promise<string> {
-    const { githubAuth } = this.#deps
-    const token = await githubAuth.getToken()
-    if (token === null) {
-      throw new AppError('auth', 'Connect GitHub first (no credential stored)')
-    }
-    return token
-  }
-
-  async #connectRemote(remoteUrl: string, branch: string): Promise<void> {
-    const { git } = this.#deps
-    await git.setup(remoteUrl, branch, this.#generation)
-    await this.start()
   }
 }
 

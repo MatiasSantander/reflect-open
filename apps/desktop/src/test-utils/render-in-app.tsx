@@ -20,9 +20,13 @@ import {
   createTestCoreServices,
   createTestPlatformService,
   createTestGitSyncService,
+  createTestGithubConnector,
+  createTestGitHostConnector,
   type TestCoreServices,
   type TestDatabaseService,
   type TestGitSyncService,
+  type TestGithubConnector,
+  type TestGitHostConnector,
   type TestOpenGraph,
   type TestPlatformOptions,
 } from '@reflect/core/testing'
@@ -109,6 +113,11 @@ interface InAppHandles<App extends CoreServices> {
    * The scripted git sync service when `sync` was a `GitSyncState`, else `null`.
    */
   readonly gitSync: TestGitSyncService | null
+  /**
+   * The scripted connectors beside `gitSync`, else `null`.
+   */
+  readonly githubConnector: TestGithubConnector | null
+  readonly gitHostConnector: TestGitHostConnector | null
 }
 
 export interface InAppRenderResult<App extends CoreServices>
@@ -124,7 +133,7 @@ type AnyOptions = RenderInAppOptions & { app?: CoreServices | undefined }
  */
 function createApp(
   database: TestDatabaseService,
-  gitSync: TestGitSyncService | null,
+  sync: SyncFakes | null,
   platform: TestPlatformOptions | undefined,
 ): TestCoreServices {
   const clock = createTestClockService()
@@ -134,8 +143,14 @@ function createApp(
     // The app layer's operations list is the port the core services report to.
     progress: createTestOperationsService(clock),
     ...(platform === undefined ? {} : { platform: createTestPlatformService(platform) }),
-    ...(gitSync === null ? {} : { gitSync }),
+    ...(sync ?? {}),
   })
+}
+
+interface SyncFakes {
+  readonly gitSync: TestGitSyncService
+  readonly githubConnector: TestGithubConnector
+  readonly gitHostConnector: TestGitHostConnector
 }
 
 /**
@@ -147,11 +162,18 @@ async function prepare(options: AnyOptions | undefined): Promise<
     dispose: () => void
   }
 > {
-  const gitSync =
-    options?.sync === undefined ? null : createTestGitSyncService({ state: options.sync })
-  if (options?.app !== undefined && (gitSync !== null || options.platform !== undefined)) {
+  const sync: SyncFakes | null =
+    options?.sync === undefined
+      ? null
+      : {
+          gitSync: createTestGitSyncService({ state: options.sync }),
+          githubConnector: createTestGithubConnector(),
+          gitHostConnector: createTestGitHostConnector(),
+        }
+  const gitSync = sync?.gitSync ?? null
+  if (options?.app !== undefined && (sync !== null || options.platform !== undefined)) {
     throw new Error(
-      'renderInApp: with your own `app`, give it the platform and the git sync service yourself',
+      'renderInApp: with your own `app`, give it the platform, the git sync service, and the connectors yourself',
     )
   }
   const servicesOnly = options?.servicesOnly ?? false
@@ -169,7 +191,7 @@ async function prepare(options: AnyOptions | undefined): Promise<
   let app: CoreServices
   if (options?.app === undefined) {
     database = createWasmTestDatabaseService()
-    app = createApp(database, gitSync, options?.platform)
+    app = createApp(database, sync, options?.platform)
   } else {
     app = options.app
   }
@@ -241,6 +263,8 @@ async function prepare(options: AnyOptions | undefined): Promise<
     appServices: appLayer,
     queryClient,
     gitSync,
+    githubConnector: sync?.githubConnector ?? null,
+    gitHostConnector: sync?.gitHostConnector ?? null,
     wrap,
     dispose: () => {
       queryClient.clear()

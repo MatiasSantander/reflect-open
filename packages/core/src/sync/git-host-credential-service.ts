@@ -11,7 +11,7 @@ const credentialSchema = z.object({ username: z.string().min(1), secret: z.strin
  * The keychain entry holding the sign-in of one origin, e.g.
  * `git-credential:https://gitlab.com`.
  */
-export function hostCredentialSecretName(origin: string): string {
+export function gitHostCredentialSecretName(origin: string): string {
   return `git-credential:${origin}`
 }
 
@@ -58,7 +58,7 @@ class GitHostCredentialServiceImpl implements GitHostCredentialService {
     const { secretStore, logger } = this.#deps
     let raw: string | null
     try {
-      raw = await secretStore.get(hostCredentialSecretName(origin))
+      raw = await secretStore.get(gitHostCredentialSecretName(origin))
     } catch (error) {
       // A keychain the app cannot read is, for syncing, one with no entry.
       logger.error(`reading the sign-in for ${origin} failed:`, errorMessage(error))
@@ -77,12 +77,12 @@ class GitHostCredentialServiceImpl implements GitHostCredentialService {
 
   async save(origin: string, credential: GitCredential): Promise<void> {
     const validated = credentialSchema.parse(credential)
-    await this.#deps.secretStore.set(hostCredentialSecretName(origin), JSON.stringify(validated))
+    await this.#deps.secretStore.set(gitHostCredentialSecretName(origin), JSON.stringify(validated))
     this.#notify()
   }
 
   async delete(origin: string): Promise<void> {
-    await this.#deps.secretStore.delete(hostCredentialSecretName(origin))
+    await this.#deps.secretStore.delete(gitHostCredentialSecretName(origin))
     this.#notify()
   }
 

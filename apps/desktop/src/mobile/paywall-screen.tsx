@@ -15,7 +15,7 @@ import {
   useClassicAccess,
   useClassicSignIn,
 } from '@/mobile/use-classic-access.ts'
-import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { useAppServices } from '@/services/services-provider.tsx'
 
 type PurchasePlan = 'monthly' | 'yearly'
@@ -29,7 +29,7 @@ interface PurchaseVariables {
 const CLAIM_FREE_YEAR_URL = 'https://reflect.app/claim-reflect-open'
 
 export function PaywallScreen(): ReactElement {
-  const { paywall } = useMobileAppServices()
+  const { paywall } = useMobileServices()
   const { opener } = useAppServices()
   const [selectedPlan, setSelectedPlan] = useState<PurchasePlan>('yearly')
   const [classicDrawerOpen, setClassicDrawerOpen] = useState(false)
@@ -117,13 +117,7 @@ export function PaywallScreen(): ReactElement {
   }
 
   return (
-    <div
-      className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-5 text-text"
-      style={{
-        paddingTop: 'max(env(safe-area-inset-top), 1.5rem)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 1rem)',
-      }}
-    >
+    <div className="flex min-h-dvh w-screen overflow-auto bg-surface-app px-safe-offset-5 pt-safe-or-6 pb-safe-or-4 text-text">
       <div className="mx-auto flex w-full max-w-md flex-col gap-6 py-6">
         <header className="flex flex-col gap-4 pt-2">
           <img src={appIcon} alt="" draggable={false} className="size-11 rounded-xl" />

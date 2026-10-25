@@ -14,9 +14,9 @@ function setup(secrets: Record<string, string> = {}) {
   const secretStore = createTestSecretStoreService(secrets)
   const logger = createTestLoggerService()
   const githubAuth = createTestGithubAuthService({ secretStore })
-  const hostCredentials = createGitHostCredentialService({ secretStore, logger })
-  const resolver = createCredentialResolver({ githubAuth, hostCredentials, logger })
-  return { githubAuth, hostCredentials, resolver }
+  const gitHostCredentials = createGitHostCredentialService({ secretStore, logger })
+  const resolver = createCredentialResolver({ githubAuth, gitHostCredentials, logger })
+  return { githubAuth, gitHostCredentials, resolver }
 }
 
 describe('CredentialResolver', () => {
@@ -43,13 +43,13 @@ describe('CredentialResolver', () => {
   })
 
   it('resolves an HTTPS host from its own entry, re-read per cycle', async () => {
-    const { hostCredentials, resolver } = setup()
-    await hostCredentials.save('https://gitlab.com', { username: 'alex', secret: 'glpat-1' })
+    const { gitHostCredentials, resolver } = setup()
+    await gitHostCredentials.save('https://gitlab.com', { username: 'alex', secret: 'glpat-1' })
     const resolved = await resolver.resolve(GITLAB)
     expect(resolved.kind).toBe('ready')
     if (resolved.kind === 'ready') {
       expect(await resolved.get()).toEqual({ username: 'alex', secret: 'glpat-1' })
-      await hostCredentials.save('https://gitlab.com', { username: 'alex', secret: 'glpat-2' })
+      await gitHostCredentials.save('https://gitlab.com', { username: 'alex', secret: 'glpat-2' })
       expect(await resolved.get()).toEqual({ username: 'alex', secret: 'glpat-2' })
     }
     expect(await resolver.resolve({ kind: 'https', origin: 'https://gitlab.com:8443' })).toEqual({
@@ -58,8 +58,8 @@ describe('CredentialResolver', () => {
   })
 
   it('never offers a host sign-in over plain http', async () => {
-    const { hostCredentials, resolver } = setup()
-    await hostCredentials.save('http://gitea.local', { username: 'alex', secret: 'tok' })
+    const { gitHostCredentials, resolver } = setup()
+    await gitHostCredentials.save('http://gitea.local', { username: 'alex', secret: 'tok' })
     expect(await resolver.resolve({ kind: 'https', origin: 'http://gitea.local' })).toEqual({
       kind: 'missing',
     })

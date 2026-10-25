@@ -6,7 +6,7 @@ import { monthOf } from '@/lib/month-grid.ts'
 import { cn } from '@/lib/utils.ts'
 import { monthPickTarget, weekAtIndex, weekStartOf } from '@/mobile/calendar.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
-import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { MonthPickerDrawer } from '@/mobile/month-picker-drawer.tsx'
 import { MonthTitle } from '@/mobile/month-title.tsx'
 import { useDailyNoteDates } from '@/mobile/use-daily-note-dates.ts'
@@ -52,7 +52,7 @@ export function CalendarStrip({
   resetSeq,
   onSelect,
 }: CalendarStripProps): ReactElement {
-  const { haptics } = useMobileAppServices()
+  const { haptics } = useMobileServices()
   const { settings } = useSettings()
   const { navigate } = useRouter()
   const { emblaRef, weekWindow, displayedWeekStart, showWeekOf } = useWeekStrip(
@@ -110,10 +110,7 @@ export function CalendarStrip({
   }, [resetSeq, date, showWeekOf])
 
   return (
-    <header
-      className="shrink-0 border-b border-border px-2 pb-1"
-      style={{ paddingTop: 'env(safe-area-inset-top)' }}
-    >
+    <header className="shrink-0 border-b border-border px-safe-offset-2 pt-safe pb-1">
       {/* Three equal-flanked columns so the month sits at the screen's center
           regardless of the gear (left) and the fading Today button (right). */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 px-1 py-1">

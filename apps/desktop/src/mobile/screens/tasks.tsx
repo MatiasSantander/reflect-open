@@ -14,7 +14,7 @@ import { useTaskFilters } from '@/lib/tasks/task-filters.ts'
 import { useTaskActions } from '@/lib/tasks/use-task-actions.ts'
 import { useToday } from '@/lib/use-today.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
-import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { SearchInput } from '@/mobile/search-input.tsx'
 import { MobileTaskEditSheet } from '@/mobile/task-edit-sheet.tsx'
 import { TaskFiltersDrawer } from '@/mobile/task-filters-drawer.tsx'
@@ -24,6 +24,7 @@ import { useArrivalFocus } from '@/mobile/use-arrival-focus.ts'
 import { useGraph } from '@/providers/graph-provider.tsx'
 import { routeForPath } from '@/routing/route.ts'
 import { useRouter } from '@/routing/router.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 import { useServiceState } from '@/services/use-service-state.ts'
 
 /**
@@ -42,7 +43,8 @@ import { useServiceState } from '@/services/use-service-state.ts'
  * completed tasks.
  */
 export function MobileTasks(): ReactElement {
-  const { haptics, tasks: taskService } = useMobileAppServices()
+  const { haptics } = useMobileServices()
+  const { tasks: taskService } = useCoreServices()
   const { graph } = useGraph()
   const { navigate, arrivalSeq, arrivalFocusEditor } = useRouter()
   const today = useToday()
@@ -139,10 +141,7 @@ export function MobileTasks(): ReactElement {
   }
 
   return (
-    <div
-      className="flex h-full w-screen flex-col"
-      style={{ paddingTop: 'env(safe-area-inset-top)' }}
-    >
+    <div className="flex h-full w-screen flex-col pt-safe">
       <MobileTopBar>
         <MobileTopBarRow>
           <SearchInput
@@ -195,7 +194,7 @@ export function MobileTasks(): ReactElement {
         </div>
       ) : (
         <div
-          className="min-h-0 flex-1 overflow-y-auto pb-24"
+          className="min-h-0 flex-1 overflow-y-auto px-safe pb-24"
           onScroll={() => setRevealedTaskKey(null)}
         >
           {groups.map((group) => (
@@ -218,10 +217,7 @@ export function MobileTasks(): ReactElement {
       <Button
         size="icon"
         aria-label="New task"
-        className="fixed right-4 z-40 size-12 rounded-full shadow-lg"
-        style={{
-          bottom: 'calc(max(env(safe-area-inset-bottom), var(--keyboard-height, 0px)) + 4.25rem)',
-        }}
+        className="fixed right-safe-offset-4 bottom-above-keyboard-offset-17 z-40 size-12 rounded-full shadow-lg"
         onClick={() => onAdd(todaysDailyTarget(today))}
       >
         <Plus className="size-6" />

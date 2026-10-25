@@ -39,10 +39,10 @@ function GitSyncDot({ state }: { state: GitSyncState }): ReactElement | null {
   }
   const status = state.status
   const { className, label } = {
-    syncing: { className: 'bg-accent motion-safe:animate-pulse', label: 'Backing up' },
-    waiting: { className: 'bg-text-muted', label: 'Backup scheduled' },
-    offline: { className: 'bg-amber-500', label: 'Backup waiting for a connection' },
-    error: { className: 'bg-red-500', label: 'Backup failed — see Settings' },
+    syncing: { className: 'bg-accent motion-safe:animate-pulse', label: 'Syncing' },
+    waiting: { className: 'bg-text-muted', label: 'Sync scheduled' },
+    offline: { className: 'bg-amber-500', label: 'Sync waiting for a connection' },
+    error: { className: 'bg-red-500', label: 'Sync failed — see Settings' },
   }[status.state]
   return (
     <>
@@ -52,7 +52,7 @@ function GitSyncDot({ state }: { state: GitSyncState }): ReactElement | null {
       </span>
       {status.state === 'waiting' ? (
         <span className="sr-only">
-          Backs up in <CountdownText until={status.until} />
+          Syncs in <CountdownText until={status.until} />
         </span>
       ) : null}
     </>

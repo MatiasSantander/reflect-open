@@ -31,7 +31,7 @@ jobs:
     name: Build iOS
     if: github.repository == 'team-reflect/reflect-open'
     environment: release_app
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,6 +57,8 @@ jobs:
             echo "::error::missing TestFlight secret(s): ${missing[*]} — see docs/ios-testflight.md"
             exit 1
           fi
+
+      - uses: ./.github/actions/setup-xcode
 
       # Any master job can write the caches, so a release build starts cold.
       - uses: ./.github/actions/setup-node

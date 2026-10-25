@@ -54,10 +54,10 @@ jobs:
       matrix:
         include:
           - name: arm64
-            runner: macos-26
+            runner: xcode-27
             target: aarch64-apple-darwin
           - name: universal
-            runner: macos-26
+            runner: xcode-27
             target: universal-apple-darwin
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +90,8 @@ jobs:
             echo "::error::missing release secret(s): ${missing[*]} — see docs/macos-distribution.md"
             exit 1
           fi
+
+      - uses: ./.github/actions/setup-xcode
 
       # Any master job can write the caches, so a release build starts cold.
       - uses: ./.github/actions/setup-node

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, type ReactElement } from 'react'
 import { CircleCheck, Files, MessageSquare, SquarePen } from 'lucide-react'
 import { cn } from '@/lib/utils.ts'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
-import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import type { Route } from '@/routing/route.ts'
 
 export type MobileTab = 'daily' | 'all' | 'tasks' | 'chat'
@@ -69,8 +69,7 @@ export function MobileTabBar({ tab, onSelect }: MobileTabBarProps): ReactElement
     <nav
       ref={navRef}
       aria-label="Sections"
-      className="flex shrink-0 border-t border-border"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className="flex shrink-0 border-t border-border px-safe pb-safe"
     >
       <TabButton
         label="Daily"
@@ -111,7 +110,7 @@ function TabButton({
   active: boolean
   onClick: () => void
 }): ReactElement {
-  const { haptics } = useMobileAppServices()
+  const { haptics } = useMobileServices()
   return (
     <button
       type="button"

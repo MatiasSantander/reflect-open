@@ -7,8 +7,9 @@ import { Spinner } from '@/components/ui/spinner.tsx'
 import { cn } from '@/lib/utils.ts'
 import { useMobileAudioMemo } from '@/mobile/audio-memo-provider.tsx'
 import { hapticImpactLight } from '@/mobile/haptics.ts'
-import { useMobileAppServices } from '@/mobile/mobile-services.ts'
+import { useMobileServices } from '@/mobile/mobile-services.ts'
 import { useRouter } from '@/routing/router.tsx'
+import { useCoreServices } from '@/services/services-provider.tsx'
 
 const ACTIONS_ID = 'daily-capture-actions'
 const ACTION_MOTION =
@@ -23,7 +24,8 @@ const ACTION_BUTTON_MOTION =
  * live on-screen transforms instead of restarting or jumping.
  */
 export function DailyCaptureMenu(): ReactElement {
-  const { haptics, noteCreation } = useMobileAppServices()
+  const { haptics } = useMobileServices()
+  const { noteCreation } = useCoreServices()
   const [expanded, setExpanded] = useState(false)
   const memo = useMobileAudioMemo()
   const { navigate } = useRouter()
@@ -55,12 +57,7 @@ export function DailyCaptureMenu(): ReactElement {
   }
 
   return (
-    <div
-      className="fixed right-4 z-40 size-12"
-      style={{
-        bottom: 'calc(max(env(safe-area-inset-bottom), var(--keyboard-height, 0px)) + 4.25rem)',
-      }}
-    >
+    <div className="fixed right-safe-offset-4 bottom-above-keyboard-offset-17 z-40 size-12">
       <Button
         size="icon"
         aria-label={expanded ? 'Hide capture actions' : 'Show capture actions'}

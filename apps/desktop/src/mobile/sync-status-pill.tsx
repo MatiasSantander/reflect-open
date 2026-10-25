@@ -6,7 +6,7 @@ import { useGitSyncContext } from '@/providers/sync-provider.tsx'
 /**
  * The sync-status pill (Plan 19, step 10): a small chip that appears only
  * while sync has something to say: `Syncing` during a cycle, `Offline`/`Needs attention` after
- * a failed cycle. The quiet `Backed up` state renders nothing (detail lives
+ * a failed cycle. The quiet `Up to date` state renders nothing (detail lives
  * in the settings sheet) and it never intercepts touches. Positioning above
  * the tab bar belongs to {@link MobileStatusLayer}.
  */
